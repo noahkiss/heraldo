@@ -1,0 +1,6 @@
+{
+  "source": "cron",
+  "kind": "checkin",
+  "key": "db-dump",
+  "action": "success"
+}

@@ -1,0 +1,8 @@
+{
+  "source": "printer",
+  "kind": "progress",
+  "key": "print-42",
+  "action": "start",
+  "title": "Printing bracket.3mf",
+  "content": { "percent": 0, "eta_minutes": 95 }
+}

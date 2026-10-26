@@ -1,0 +1,20 @@
+{
+  "fill" : {
+    "solid" : "srgb:0.16863,0.18431,0.21176,1.00000"
+  },
+  "groups" : [
+    {
+      "name" : "Mark",
+      "layers" : [
+        { "name" : "mark", "image-name" : "mark.svg", "glass" : true }
+      ],
+      "translucency" : { "enabled" : true, "value" : 0.5 },
+      "shadow" : { "kind" : "neutral", "opacity" : 0.5 },
+      "lighting" : "combined",
+      "specular" : true
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : "shared"
+  }
+}

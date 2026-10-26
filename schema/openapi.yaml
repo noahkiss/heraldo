@@ -1,0 +1,162 @@
+openapi: 3.1.0
+info:
+  title: heraldo
+  version: 0.1.0
+  description: |
+    Notification hub API. Senders post events; the apps and the CLI read them back
+    by cursor. The event shape is envelope v1, defined in envelope.v1.schema.json.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://localhost:7842
+    description: A local server on the default port.
+security:
+  - bearerAuth: []
+tags:
+  - name: events
+  - name: health
+paths:
+  /healthz:
+    get:
+      operationId: getHealth
+      summary: Liveness check.
+      tags: [health]
+      security: []
+      responses:
+        "200":
+          description: The server is up.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /v1/events:
+    post:
+      operationId: postEvent
+      summary: Store one event.
+      description: The server assigns id and, when missing, ts. It returns the stored event.
+      tags: [events]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Envelope"
+      responses:
+        "201":
+          description: The event was stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+    get:
+      operationId: listEvents
+      summary: List events after a cursor, oldest first.
+      description: |
+        Clients sync history with this call. Pass the next_cursor from the last page as
+        after. An empty page means the client is up to date.
+      tags: [events]
+      parameters:
+        - name: after
+          in: query
+          description: Opaque cursor from a previous page. Leave it out to start at the oldest event.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+        - name: source
+          in: query
+          schema:
+            type: string
+        - name: kind
+          in: query
+          description: One of the envelope kinds.
+          schema:
+            type: string
+            enum: [message, incident, digest, progress, checkin]
+      responses:
+        "200":
+          description: One page of events.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventPage"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/events/{id}:
+    get:
+      operationId: getEvent
+      summary: Fetch one event with its full body.
+      description: The notification service extension calls this to fetch a body that did not fit in the push.
+      tags: [events]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: One token per sender for writes, one per client for reads.
+  responses:
+    Error:
+      description: The request failed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    Envelope:
+      $ref: "envelope.v1.schema.json"
+    EventPage:
+      type: object
+      required: [events]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/Envelope"
+        next_cursor:
+          type: string
+          description: Pass as after to get the next page. Missing when the page is the last one.
+    Health:
+      type: object
+      required: [status, version]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        version:
+          type: string
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: What went wrong, for a person to read.

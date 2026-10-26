@@ -1,0 +1,17 @@
+{
+  "id": "01JBA6Y8Q2K9M3T4V5W6X7Y8Z9",
+  "ts": "2026-10-26T12:00:00Z",
+  "source": "uptime",
+  "kind": "incident",
+  "key": "web-down",
+  "action": "open",
+  "title": "Web is down",
+  "body": "Health check failed 3 times.",
+  "level": "time-sensitive",
+  "thread": "uptime",
+  "actions": [
+    { "id": "ack", "title": "Acknowledge" },
+    { "id": "open", "title": "Open dashboard", "url": "https://example.com/status" }
+  ],
+  "details": { "uptime": { "failures": 3 } }
+}

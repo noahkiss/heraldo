@@ -1,0 +1,12 @@
+# Generic compose file for heraldo-server. Copy heraldo.example.env to
+# heraldo.env and edit it. Site-specific settings (hostnames, tokens, volumes)
+# belong in your own deployment config, not in this repo.
+services:
+  heraldo:
+    build:
+      context: ..
+    image: heraldo-server:local
+    restart: unless-stopped
+    env_file: heraldo.env
+    ports:
+      - "${HERALDO_PORT:-7842}:7842"

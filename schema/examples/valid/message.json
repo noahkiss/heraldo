@@ -1,0 +1,8 @@
+{
+  "source": "backup",
+  "kind": "message",
+  "title": "Nightly backup finished",
+  "body": "3 snapshots, **12.4 GB** sent.",
+  "level": "passive",
+  "url": "https://example.com/backups/latest"
+}

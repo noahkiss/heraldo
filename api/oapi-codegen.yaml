@@ -1,0 +1,9 @@
+# Generates Go types from schema/openapi.yaml. Run `go generate ./...`.
+package: api
+output: types.gen.go
+generate:
+  models: true
+output-options:
+  skip-prune: true
+compatibility:
+  always-prefix-enum-values: true

@@ -1,0 +1,25 @@
+# Go gate: gofmt, generated code up to date, vet, tests.
+# apple/ is not built in CI yet: macOS minutes cost 10x on a private repo.
+# Run apple/scripts/check.sh locally instead.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**/*.md', 'docs/**', 'apple/**', 'LICENSE']
+  pull_request:
+    paths-ignore: ['**/*.md', 'docs/**', 'apple/**', 'LICENSE']
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  go:
+    permissions:
+      contents: read
+    uses: noahkiss/workflows/.github/workflows/go-ci.yml@main
+    with:
+      go-version-file: .go-version
+      generate-check: true

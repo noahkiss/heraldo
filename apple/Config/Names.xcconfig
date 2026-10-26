@@ -1,0 +1,14 @@
+// The one place that names the app. A rename is an edit here and nowhere else.
+
+APP_DISPLAY_NAME = Heraldo
+APP_BUNDLE_PREFIX = com.nkmkdigital
+
+APP_BUNDLE_ID = $(APP_BUNDLE_PREFIX).heraldo
+APP_NSE_BUNDLE_ID = $(APP_BUNDLE_ID).nse
+APP_WIDGETS_BUNDLE_ID = $(APP_BUNDLE_ID).widgets
+APP_GROUP_ID = group.$(APP_BUNDLE_ID)
+
+MARKETING_VERSION = 0.1.0
+// Local and simulator builds only. build.sh and testflight.sh set the build
+// number to the UTC time (YYYYMMDDHHMM), so it rises on every archive.
+CURRENT_PROJECT_VERSION = 1

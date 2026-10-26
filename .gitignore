@@ -1,0 +1,17 @@
+# Go
+/bin/
+/dist/
+*.test
+*.out
+
+# Local config
+.env
+*.env
+!*.example.env
+deploy/heraldo.env
+
+# macOS
+.DS_Store
+
+# Local tool output (image trials and similar)
+*.local/
