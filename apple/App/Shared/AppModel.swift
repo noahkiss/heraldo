@@ -67,7 +67,7 @@ final class AppModel {
     var isConfigured: Bool { credentials.isComplete }
 
     /// Open incidents not yet acknowledged.
-    var unackedIncidents: Int { incidents.filter { $0.action != "ack" }.count }
+    var unackedIncidents: Int { incidents.filter { !$0.isAcked }.count }
 
     /// Shows one event, from a notification or a heraldo:// link.
     func openEvent(_ id: String) {
@@ -123,7 +123,10 @@ final class AppModel {
             unread = try await sync.unread()
             let state = try await sync.client.state()
             let newest: (Event, Event) -> Bool = { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
-            incidents = state.incidents.sorted(by: newest)
+            // Open incidents before acknowledged ones, newest first in each.
+            incidents = state.incidents.sorted { a, b in
+                a.isAcked == b.isAcked ? newest(a, b) : !a.isAcked
+            }
             failingCheckins = (state.checkins ?? []).filter(\.isFailingCheckin).sorted(by: newest)
             lastSync = .now
             lastError = nil

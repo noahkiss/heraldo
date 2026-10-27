@@ -218,17 +218,23 @@ the person's other devices; the notification extension reads them through the
 app group.
 
 - **Inbox**: history synced by cursor on launch and on foreground, search,
-  filters by kind and source. A swipe marks events read up to that one; the
+  filters by kind, source and hold state (the Held filter shows the triage
+  verdict on each row). A swipe marks events read up to that one; the
   menu marks all read. Both move the shared `inbox` cursor, so the CLI and the
   app share one unread state. The badge is the cursor's `unread`.
-- **Incidents**: the open incidents from `/v1/state`, with Ack.
+- **Incidents**: open incidents first, then acknowledged ones, from
+  `/v1/state`, with Ack; then the ones resolved in the last day, with how long
+  each was open.
 - **Push**: the app registers its APNs token with `POST /v1/devices` on every
   launch, and again when a permission changes. A Debug build reports
   `sandbox`; a TestFlight or App Store build reports `production`.
-- **Notifications**: `incident` has Ack and Open; `event` has Open. The
-  extension fetches the full event by id and adds the image. With the
-  Communication Notifications entitlement (not on the App ID yet), it would
-  also show the source's `icon` as the sender avatar.
+- **Notifications**: `incident` has Ack, Mute 1 h and Open; `event` has
+  Mute 1 h and Open. Mute 1 h mutes an incident's key, or an event's source
+  (`POST /v1/mutes`, write token). A resolve replaces the incident's
+  notification with "Resolved after 12 min". The extension fetches the full
+  event by id and attaches the image, else the source's icon from the
+  server's registry. A digest keeps its one line; a tap opens the full text.
+- **Settings**: the mutes in force, with End.
 - **Shortcuts**: Send Event (with the write token) and Get Recent History (JSON).
 - `heraldo://event/<id>` opens one event.
 

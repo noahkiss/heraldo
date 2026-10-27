@@ -144,4 +144,58 @@ final class ModelTests: XCTestCase {
         XCTAssertNotNil(c)
         XCTAssertNil(c?.writeToken, "an empty write token is no write token")
     }
+
+    func testIncidentHoldAndHeldBack() throws {
+        let json = """
+        {"id": "e1", "source": "uptime", "kind": "incident", "key": "web", "action": "update",
+         "incident": {"state": "acked", "opened_at": "2026-10-26T12:00:00Z"},
+         "hold": {"state": "held", "reason": "flapping"},
+         "delivery": [{"device": "dev_01", "outcome": "skipped", "at": "2026-10-26T12:00:02Z", "error": "muted by mute_1"}]}
+        """
+        let e = try JSON.decoder.decode(Event.self, from: Data(json.utf8))
+        XCTAssertTrue(e.isAcked, "an update after an ack is still acked")
+        XCTAssertEqual(e.incident?.openedAt, JSON.parseDate("2026-10-26T12:00:00Z"))
+        XCTAssertNil(e.incident?.openFor)
+        XCTAssertEqual(e.hold?.label, "held · flapping")
+        XCTAssertTrue(e.wasHeldBack)
+
+        let resolved = IncidentInfo(state: "resolved", openedAt: Date(timeIntervalSince1970: 0),
+                                    resolvedAt: Date(timeIntervalSince1970: 720))
+        XCTAssertEqual(resolved.openFor, 720)
+        // An older server sends no incident: the action decides.
+        var old = Event(id: "e2", source: "s", kind: "incident")
+        old.action = "ack"
+        XCTAssertTrue(old.isAcked)
+    }
+
+    func testMuteDecodesAndActionTargets() throws {
+        let json = #"{"id": "mute_1", "source": "backup", "until": "2026-10-27T13:00:00Z", "created_at": "2026-10-27T12:00:00Z", "active": true}"#
+        let m = try JSON.decoder.decode(Mute.self, from: Data(json.utf8))
+        XCTAssertEqual(m.source, "backup")
+        XCTAssertTrue(m.active)
+        let body = try JSONEncoder().encode(MuteInput(source: "backup", for: "1h"))
+        XCTAssertEqual(try JSONSerialization.jsonObject(with: body) as? [String: String], ["source": "backup", "for": "1h"])
+
+        let incident = PushInfo(userInfo: ["heraldo": ["id": "x", "kind": "incident", "source": "uptime", "key": "web",
+                                                       "icon": "uptime", "icon_url": "https://example.com/i.png"]])
+        XCTAssertEqual(incident?.icon, "uptime")
+        XCTAssertEqual(incident?.iconURL, "https://example.com/i.png")
+        XCTAssertEqual(incident.flatMap(PushCategory.muteInput), MuteInput(key: "web", for: "1h"))
+        let event = PushInfo(userInfo: ["heraldo": ["id": "y", "kind": "message", "source": "backup", "key": "k"]])
+        XCTAssertEqual(event.flatMap(PushCategory.muteInput), MuteInput(source: "backup", for: "1h"))
+    }
+
+    func testCacheHoldStatesAndResolved() {
+        var c = HistoryCache()
+        var a = Event(id: "a", source: "s", kind: "incident")
+        a.key = "web"; a.action = "resolve"; a.ts = Date(timeIntervalSince1970: 2000)
+        var b = a
+        b.id = "b"; b.ts = Date(timeIntervalSince1970: 1000)
+        var h = Event(id: "h", source: "tee")
+        h.hold = Hold(state: "released")
+        c.prepend([a, b, h])
+        XCTAssertEqual(c.holdStates, ["held", "released"])
+        XCTAssertEqual(c.resolvedIncidents(since: Date(timeIntervalSince1970: 0)).map(\.id), ["a"])
+        XCTAssertTrue(c.resolvedIncidents(since: Date(timeIntervalSince1970: 3000)).isEmpty)
+    }
 }

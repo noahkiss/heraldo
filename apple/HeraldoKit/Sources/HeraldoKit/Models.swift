@@ -25,10 +25,12 @@ public struct Event: Codable, Hashable, Identifiable, Sendable {
     public var hold: Hold?
     public var delivery: [Delivery]?
     public var checkin: Checkin?
+    /// On an incident event: the incident as it stood after the event.
+    public var incident: IncidentInfo?
 
     enum CodingKeys: String, CodingKey {
         case id, ts, source, kind, key, action, host, title, summary, body, level, thread
-        case url, image, icon, tags, actions, hold, delivery, checkin
+        case url, image, icon, tags, actions, hold, delivery, checkin, incident
         case receivedAt = "received_at"
     }
 
@@ -57,6 +59,19 @@ public struct Event: Codable, Hashable, Identifiable, Sendable {
     /// An incident event that is open, updated or untyped: Ack applies.
     public var isOpenIncident: Bool {
         kind == "incident" && (action == nil || action == "open" || action == "update")
+    }
+
+    /// The latest event of an incident someone acknowledged: the server's
+    /// incident state, else the event's own action (servers before stage 5).
+    public var isAcked: Bool {
+        if let state = incident?.state { return state == "acked" }
+        return action == "ack"
+    }
+
+    /// A held-back push: a mute or an inhibit rule skipped it on every device.
+    public var wasHeldBack: Bool {
+        guard let d = delivery, !d.isEmpty else { return false }
+        return d.allSatisfy { $0.outcome == "skipped" }
     }
 
     /// A check-in whose last run failed: `fail`, or a non-zero exit code on
@@ -95,9 +110,84 @@ public struct EventAction: Codable, Hashable, Sendable {
     public var url: String?
 }
 
+/// Triage state from a bridge such as apprise-tee: `state` (such as held),
+/// and the verdict or reason the triage gave.
 public struct Hold: Codable, Hashable, Sendable {
     public var state: String?
     public var reason: String?
+    public var verdict: String?
+
+    public init(state: String? = nil, reason: String? = nil, verdict: String? = nil) {
+        self.state = state
+        self.reason = reason
+        self.verdict = verdict
+    }
+
+    /// One line for a list row or the detail view: "held · flapping".
+    public var label: String {
+        [state, verdict, reason].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+}
+
+/// The incident server field: the incident after an event.
+public struct IncidentInfo: Codable, Hashable, Sendable {
+    /// open, acked or resolved.
+    public var state: String
+    public var openedAt: Date?
+    public var resolvedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case state
+        case openedAt = "opened_at"
+        case resolvedAt = "resolved_at"
+    }
+
+    public init(state: String, openedAt: Date? = nil, resolvedAt: Date? = nil) {
+        self.state = state
+        self.openedAt = openedAt
+        self.resolvedAt = resolvedAt
+    }
+
+    /// How long the incident was open, for a resolved one.
+    public var openFor: TimeInterval? {
+        guard let openedAt, let resolvedAt, resolvedAt > openedAt else { return nil }
+        return resolvedAt.timeIntervalSince(openedAt)
+    }
+}
+
+/// A mute: pushes of a source, a key or both are held back until `until`.
+public struct Mute: Codable, Hashable, Identifiable, Sendable {
+    public var id: String
+    public var source: String?
+    public var key: String?
+    public var until: Date
+    public var createdAt: Date?
+    public var endedAt: Date?
+    public var active: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, source, key, until, active
+        case createdAt = "created_at"
+        case endedAt = "ended_at"
+    }
+}
+
+/// The body of `POST /v1/mutes`.
+public struct MuteInput: Codable, Hashable, Sendable {
+    public var source: String?
+    public var key: String?
+    /// A Go duration such as 1h.
+    public var `for`: String?
+
+    public init(source: String? = nil, key: String? = nil, for duration: String) {
+        self.source = source
+        self.key = key
+        self.for = duration
+    }
+}
+
+struct MuteList: Codable, Sendable {
+    var mutes: [Mute]
 }
 
 public struct Delivery: Codable, Hashable, Sendable {

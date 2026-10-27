@@ -35,9 +35,12 @@ public struct EventQuery: Hashable, Sendable {
     public var kind: String?
     public var key: String?
     public var q: String?
+    /// Keeps events whose `hold.state` is this, such as held.
+    public var hold: String?
 
     public init(after: String? = nil, before: String? = nil, order: Order? = nil, limit: Int? = nil,
-                source: String? = nil, kind: String? = nil, key: String? = nil, q: String? = nil) {
+                source: String? = nil, kind: String? = nil, key: String? = nil, q: String? = nil,
+                hold: String? = nil) {
         self.after = after
         self.before = before
         self.order = order
@@ -46,13 +49,14 @@ public struct EventQuery: Hashable, Sendable {
         self.kind = kind
         self.key = key
         self.q = q
+        self.hold = hold
     }
 
     var items: [URLQueryItem] {
         let pairs: [(String, String?)] = [
             ("after", after), ("before", before), ("order", order?.rawValue),
             ("limit", limit.map(String.init)), ("source", source), ("kind", kind),
-            ("key", key), ("q", q),
+            ("key", key), ("q", q), ("hold", hold),
         ]
         return pairs.compactMap { name, value in
             guard let value, !value.isEmpty else { return nil }
@@ -184,6 +188,42 @@ public struct HeraldoClient: Sendable {
         var r = request("v1/devices/\(escape(id))", method: "PUT", token: readToken)
         r.httpBody = try JSONEncoder().encode(registration)
         return try await send(r)
+    }
+
+    // MARK: Mutes
+
+    /// Holds back pushes of a source, a key or both, with the write token.
+    @discardableResult
+    public func mute(_ input: MuteInput) async throws -> Mute {
+        guard let writeToken else { throw HeraldoError.notConfigured("The write token") }
+        var r = request("v1/mutes", method: "POST", token: writeToken)
+        r.httpBody = try JSONEncoder().encode(input)
+        return try await send(r)
+    }
+
+    /// The mutes in force, soonest to end first.
+    public func mutes() async throws -> [Mute] {
+        let list: MuteList = try await get("v1/mutes")
+        return list.mutes
+    }
+
+    /// Ends a mute now, with the write token.
+    @discardableResult
+    public func endMute(id: String) async throws -> Mute {
+        guard let writeToken else { throw HeraldoError.notConfigured("The write token") }
+        return try await send(request("v1/mutes/\(escape(id))", method: "DELETE", token: writeToken))
+    }
+
+    // MARK: Icons
+
+    /// The registry icon called `name`: its image data and MIME type.
+    public func icon(name: String) async throws -> (data: Data, mimeType: String?) {
+        let (data, response) = try await session.data(for: request("v1/icons/\(escape(name))", method: "GET", token: readToken))
+        guard let http = response as? HTTPURLResponse else { throw HeraldoError.badAnswer("not HTTP") }
+        guard (200..<300).contains(http.statusCode), !data.isEmpty else {
+            throw HeraldoError.http(status: http.statusCode, message: HTTPURLResponse.localizedString(forStatusCode: http.statusCode))
+        }
+        return (data, http.mimeType)
     }
 
     // MARK: Plumbing
