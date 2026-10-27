@@ -115,6 +115,8 @@ func TestRealertSchedule(t *testing.T) {
 	ins(incidentEvent(t, "01K3ZX0000BBBBBBBBBBBBBB03", t0, "none", "open", "critical", 0))
 	ins(incidentEvent(t, "01K3ZX0000BBBBBBBBBBBBBB04", t0, "acked", "open", "critical", 600))
 	ins(incidentEvent(t, "01K3ZX0000BBBBBBBBBBBBBB05", t0.Add(time.Minute), "acked", "ack", "", 0))
+	// A check-in incident has its own reminders.
+	ins(incidentEvent(t, "01K3ZX0000BBBBBBBBBBBBBB08", t0, "checkin:nightly", "open", "time-sensitive", 600))
 	if d := due(t0.Add(9 * time.Minute)); len(d) != 0 {
 		t.Fatalf("due early: %+v", d)
 	}
@@ -145,7 +147,7 @@ func TestRealertSchedule(t *testing.T) {
 		t.Fatalf("due after resolve: %+v", d)
 	}
 	keys, err := s.OpenIncidentKeys(ctx)
-	if err != nil || len(keys) != 3 || keys[0] != "acked" || keys[1] != "active" || keys[2] != "none" {
+	if err != nil || len(keys) != 4 || keys[0] != "acked" || keys[1] != "active" || keys[2] != "checkin:nightly" || keys[3] != "none" {
 		t.Fatalf("open keys %v %v", keys, err)
 	}
 }

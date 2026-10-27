@@ -201,9 +201,10 @@ public struct HeraldoClient: Sendable {
         return try await send(r)
     }
 
-    /// The mutes in force, soonest to end first.
+    /// The mutes in force, soonest to end first, with the write token.
     public func mutes() async throws -> [Mute] {
-        let list: MuteList = try await get("v1/mutes")
+        guard let writeToken else { throw HeraldoError.notConfigured("The write token") }
+        let list: MuteList = try await send(request("v1/mutes", method: "GET", token: writeToken))
         return list.mutes
     }
 

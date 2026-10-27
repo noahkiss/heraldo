@@ -30,8 +30,8 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 Auth:
 
 - Every call except `/healthz` takes a bearer token. Each token has a scope:
-  `write` (post and send, make and end mutes), `read` (list, get, state,
-  stream, the read cursors, devices, and listing mutes and icons), or `admin`
+  `write` (post and send, and the mutes), `read` (list, get, state,
+  stream, the read cursors, devices, and the icons), or `admin`
   (both, and storing and removing icons).
 - A `read` token may register, update and remove devices, as it may move the
   read cursors. The apps hold a token pair, like the CLI: a `read` token for
@@ -279,7 +279,8 @@ Re-alerts:
 
 - An incident `open`, `update` or untyped event at level `time-sensitive` or
   `critical`, with `details.heraldo.realert_s` of 60 or more, schedules a
-  re-alert. An ingest rule sets it with `set.realert` (see "Ingest rules").
+  re-alert. A key that starts with `checkin:` never does: check-in incidents
+  send their own reminders. An ingest rule sets it with `set.realert` (see "Ingest rules").
 - While the incident is open, the server pushes that event again every
   `realert_s` seconds, with `Still open after 30 min.` before the text and the
   same collapse id. No event is stored; the re-alert's outcome replaces the
@@ -309,7 +310,7 @@ synced as usual; only the push is skipped. The app's Mute 1 h action makes one.
   ahead. Otherwise 400.
 - The answer, 201, is a `Mute`: `id` (`mute_` plus a ULID), `source`, `key`,
   `until`, `created_at`, `ended_at` and `active`.
-- `GET /v1/mutes` takes a read token and lists the mutes in force, soonest
+- `GET /v1/mutes` takes a write token and lists the mutes in force, soonest
   to end first.
 - `DELETE /v1/mutes/{id}` takes a write token and ends the mute now. A mute
   that already ended is returned as it is. 404 for an unknown id.

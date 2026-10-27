@@ -93,7 +93,7 @@ func New(o Options) http.Handler {
 	mux.HandleFunc("GET /v1/devices/{id}", s.auth(DeviceScope, false, s.getDevice))
 	mux.HandleFunc("PUT /v1/devices/{id}", s.auth(DeviceScope, false, s.updateDevice))
 	mux.HandleFunc("DELETE /v1/devices/{id}", s.auth(DeviceScope, false, s.removeDevice))
-	mux.HandleFunc("GET /v1/mutes", s.auth(auth.ScopeRead, false, s.listMutes))
+	mux.HandleFunc("GET /v1/mutes", s.auth(auth.ScopeWrite, false, s.listMutes))
 	mux.HandleFunc("POST /v1/mutes", s.auth(auth.ScopeWrite, false, s.createMute))
 	mux.HandleFunc("DELETE /v1/mutes/{id}", s.auth(auth.ScopeWrite, false, s.endMute))
 	mux.HandleFunc("GET /v1/icons", s.auth(auth.ScopeRead, false, s.listIcons))

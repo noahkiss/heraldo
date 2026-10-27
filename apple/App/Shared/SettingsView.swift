@@ -118,7 +118,7 @@ struct MutesSection: View {
     }
 
     private func load() async {
-        guard model.isConfigured, let client = try? model.client() else { return }
+        guard model.isConfigured, let client = try? model.client(), client.writeToken != nil else { return }
         do {
             mutes = try await client.mutes()
             error = nil

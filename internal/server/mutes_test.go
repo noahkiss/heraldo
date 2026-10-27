@@ -12,12 +12,12 @@ import (
 
 func TestMutesEndpoints(t *testing.T) {
 	e := newEnv(t)
-	// Writing a mute needs write; listing needs read.
+	// Every mute call needs write.
 	if rec := e.do(t, http.MethodPost, "/v1/mutes", readTok, []byte(`{"source":"s","for":"1h"}`)); rec.Code != http.StatusForbidden {
 		t.Fatalf("read token: %d", rec.Code)
 	}
-	if rec := e.do(t, http.MethodGet, "/v1/mutes", writeTok, nil); rec.Code != http.StatusForbidden {
-		t.Fatalf("write token lists: %d", rec.Code)
+	if rec := e.do(t, http.MethodGet, "/v1/mutes", readTok, nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("read token lists: %d", rec.Code)
 	}
 	for _, bad := range []string{
 		`{}`,
@@ -45,13 +45,13 @@ func TestMutesEndpoints(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create by key: %d %s", rec.Code, rec.Body)
 	}
-	list := decode[api.MuteList](t, e.do(t, http.MethodGet, "/v1/mutes", readTok, nil))
+	list := decode[api.MuteList](t, e.do(t, http.MethodGet, "/v1/mutes", writeTok, nil))
 	if len(list.Mutes) != 2 || list.Mutes[0].Key == nil {
 		t.Fatalf("list %+v", list)
 	}
 	// An expired mute leaves the list.
 	e.clock.add(45 * time.Minute)
-	list = decode[api.MuteList](t, e.do(t, http.MethodGet, "/v1/mutes", readTok, nil))
+	list = decode[api.MuteList](t, e.do(t, http.MethodGet, "/v1/mutes", writeTok, nil))
 	if len(list.Mutes) != 1 || list.Mutes[0].Id != m.Id {
 		t.Fatalf("list after expiry %+v", list)
 	}
@@ -63,7 +63,7 @@ func TestMutesEndpoints(t *testing.T) {
 	if rec := e.do(t, http.MethodDelete, "/v1/mutes/mute_none", writeTok, nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("end unknown: %d", rec.Code)
 	}
-	if list := decode[api.MuteList](t, e.do(t, http.MethodGet, "/v1/mutes", readTok, nil)); len(list.Mutes) != 0 {
+	if list := decode[api.MuteList](t, e.do(t, http.MethodGet, "/v1/mutes", writeTok, nil)); len(list.Mutes) != 0 {
 		t.Fatalf("list after end %+v", list)
 	}
 }

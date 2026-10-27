@@ -5,10 +5,15 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/noahkiss/heraldo/api"
 )
+
+// CheckinKeyPrefix starts the keys of check-in incidents. They never
+// re-alert: the check-in reminders repeat them instead.
+const CheckinKeyPrefix = "checkin:"
 
 // incidentRow is one row of the incidents table.
 type incidentRow struct {
@@ -87,7 +92,8 @@ func realertLevel(l *api.Level) bool {
 //
 // An open, update or untyped event at level time-sensitive or critical with
 // a re-alert interval schedules a re-alert of itself while the incident is
-// open. ack and resolve clear the schedule.
+// open. ack and resolve clear the schedule. A key that starts with
+// CheckinKeyPrefix never schedules one.
 func nextIncident(ctx context.Context, tx *sql.Tx, ev NewEvent) (*incidentRow, error) {
 	in := ev.Typed
 	key := *in.Key
@@ -143,7 +149,8 @@ func nextIncident(ctx context.Context, tx *sql.Tx, ev NewEvent) (*incidentRow, e
 			r.state = "open"
 		}
 		if r.state == "open" {
-			if every := RealertOf(in.Details); every > 0 && realertLevel(in.Level) {
+			// Check-in incidents send their own reminders (stage 6).
+			if every := RealertOf(in.Details); every > 0 && realertLevel(in.Level) && !strings.HasPrefix(key, CheckinKeyPrefix) {
 				r.realert, r.nextAlert, r.alertEvent = every, at.Add(every), ev.ID
 			}
 		} else {

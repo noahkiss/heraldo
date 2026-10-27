@@ -484,7 +484,7 @@ paths:
   /v1/mutes:
     get:
       operationId: listMutes
-      summary: The mutes in force, soonest to end first.
+      summary: The mutes in force, soonest to end first. Needs a write token.
       tags: [mutes]
       responses:
         "200":
@@ -829,9 +829,9 @@ components:
         One token per sender for writes, one per client for reads. An app holds a pair: a
         read token (history, cursors, device registration) and a write token (notification
         actions, sending). Each token has a
-        scope: write (POST /v1/events, GET /v1/send, POST and DELETE /v1/mutes), read
+        scope: write (POST /v1/events, GET /v1/send, /v1/mutes), read
         (GET /v1/events, /v1/events/{id}, /v1/state, /v1/stream, the read cursors,
-        /v1/devices, GET /v1/mutes and GET /v1/icons), or admin (both, and PUT and
+        /v1/devices and GET /v1/icons), or admin (both, and PUT and
         DELETE /v1/icons). A missing or unknown token gets 401; a token without the
         scope gets 403.
 
