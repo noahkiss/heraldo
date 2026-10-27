@@ -31,7 +31,7 @@ The plan and its stages live in bm (project `heraldo`).
 | Check a rules file against a catalogue | `heraldo-server replay-tee -rules <file> <dir>` |
 | Build the image | `docker build -t heraldo .` (CI pushes `ghcr.io/noahkiss/heraldo` on main and `v*` tags) |
 | Release | Push a `v*` tag. CI builds the image, then dispatches the tap's `bump.yml` (formula `heraldo`) with repo secret `HOMEBREW_TAP_TOKEN` and waits for the verified bump |
-| Release the Mac app | After the `v*` tag: `apple/scripts/build.sh`, then `NOTARY_PROFILE=<profile> apple/scripts/notarize.sh` (makes `apple/build/Heraldo-<version>-macos.zip`), `gh release upload <tag> <zip>`, then `gh workflow run bump.yml -R noahkiss/homebrew-tap -f formula=heraldo-app -f tag=<tag>`. `MARKETING_VERSION` in `Names.xcconfig` matches the tag |
+| Release the Mac app | After the `v*` tag: `apple/scripts/build.sh`, then `NOTARY_PROFILE=<profile> apple/scripts/notarize.sh` (makes `apple/build/Heraldo-<version>-macos.zip`), `gh release create <tag>` with the four CLI binaries (`-X` version flag, darwin and linux, amd64 and arm64), the zip and `SHA256SUMS` (CI creates no release), then `gh workflow run bump.yml -R noahkiss/homebrew-tap -f formula=heraldo-app -f tag=<tag>`. `MARKETING_VERSION` in `Names.xcconfig` matches the tag |
 | Save the Mac app's URL and tokens from the shell | `HERALDO_URL=... HERALDO_READ_TOKEN_CMD=... HERALDO_WRITE_TOKEN_CMD=... apple/scripts/provision.sh` (README, "Provision from the shell") |
 | Apple build (iOS Simulator + macOS) and HeraldoKit tests | `apple/scripts/check.sh` (the tests that need a server skip) |
 | HeraldoKit tests against a local server | `apple/scripts/test-server.sh` (builds `heraldo-server`, temp database, throwaway tokens) |
