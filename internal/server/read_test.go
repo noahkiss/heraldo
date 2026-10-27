@@ -87,9 +87,15 @@ func TestCursorEndpoints(t *testing.T) {
 	if rec := e.do(t, http.MethodGet, "/v1/cursors/laptop", readTok, nil); !strings.Contains(rec.Body.String(), `"cursor":"s2"`) {
 		t.Fatalf("get = %s", rec.Body)
 	}
-	// The admin token is another owner: it does not see the read token's cursor.
-	if rec := e.do(t, http.MethodGet, "/v1/cursors/laptop", adminTok, nil); rec.Code != http.StatusNotFound {
-		t.Fatalf("other owner = %d", rec.Code)
+	// Cursors are shared: another token sees and moves the same one.
+	if rec := e.do(t, http.MethodGet, "/v1/cursors/laptop", adminTok, nil); !strings.Contains(rec.Body.String(), `"cursor":"s2"`) {
+		t.Fatalf("other token = %d %s", rec.Code, rec.Body)
+	}
+	if rec := put(adminTok, "s3"); !strings.Contains(rec.Body.String(), `"cursor":"s3"`) {
+		t.Fatalf("other token put = %s", rec.Body)
+	}
+	if rec := e.do(t, http.MethodGet, "/v1/cursors/laptop", readTok, nil); !strings.Contains(rec.Body.String(), `"cursor":"s3"`) {
+		t.Fatalf("after the other token = %s", rec.Body)
 	}
 	if rec := e.do(t, http.MethodGet, "/v1/cursors/a%20b", readTok, nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad name = %d", rec.Code)

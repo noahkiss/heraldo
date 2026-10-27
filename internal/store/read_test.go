@@ -78,18 +78,27 @@ func TestCursorsMoveForward(t *testing.T) {
 	ctx := context.Background()
 	s := open(t, filepath.Join(t.TempDir(), "h.db"))
 	defer s.Close()
-	if _, found, err := s.Cursor(ctx, "cli", "laptop"); err != nil || found {
+	if _, found, err := s.Cursor(ctx, "inbox"); err != nil || found {
 		t.Fatalf("found = %v, %v before any set", found, err)
 	}
-	for _, step := range []struct{ set, want int64 }{{5, 5}, {3, 5}, {9, 9}} {
-		got, err := s.SetCursor(ctx, "cli", "laptop", step.set)
+	// Two clients share the cursor; neither moves it back.
+	for _, step := range []struct {
+		by        string
+		set, want int64
+	}{{"cli", 5, 5}, {"phone", 3, 5}, {"phone", 9, 9}, {"cli", 7, 9}} {
+		got, err := s.SetCursor(ctx, "inbox", step.set, step.by)
 		if err != nil || got != step.want {
-			t.Fatalf("set %d = %d, %v; want %d", step.set, got, err, step.want)
+			t.Fatalf("%s set %d = %d, %v; want %d", step.by, step.set, got, err, step.want)
 		}
 	}
-	// Another owner's cursor of the same name is separate.
-	if _, found, _ := s.Cursor(ctx, "phone", "laptop"); found {
-		t.Fatal("owners share a cursor")
+	if row := s.db.QueryRowContext(ctx, `SELECT updated_by FROM cursors WHERE name = 'inbox'`); row != nil {
+		var by string
+		if err := row.Scan(&by); err != nil || by != "phone" {
+			t.Fatalf("updated_by = %q, %v; want the token that last moved it", by, err)
+		}
+	}
+	if _, found, _ := s.Cursor(ctx, "scratch"); found {
+		t.Fatal("another name shares the cursor")
 	}
 }
 

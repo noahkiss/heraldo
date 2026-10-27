@@ -131,7 +131,7 @@ any `-wal` and `-shm` files left beside the old database first.
 
 | Command | Does |
 |---|---|
-| `heraldo peek [--mark]` | Lists the events after this client's read cursor. `--mark` moves the cursor past them. With no cursor yet, it lists the newest events. |
+| `heraldo peek [--mark]` | Lists the events after the read cursor. `--mark` moves the cursor past them. With no cursor yet, it lists the newest events. |
 | `heraldo show [--json] <id>` | Prints one event with its full body. |
 | `heraldo ls` | Lists the newest events (20 by default, oldest first). Filters: `--kind`, `--source`, `--host`, `--key`, `--tag`, `-q` (full text). `--open` lists the incidents that are not resolved. |
 | `heraldo held` | Lists events held for triage (`hold.state` is `held`). |
@@ -152,13 +152,14 @@ Settings come from the environment first, then from an env file:
 | `HERALDO_URL` | The server root, such as `https://heraldo.example.net` |
 | `HERALDO_TOKEN` | A `read` token |
 | `HERALDO_WRITE_TOKEN` | A `write` token, for `ack` and `resolve` |
-| `HERALDO_CLIENT` | The read cursor's name. Default: the host name. |
+| `HERALDO_CURSOR` | The read cursor's name. Default: `inbox`, the cursor every client shares. Set another name for a separate cursor. |
 | `HERALDO_SOURCE` | The `source` of `ack` and `resolve` events. Default: `heraldo-cli`. |
 | `HERALDO_SEND_URL`, `APPRISE_URL` | `send`'s notify URL; the first one set wins |
 | `NOTIFY_EXTRA_JSON` | `send`: extra JSON fields for the payload, such as `"_nonce": "abc"` |
 
-Read cursors live on the server, one per token and client name. A cursor only
-moves forward.
+Read cursors live on the server. One cursor is one unread state: every machine
+and app that reads `inbox` shares it, as with email. A cursor only moves
+forward.
 
 `tail` is poke-then-fetch. The server sends a poke on `/v1/stream` for each
 stored event; the CLI then lists every event after its cursor. When the stream

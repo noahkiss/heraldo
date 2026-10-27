@@ -292,14 +292,17 @@ paths:
       - name: name
         in: path
         required: true
-        description: The client's own name, such as its machine name. 1 to 64 of A-Z, a-z, 0-9, dot, underscore and dash.
+        description: The cursor's name, such as inbox. 1 to 64 of A-Z, a-z, 0-9, dot, underscore and dash.
         schema:
           type: string
           pattern: "^[A-Za-z0-9._-]{1,64}$"
     get:
       operationId: getCursor
-      summary: This token's read cursor under name.
-      description: Cursors are per token, so a token reads and moves only its own.
+      summary: The read cursor called name.
+      description: |
+        A cursor is one unread state, shared by every client that names it: the CLI on
+        each machine and the apps read the same inbox. Any read token sees every
+        cursor.
       tags: [events]
       responses:
         "200":
@@ -318,7 +321,7 @@ paths:
           $ref: "#/components/responses/Error"
     put:
       operationId: putCursor
-      summary: Move this token's read cursor under name.
+      summary: Move the read cursor called name. Any read token may move it.
       description: |
         A cursor only moves forward. A cursor at or before the stored one changes
         nothing. The answer is the stored cursor. A cursor past the newest event gets
@@ -517,7 +520,7 @@ components:
       description: |
         One token per sender for writes, one per client for reads. Each token has a
         scope: write (POST /v1/events, GET /v1/send), read (GET /v1/events,
-        /v1/events/{id}, /v1/state, /v1/stream, and the client's own read cursors), or
+        /v1/events/{id}, /v1/state, /v1/stream, and the read cursors), or
         admin (both). A missing or unknown token gets 401; a
         token without the scope gets 403.
 

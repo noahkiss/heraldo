@@ -142,28 +142,29 @@ func (s *server) cursorName(w http.ResponseWriter, r *http.Request) (string, boo
 	return name, true
 }
 
-// getCursor is GET /v1/cursors/{name}: the read cursor this token keeps
-// under name, or 404.
+// getCursor is GET /v1/cursors/{name}: the read cursor called name, or 404.
+// Every read token sees the same cursors.
 func (s *server) getCursor(w http.ResponseWriter, r *http.Request) {
 	name, ok := s.cursorName(w, r)
 	if !ok {
 		return
 	}
-	seq, found, err := s.Store.Cursor(r.Context(), tokenFrom(r).Name, name)
+	seq, found, err := s.Store.Cursor(r.Context(), name)
 	if err != nil {
 		s.Logger.Error("cursor", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if !found {
-		writeError(w, http.StatusNotFound, "no cursor named %q for this token", name)
+		writeError(w, http.StatusNotFound, "no cursor named %q", name)
 		return
 	}
 	writeJSON(w, http.StatusOK, cursorBody{Name: name, Cursor: store.CursorFor(seq)})
 }
 
-// putCursor is PUT /v1/cursors/{name} with {"cursor": "..."}. The cursor only
-// moves forward; the answer is the stored cursor.
+// putCursor is PUT /v1/cursors/{name} with {"cursor": "..."}. Any read token
+// may move any cursor. A cursor only moves forward; the answer is the stored
+// cursor.
 func (s *server) putCursor(w http.ResponseWriter, r *http.Request) {
 	name, ok := s.cursorName(w, r)
 	if !ok {
@@ -189,7 +190,7 @@ func (s *server) putCursor(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "cursor: past the newest event")
 		return
 	}
-	stored, err := s.Store.SetCursor(r.Context(), tokenFrom(r).Name, name, seq)
+	stored, err := s.Store.SetCursor(r.Context(), name, seq, tokenFrom(r).Name)
 	if err != nil {
 		s.Logger.Error("cursor", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")

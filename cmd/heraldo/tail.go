@@ -46,7 +46,7 @@ func (a *app) tail(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	name := a.clientName()
+	name := a.cursorName()
 	t := &tailer{a: a, c: c, f: f, name: name, mark: *mark, cmd: cmd, asJSON: *asJSON}
 	if *unread {
 		cur, found, err := c.Cursor(ctx, name)

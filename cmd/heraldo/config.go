@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
@@ -15,7 +14,7 @@ const (
 	envURL        = "HERALDO_URL"         // server root
 	envToken      = "HERALDO_TOKEN"       // read token
 	envWriteToken = "HERALDO_WRITE_TOKEN" // write token, for ack and resolve
-	envClient     = "HERALDO_CLIENT"      // read cursor name; default: the host name
+	envCursor     = "HERALDO_CURSOR"      // read cursor name; default: inbox, shared
 	envSource     = "HERALDO_SOURCE"      // source of ack and resolve events
 	envSendURL    = "HERALDO_SEND_URL"    // send: the notify URL; falls back to APPRISE_URL
 	envAppriseURL = "APPRISE_URL"
@@ -96,23 +95,16 @@ func (a *app) setting(key string) string {
 	return a.file[key]
 }
 
-var unsafeName = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+// defaultCursor is the shared read cursor: one unread state for every
+// machine and app that reads it.
+const defaultCursor = "inbox"
 
-// clientName is the name of this client's read cursor on the server.
-func (a *app) clientName() string {
-	name := a.setting(envClient)
-	if name == "" {
-		h, _ := os.Hostname()
-		name, _, _ = strings.Cut(h, ".")
+// cursorName is the name of the read cursor on the server.
+func (a *app) cursorName() string {
+	if name := a.setting(envCursor); name != "" {
+		return name
 	}
-	name = unsafeName.ReplaceAllString(name, "-")
-	if len(name) > 64 {
-		name = name[:64]
-	}
-	if name == "" {
-		name = "cli"
-	}
-	return name
+	return defaultCursor
 }
 
 // execAllowFile lists the commands tail --exec may run, one absolute path a

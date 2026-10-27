@@ -25,6 +25,7 @@ import (
 
 const (
 	readTok   = "cli-read-token-for-tests"
+	readTok2  = "phone-read-token-for-tests"
 	writeTok  = "cli-write-token-for-tests"
 	bridgeTok = "cli-bridge-token-for-tests"
 )
@@ -52,8 +53,8 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	list := fmt.Sprintf("cli read %s\nsender write %s\nbridge write %s trusted-ingest\n",
-		auth.Hash(readTok), auth.Hash(writeTok), auth.Hash(bridgeTok))
+	list := fmt.Sprintf("cli read %s\nphone read %s\nsender write %s\nbridge write %s trusted-ingest\n",
+		auth.Hash(readTok), auth.Hash(readTok2), auth.Hash(writeTok), auth.Hash(bridgeTok))
 	tokens, err := auth.Parse(strings.NewReader(list), '\n')
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +70,7 @@ func newFixture(t *testing.T) *fixture {
 	}))
 	t.Cleanup(func() { close(done); srv.Close() })
 	return &fixture{t: t, srv: srv, env: map[string]string{
-		"HERALDO_URL": srv.URL, "HERALDO_TOKEN": readTok, "HERALDO_CLIENT": "testbox",
+		"HERALDO_URL": srv.URL, "HERALDO_TOKEN": readTok,
 		"XDG_CONFIG_HOME": t.TempDir(), "HOME": t.TempDir(),
 	}}
 }
@@ -208,7 +209,7 @@ func TestPeekAndMark(t *testing.T) {
 	f.post(writeTok, `{"source":"s","kind":"message","title":"old one"}`)
 	f.post(writeTok, `{"source":"s","kind":"message","title":"old two"}`)
 	r := f.run("peek")
-	if r.code != 0 || !strings.Contains(r.stderr, `no read cursor "testbox" yet`) || strings.Count(r.stdout, "\n") != 2 {
+	if r.code != 0 || !strings.Contains(r.stderr, `no read cursor "inbox" yet`) || strings.Count(r.stdout, "\n") != 2 {
 		t.Fatalf("first peek: %+v", r)
 	}
 	if r := f.run("peek", "--mark"); !strings.Contains(r.stderr, "read cursor") {
@@ -226,10 +227,23 @@ func TestPeekAndMark(t *testing.T) {
 	if r := f.run("peek"); !strings.Contains(r.stdout, "new two") || strings.Contains(r.stdout, "new one") {
 		t.Fatalf("peek after a partial mark: %+v", r)
 	}
-	// Another client name has its own cursor.
-	f.env["HERALDO_CLIENT"] = "otherbox"
-	if r := f.run("peek"); !strings.Contains(r.stderr, `no read cursor "otherbox"`) {
-		t.Fatalf("other client: %+v", r)
+	// Another token reads the same inbox.
+	f.env["HERALDO_TOKEN"] = writeTok
+	if r := f.run("peek"); r.code != 1 || !strings.Contains(r.stderr, "403") {
+		t.Fatalf("write token: %+v", r)
+	}
+	f.env["HERALDO_TOKEN"] = readTok2
+	if r := f.run("peek"); !strings.Contains(r.stdout, "new two") || strings.Contains(r.stdout, "new one") {
+		t.Fatalf("second read token, shared cursor: %+v", r)
+	}
+	// HERALDO_CURSOR names a separate cursor.
+	f.env["HERALDO_CURSOR"] = "scratch"
+	if r := f.run("peek"); !strings.Contains(r.stderr, `no read cursor "scratch"`) {
+		t.Fatalf("scratch cursor: %+v", r)
+	}
+	f.env["HERALDO_CURSOR"] = "bad name"
+	if r := f.run("peek"); r.code != 1 || !strings.Contains(r.stderr, "400") {
+		t.Fatalf("bad cursor name: %+v", r)
 	}
 }
 

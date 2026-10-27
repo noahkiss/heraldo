@@ -247,7 +247,7 @@ func (a *app) peek(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	name := a.clientName()
+	name := a.cursorName()
 	cur, found, err := c.Cursor(ctx, name)
 	if client.IsStatus(err, http.StatusNotFound) {
 		return fmt.Errorf("the server has no read cursors yet; it needs a newer heraldo-server")

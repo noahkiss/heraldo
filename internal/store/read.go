@@ -51,30 +51,31 @@ func (s *Store) State(ctx context.Context) (State, error) {
 	return st, nil
 }
 
-// Cursor returns the read cursor that owner keeps under name. found is false
-// when there is none.
-func (s *Store) Cursor(ctx context.Context, owner, name string) (seq int64, found bool, err error) {
-	err = s.db.QueryRowContext(ctx, `SELECT seq FROM cursors WHERE owner = ? AND name = ?`,
-		owner, name).Scan(&seq)
+// Cursor returns the read cursor called name. found is false when there is
+// none.
+func (s *Store) Cursor(ctx context.Context, name string) (seq int64, found bool, err error) {
+	err = s.db.QueryRowContext(ctx, `SELECT seq FROM cursors WHERE name = ?`, name).Scan(&seq)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false, nil
 	}
 	return seq, err == nil, err
 }
 
-// SetCursor stores owner's read cursor under name. A cursor only moves
-// forward: a seq at or below the stored one changes nothing, so two copies
-// of one client cannot move each other back. It returns the stored seq.
-func (s *Store) SetCursor(ctx context.Context, owner, name string, seq int64) (int64, error) {
+// SetCursor moves the read cursor called name to seq; by names the token
+// that moved it. A cursor only moves forward: a seq at or below the stored
+// one changes nothing, so clients that share the cursor cannot move each
+// other back. It returns the stored seq.
+func (s *Store) SetCursor(ctx context.Context, name string, seq int64, by string) (int64, error) {
 	s.wmu.Lock()
 	defer s.wmu.Unlock()
 	at := s.now().UTC().Format(timeFormat)
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO cursors (owner, name, seq, updated_at) VALUES (?, ?, ?, ?)
-		ON CONFLICT (owner, name) DO UPDATE SET seq = excluded.seq, updated_at = excluded.updated_at
-		WHERE excluded.seq > cursors.seq`, owner, name, seq, at); err != nil {
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO cursors (name, seq, updated_at, updated_by) VALUES (?, ?, ?, ?)
+		ON CONFLICT (name) DO UPDATE SET seq = excluded.seq, updated_at = excluded.updated_at,
+		updated_by = excluded.updated_by
+		WHERE excluded.seq > cursors.seq`, name, seq, at, by); err != nil {
 		return 0, err
 	}
-	cur, _, err := s.Cursor(ctx, owner, name)
+	cur, _, err := s.Cursor(ctx, name)
 	return cur, err
 }
 

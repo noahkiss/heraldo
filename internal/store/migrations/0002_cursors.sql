@@ -1,10 +1,9 @@
--- Read cursors, one per reading client. owner is the token's name, so a
--- token reads and moves only its own clients' cursors; name is the client's
--- own label for itself, such as a machine name.
+-- Read cursors. One cursor is one unread state, shared by every client that
+-- names it: the CLI on each machine and the apps read one inbox. name is the
+-- cursor's name, such as inbox; updated_by is the token that last moved it.
 CREATE TABLE cursors (
-    owner      TEXT    NOT NULL,
-    name       TEXT    NOT NULL,
+    name       TEXT    PRIMARY KEY,
     seq        INTEGER NOT NULL,
     updated_at TEXT    NOT NULL,
-    PRIMARY KEY (owner, name)
+    updated_by TEXT    NOT NULL
 );

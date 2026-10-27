@@ -21,13 +21,13 @@ push notifications.
 | `POST /notify/apprise`, `POST /notify/{key}` | Apprise-compatible ingest. Answers 200 with `Sent`. | 11 |
 | `GET /v1/state` | Flat arrays of the latest event per key: incidents not resolved, progress not ended, every check-in, set statuses. The shape is a stand-in until stage 12. | served |
 | `GET /v1/stream` | Server-sent events: one `poke` per stored event, with the newest cursor. | served |
-| `GET /v1/cursors/{name}`, `PUT /v1/cursors/{name}` | This token's read cursor under `name`. | served |
+| `GET /v1/cursors/{name}`, `PUT /v1/cursors/{name}` | The read cursor called `name`, shared by every client. | served |
 
 Auth:
 
 - Every call except `/healthz` takes a bearer token. Each token has a scope:
-  `write` (post and send), `read` (list, get, state, stream and the token's
-  own read cursors), or `admin` (both).
+  `write` (post and send), `read` (list, get, state, stream and the read
+  cursors), or `admin` (both).
 - A missing or unknown token gets 401. A token without the scope gets 403.
 - `GET /v1/send` also takes the token as a `token` query parameter. A token in
   the URL ends up in access logs, proxy logs and browser history. Use the header
@@ -63,14 +63,16 @@ Paging:
 
 Read cursors:
 
-- A client keeps its read position on the server with
-  `PUT /v1/cursors/{name}` and `{"cursor": "<a list cursor>"}`. `name` is the
-  client's own label, such as its machine name: 1 to 64 of `A-Z a-z 0-9 . _ -`.
-- Cursors belong to the token. A token reads and moves only its own, so two
-  tokens can use the same name.
+- A cursor is one unread state on the server, like an email inbox. Every
+  client that names it shares it: the CLI on each machine and the apps.
+  `inbox` is the CLI's default name.
+- A client moves it with `PUT /v1/cursors/{name}` and
+  `{"cursor": "<a list cursor>"}`. `name` is 1 to 64 of `A-Z a-z 0-9 . _ -`.
+- Any `read` token may read and move any cursor. The server records which
+  token moved it last.
 - A cursor only moves forward. A `PUT` at or before the stored cursor changes
-  nothing, and the answer is the stored cursor. Two copies of one client can
-  therefore not move each other back. A cursor past the newest event gets 400.
+  nothing, and the answer is the stored cursor. So clients that share a
+  cursor never move it back. A cursor past the newest event gets 400.
 - `GET` answers 404 for a name with no cursor.
 
 Event stream:
