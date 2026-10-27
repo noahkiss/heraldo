@@ -33,7 +33,7 @@ Auth:
 - A `read` token may register, update and remove devices, as it may move the
   read cursors. The apps hold a token pair, like the CLI: a `read` token for
   history, cursors and device registration, and a `write` token for the
-  notification actions (Ack, Mute) and for sending an event.
+  notification actions (Ack) and for sending an event.
 - A missing or unknown token gets 401. A token without the scope gets 403.
 - `GET /v1/send` also takes the token as a `token` query parameter. A token in
   the URL ends up in access logs, proxy logs and browser history. Use the header
@@ -234,7 +234,7 @@ event that did not push has no `delivery`.
 | `badge` | `unread` of the `inbox` cursor when the push goes out |
 | `sound` | `sound`, default `default`; none for `passive` or `sound: none` |
 | `thread-id` | `thread`, else `source` |
-| `category` | `incident` for an incident `open`, `update` or no action; `event` for the rest. The app registers both: `incident` has Ack, Mute and Open; `event` has Mute and Open. |
+| `category` | `incident` for an incident `open`, `update` or no action; `event` for the rest. The app registers both: `incident` has Ack and Open; `event` has Open. Mute waits for a server-side mute. |
 | `mutable-content` | Always 1, so the notification service extension runs. |
 | `interruption-level` | The table above. |
 | `relevance-score` | `relevance` |

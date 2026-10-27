@@ -1,0 +1,77 @@
+import AppIntents
+import Foundation
+import HeraldoKit
+
+/// Shortcuts: send an event, and get the recent history as JSON.
+
+enum IntentLevel: String, AppEnum {
+    case passive, active
+    case timeSensitive = "time-sensitive"
+
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Level"
+    static let caseDisplayRepresentations: [IntentLevel: DisplayRepresentation] = [
+        .passive: "Passive",
+        .active: "Active",
+        .timeSensitive: "Time Sensitive",
+    ]
+}
+
+struct SendEventIntent: AppIntent {
+    static let title: LocalizedStringResource = "Send Event"
+    static let description = IntentDescription("Posts an event to the heraldo server with the write token.")
+
+    @Parameter(title: "Title")
+    var eventTitle: String
+
+    @Parameter(title: "Body", inputOptions: String.IntentInputOptions(multiline: true))
+    var body: String?
+
+    @Parameter(title: "Source", default: "shortcuts")
+    var source: String
+
+    @Parameter(title: "Level", default: .active)
+    var level: IntentLevel
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Send \(\.$eventTitle) from \(\.$source)") {
+            \.$body
+            \.$level
+        }
+    }
+
+    func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        let client = try HeraldoClient(credentials: CredentialStore().load())
+        let e = try await client.post(EventInput(source: source, title: eventTitle, body: body, level: level.rawValue))
+        return .result(value: e.id)
+    }
+}
+
+struct GetRecentHistoryIntent: AppIntent {
+    static let title: LocalizedStringResource = "Get Recent History"
+    static let description = IntentDescription("Returns the newest events from the heraldo server as JSON.")
+
+    @Parameter(title: "Limit", default: 20, inclusiveRange: (1, 500))
+    var limit: Int
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Get the newest \(\.$limit) events")
+    }
+
+    func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        let client = try HeraldoClient(credentials: CredentialStore().load())
+        let page = try await client.listEvents(EventQuery(order: .desc, limit: limit))
+        let data = try JSON.encoder.encode(page.events)
+        return .result(value: String(decoding: data, as: UTF8.self))
+    }
+}
+
+struct HeraldoShortcuts: AppShortcutsProvider {
+    static var appShortcuts: [AppShortcut] {
+        AppShortcut(intent: SendEventIntent(),
+                    phrases: ["Send an event with \(.applicationName)", "Send a \(.applicationName) event"],
+                    shortTitle: "Send Event", systemImageName: "paperplane")
+        AppShortcut(intent: GetRecentHistoryIntent(),
+                    phrases: ["Get recent \(.applicationName) history", "Get history from \(.applicationName)"],
+                    shortTitle: "Recent History", systemImageName: "clock.arrow.circlepath")
+    }
+}

@@ -50,6 +50,7 @@ Apple (Xcode 27, XcodeGen):
 
 ```sh
 apple/scripts/check.sh             # builds for the iOS Simulator and macOS, runs HeraldoKit tests
+apple/scripts/test-server.sh       # HeraldoKit tests against a local heraldo-server
 ```
 
 Container (the published image is `ghcr.io/noahkiss/heraldo`, linux/amd64):
@@ -83,7 +84,7 @@ docker compose -f deploy/compose.yml up --build
 
    Each app device holds a token pair, as the CLI does: a `read` token to sync
    history, mark events read and register for push, and a `write` token for
-   the notification actions (Ack, Mute) and for sending an event.
+   the notification actions (Ack) and for sending an event.
 
    A fourth field, `trusted-ingest`, marks a bridge such as apprise-tee. Its
    `details.tee.hold` becomes the event's `hold`, and its `dedup` ids never
@@ -208,6 +209,25 @@ No shell runs. The command gets the event's JSON on stdin, and these variables:
   means HTTP 200 with a `Sent` line in the answer.
 - Anything else prints `❌ Failed to send notification. HTTP Status: <code>` and
   exits 1. A request that got no answer reports `000`.
+
+## iOS app
+
+The app ships no token. In Settings, enter the server URL and the device's
+read and write tokens; the app keeps them in the Keychain.
+
+- **Inbox**: history synced by cursor on launch and on foreground, search,
+  filters by kind and source. A swipe marks events read up to that one; the
+  menu marks all read. Both move the shared `inbox` cursor, so the CLI and the
+  app share one unread state. The badge is the cursor's `unread`.
+- **Incidents**: the open incidents from `/v1/state`, with Ack.
+- **Push**: the app registers its APNs token with `POST /v1/devices` on every
+  launch, and again when a permission changes. A Debug build reports
+  `sandbox`; a TestFlight or App Store build reports `production`.
+- **Notifications**: `incident` has Ack and Open; `event` has Open. The
+  extension fetches the full event by id, adds the image, and shows the
+  source's `icon` as the sender avatar.
+- **Shortcuts**: Send Event (with the write token) and Get Recent History (JSON).
+- `heraldo://event/<id>` opens one event.
 
 ## License
 

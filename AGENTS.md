@@ -31,7 +31,8 @@ The plan and its stages live in bm (project `heraldo`).
 | Check a rules file against a catalogue | `heraldo-server replay-tee -rules <file> <dir>` |
 | Build the image | `docker build -t heraldo .` (CI pushes `ghcr.io/noahkiss/heraldo` on main and `v*` tags) |
 | Release | Push a `v*` tag. CI builds the image, then dispatches the tap's `bump.yml` (formula `heraldo`) with repo secret `HOMEBREW_TAP_TOKEN` and waits for the verified bump |
-| Apple build (iOS Simulator + macOS) and HeraldoKit tests | `apple/scripts/check.sh` |
+| Apple build (iOS Simulator + macOS) and HeraldoKit tests | `apple/scripts/check.sh` (the tests that need a server skip) |
+| HeraldoKit tests against a local server | `apple/scripts/test-server.sh` (builds `heraldo-server`, temp database, throwaway tokens) |
 | Regenerate the Xcode project | `apple/scripts/generate.sh` (the `.xcodeproj` is not committed) |
 | Rebuild the icon after editing `design/icon/heraldo.svg` | `uv run design/icon/build.py --apple` (see `design/icon/README.md`) |
 
