@@ -132,6 +132,24 @@ final class ModelTests: XCTestCase {
         XCTAssertFalse(Event(id: "x", source: "s", kind: "incident").isFailingCheckin)
     }
 
+    func testIncidentsText() throws {
+        let json = #"""
+        {"incidents":[
+          {"id":"1","source":"uptime","host":"web-1","kind":"incident","action":"ack","title":"Web is down",
+           "ts":"2026-10-27T12:00:00Z","incident":{"state":"acked","opened_at":"2026-10-27T11:48:00Z"}},
+          {"id":"2","source":"backup","kind":"incident","action":"open","title":"Backup failed",
+           "ts":"2026-10-27T10:00:00Z","incident":{"state":"open","opened_at":"2026-10-27T10:00:00Z"}}]}
+        """#
+        let state = try JSON.decoder.decode(ServerState.self, from: Data(json.utf8))
+        let sorted = state.sortedIncidents
+        XCTAssertEqual(sorted.map(\.id), ["2", "1"], "open before acked")
+        XCTAssertEqual(ServerState.incidentsText(sorted), """
+        open: Backup failed (backup), since 2026-10-27T10:00:00Z
+        acked: Web is down (uptime, web-1), since 2026-10-27T11:48:00Z
+        """)
+        XCTAssertEqual(ServerState.incidentsText([]), "No open incidents")
+    }
+
     func testCacheMergeDropsCopies() {
         var c = HistoryCache()
         c.prepend([Event(id: "b", source: "s"), Event(id: "a", source: "s")])

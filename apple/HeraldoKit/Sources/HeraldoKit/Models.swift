@@ -379,6 +379,27 @@ public struct ServerState: Codable, Sendable {
     public var statuses: [Event]?
 }
 
+extension ServerState {
+    /// The incidents that are not resolved: open before acked, newest first
+    /// in each.
+    public var sortedIncidents: [Event] {
+        let newest: (Event, Event) -> Bool = { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+        return incidents.sorted { a, b in a.isAcked == b.isAcked ? newest(a, b) : !a.isAcked }
+    }
+
+    /// One line per incident, for Shortcuts: state, headline, source and
+    /// host, and when it opened (ISO 8601, UTC).
+    public static func incidentsText(_ incidents: [Event]) -> String {
+        if incidents.isEmpty { return "No open incidents" }
+        let iso = ISO8601DateFormatter()
+        return incidents.map { e in
+            var line = "\(e.isAcked ? "acked" : "open"): \(e.headline) (\([e.source, e.host].compactMap { $0 }.joined(separator: ", ")))"
+            if let opened = e.incident?.openedAt ?? e.date { line += ", since \(iso.string(from: opened))" }
+            return line
+        }.joined(separator: "\n")
+    }
+}
+
 /// A read cursor, such as `inbox`.
 public struct ReadCursor: Codable, Hashable, Sendable {
     public var name: String?

@@ -249,7 +249,8 @@ app group.
   and dismissal (docs/api.md, "Live Activities"). The inbox leaves progress
   events out; each activity leaves one message when it ends.
 - **Shortcuts**: Send Event (with the write token), Get Recent History (JSON),
-  and Start, Update, End and Get Live Activity, with Notify!'s parameters.
+  Get Open Incidents (open and acknowledged, as text or JSON), and Start,
+  Update, End and Get Live Activity, with Notify!'s parameters.
 - `heraldo://event/<id>` opens one event. `heraldo://open?url=<url>` opens the
   URL; a Live Activity's open button uses it.
 

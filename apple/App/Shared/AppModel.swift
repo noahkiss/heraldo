@@ -129,12 +129,8 @@ final class AppModel {
             cache = try await sync.sync(cache)
             saveCache()
             unread = try await sync.unread()
-            let state = try await sync.client.state()
-            let newest: (Event, Event) -> Bool = { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
             // Open incidents before acknowledged ones, newest first in each.
-            incidents = state.incidents.sorted { a, b in
-                a.isAcked == b.isAcked ? newest(a, b) : !a.isAcked
-            }
+            incidents = try await sync.client.state().sortedIncidents
             checks = try await sync.client.checks() ?? []
             lastSync = .now
             lastError = nil
