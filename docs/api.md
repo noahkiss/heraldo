@@ -68,7 +68,11 @@ Dedup:
 
 ## Envelope v1
 
-`source` and `kind` are required. `kind` picks the meaning of `key` and `action`:
+`source` is required. `kind` picks the meaning of `key` and `action`.
+An input without `kind` is untyped: the ingest rules may type it, and the
+server stores it as `message` when no rule matches. An untyped input takes
+what a `message` takes: no `action`, `content` or `checkin`. An explicit
+`kind`, `message` included, is final. A stored event always has a `kind`.
 
 | kind | key | action | content | checkin |
 |---|---|---|---|---|
@@ -179,8 +183,9 @@ that, the check's config lives on the server.
 ## Backfill from apprise-tee
 
 `heraldo-server import-tee <dir>` reads every `notifications-YYYY-MM.jsonl` file
-in `dir` and stores each line as a `message` event. When `HERALDO_RULES` is set,
-the rules then type each event as they would a live post. The summary counts
+in `dir` and stores each line as an untyped event. When `HERALDO_RULES` is set,
+the rules type each event as they would a live post; without rules, or when
+no rule matches, it is a `message`. The summary counts
 those as `typed`. A rerun skips lines it already stored, so it never retypes
 them.
 
@@ -212,12 +217,14 @@ legacy id never matches one. The summary counts these lines as `legacy_ids`.
 Most legacy senders post a title, a body and a rung tag, nothing more.
 Ingest rules turn such a post into a typed event: an incident that opens or
 resolves, a digest, a check-in, or a message with another level.
-`HERALDO_RULES` names the rules file; without it the server types nothing.
+`HERALDO_RULES` names the rules file; without it every untyped input is
+stored as a `message`.
 
-The rules apply to an input that is kind `message` with no `key` and no
-`action`, on `POST /v1/events`, `GET /v1/send` and `import-tee`. The schema
-requires `kind`, so an untyped sender sends `message`. A sender that sets a
-`key`, an `action` or another kind is never retyped.
+The rules apply to an untyped input, one without `kind`, on
+`POST /v1/events`, `GET /v1/send` and `import-tee` (catalogue lines are
+untyped). A sender that sets `kind`, `message` included, is never retyped.
+An untyped input that no rule matches is stored as `message`, with the
+sender's other fields as sent.
 
 ```yaml
 rules:
@@ -249,7 +256,7 @@ rules:
 - The stored event records the rule in `details.heraldo.rule`.
 - When a rule's result is not a valid envelope (a capture came out empty, so
   an incident has no key), the server logs a warning and stores the event as
-  the sender sent it.
+  a `message`.
 - The server checks the file every 5 seconds and reloads it when its content
   changed. A file that does not parse, or is gone, keeps the rules in force
   and logs an error. A file that does not parse at startup stops the server.

@@ -32,7 +32,8 @@ type Options struct {
 	Store     *store.Store
 	Tokens    *auth.Set
 	Validator *validate.Validator
-	// Rules classifies untyped messages at ingest; nil means no rules.
+	// Rules types untyped inputs at ingest; nil means no rules, and an
+	// untyped input is stored as a message.
 	Rules  *rules.Watcher
 	Logger *slog.Logger
 	// Now is the clock; nil means time.Now.
@@ -255,12 +256,18 @@ func (s *server) badInput(w http.ResponseWriter, err error) {
 }
 
 func (s *server) store(w http.ResponseWriter, r *http.Request, in *validate.Input) {
-	in, _, err := rules.Apply(s.Rules.Rules(), in, s.Validator)
+	typed, _, err := rules.Type(s.Rules.Rules(), in, s.Validator)
+	if typed == nil {
+		s.Logger.Error("type", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
 	if err != nil {
 		// The sender's event is valid; a rule that cannot type it must not
 		// lose it.
-		s.Logger.Warn("rules: matched, but the typed event is not valid; stored as sent", "err", err)
+		s.Logger.Warn("rules: matched, but the typed event is not valid; stored as a message", "err", err)
 	}
+	in = typed
 	now := s.Now().UTC()
 	id := ids.New(now)
 	f := in.Fields

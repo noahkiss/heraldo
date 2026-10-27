@@ -660,8 +660,8 @@ func TestBackfillAndLiveStoreOnce(t *testing.T) {
 	}
 }
 
-// Rules type an untyped message at ingest, on both POST and /v1/send, and
-// leave a typed event alone.
+// Rules type an untyped input at ingest, on both POST and /v1/send, and
+// leave an explicit kind alone.
 func TestRulesAtIngest(t *testing.T) {
 	rw, err := rules.NewWatcher("../rules/testdata/rules.yaml", slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
@@ -670,7 +670,7 @@ func TestRulesAtIngest(t *testing.T) {
 	e := newEnvRules(t, rw)
 	ctx := context.Background()
 
-	rec := e.do(t, http.MethodPost, "/v1/events", bridgeTok, []byte(`{"source":"apprise-tee","kind":"message",
+	rec := e.do(t, http.MethodPost, "/v1/events", bridgeTok, []byte(`{"source":"apprise-tee",
 		"tags":["alert"],"level":"time-sensitive","title":"alpha: 1 unit(s) failed","body":"system/x.service"}`))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("post: %d %s", rec.Code, rec.Body)
@@ -684,7 +684,7 @@ func TestRulesAtIngest(t *testing.T) {
 	}
 	checkStored(t, storedSchema(t), rec.Body.Bytes())
 
-	q := url.Values{"source": {"apprise-tee"}, "kind": {"message"}, "tags": {"quiet"},
+	q := url.Values{"source": {"apprise-tee"}, "tags": {"quiet"},
 		"title": {"alpha: 1 unit(s) recovered"}, "body": {"system/x.service (inactive/dead)"}}
 	rec = e.do(t, http.MethodGet, "/v1/send?"+q.Encode(), writeTok, nil)
 	if rec.Code != http.StatusCreated {
@@ -697,8 +697,15 @@ func TestRulesAtIngest(t *testing.T) {
 		t.Fatalf("incident after recovery: %v", r)
 	}
 
-	rec = e.post(t, `{"source":"x","kind":"message","key":"mine","title":"alpha: 1 unit(s) failed","body":"a"}`)
-	if ev := decode[api.Event](t, rec); ev.Kind != api.KindMessage || *ev.Key != "mine" {
-		t.Fatalf("a sender's key was reclassified: %s", rec.Body)
+	rec = e.post(t, `{"source":"x","kind":"message","title":"alpha: 1 unit(s) failed","body":"a"}`)
+	if ev := decode[api.Event](t, rec); ev.Kind != api.KindMessage || ev.Key != nil {
+		t.Fatalf("an explicit kind message was retyped: %s", rec.Body)
 	}
+
+	// Untyped and unmatched: stored as a message, on GET too.
+	rec = e.do(t, http.MethodGet, "/v1/send?source=x&title=hello", writeTok, nil)
+	if rec.Code != http.StatusCreated || decode[api.Event](t, rec).Kind != api.KindMessage {
+		t.Fatalf("untyped send: %d %s", rec.Code, rec.Body)
+	}
+	checkStored(t, storedSchema(t), rec.Body.Bytes())
 }

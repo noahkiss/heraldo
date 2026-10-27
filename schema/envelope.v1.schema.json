@@ -2,11 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/noahkiss/heraldo/schema/envelope.v1.schema.json",
   "title": "EventInput",
-  "description": "One heraldo event as a sender posts it, envelope v1. The kind field picks the meaning of key and action. The server owns id, received_at, hold and delivery: an input that sets any of them is rejected. The stored form, with those fields, is $defs/Event.",
+  "description": "One heraldo event as a sender posts it, envelope v1. The kind field picks the meaning of key and action. An input without kind is untyped: the server's ingest rules may type it, and it is stored as kind message when no rule matches. An explicit kind, message included, is final. The server owns id, received_at, hold and delivery: an input that sets any of them is rejected. The stored form, with those fields, is $defs/Event.",
   "type": "object",
   "required": [
-    "source",
-    "kind"
+    "source"
   ],
   "allOf": [
     {
@@ -196,8 +195,38 @@
       }
     },
     "KindRules": {
-      "description": "What each kind requires and allows.",
+      "description": "What each kind requires and allows. An untyped input, without kind, allows what message allows: no action, content or checkin.",
       "allOf": [
+        {
+          "if": {
+            "not": {
+              "required": [
+                "kind"
+              ]
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "action"
+                  ]
+                },
+                {
+                  "required": [
+                    "content"
+                  ]
+                },
+                {
+                  "required": [
+                    "checkin"
+                  ]
+                }
+              ]
+            }
+          }
+        },
         {
           "if": {
             "properties": {

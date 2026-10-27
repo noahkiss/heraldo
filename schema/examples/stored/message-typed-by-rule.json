@@ -1,0 +1,16 @@
+{
+  "id": "01JBA6Z0000000000000000001",
+  "received_at": "2026-10-26T12:10:00Z",
+  "ts": "2026-10-26T12:10:00Z",
+  "source": "legacy-bridge",
+  "host": "web-1",
+  "kind": "incident",
+  "key": "unit:web-1:system/example.service",
+  "action": "open",
+  "title": "web-1: 1 unit(s) failed",
+  "body": "system/example.service",
+  "tags": ["alert"],
+  "level": "time-sensitive",
+  "thread": "units",
+  "details": {"heraldo": {"rule": "unit-failed"}}
+}

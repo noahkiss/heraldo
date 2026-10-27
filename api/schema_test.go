@@ -77,8 +77,8 @@ func TestValidExamples(t *testing.T) {
 			}
 			var e EventInput
 			decodeStrict(t, path, &e)
-			if !e.Kind.Valid() {
-				t.Fatalf("kind %q not valid", e.Kind)
+			if e.Kind != nil && !e.Kind.Valid() {
+				t.Fatalf("kind %q not valid", *e.Kind)
 			}
 		})
 	}
@@ -127,6 +127,18 @@ func TestStoredNeedsServerFields(t *testing.T) {
 	}
 	if err := s.Validate(v); err == nil {
 		t.Fatal("stored schema accepted an event without id and received_at")
+	}
+}
+
+// An input may leave kind out; a stored event always has one.
+func TestStoredNeedsKind(t *testing.T) {
+	v, err := jsonschema.UnmarshalJSON(strings.NewReader(
+		`{"id":"01JBA6Z0000000000000000002","received_at":"2026-10-26T12:00:00Z","ts":"2026-10-26T12:00:00Z","source":"backup"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stored(t).Validate(v); err == nil {
+		t.Fatal("stored schema accepted an event without kind")
 	}
 }
 

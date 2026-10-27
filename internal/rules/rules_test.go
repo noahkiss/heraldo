@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/validate"
 )
 
@@ -145,15 +146,15 @@ func TestApply(t *testing.T) {
 	}
 	s := fixture(t)
 
-	in := input(t, v, `{"source":"apprise-tee","kind":"message","level":"time-sensitive","tags":["alert"],
+	in := input(t, v, `{"source":"apprise-tee","level":"time-sensitive","tags":["alert"],
 		"title":"alpha: 1 unit(s) failed","body":"system/x.service","details":{"tee":{"id":"n-1"}}}`)
-	out, rule, err := Apply(s, in, v)
+	out, rule, err := Type(s, in, v)
 	if err != nil || rule != "unit-failed" {
 		t.Fatalf("rule %q, err %v", rule, err)
 	}
 	ty := out.Typed
-	if ty.Kind != "incident" || *ty.Key != "unit:alpha:system/x.service" || string(*ty.Action) != "open" ||
-		*ty.Host != "alpha" || *ty.Thread != "units" || string(*ty.Level) != "time-sensitive" {
+	if *ty.Kind != api.KindIncident || *ty.Key != "unit:alpha:system/x.service" || *ty.Action != api.EventActionOpen ||
+		*ty.Host != "alpha" || *ty.Thread != "units" || *ty.Level != api.LevelTimeSensitive {
 		t.Fatalf("typed = %+v", ty)
 	}
 	d, _ := json.Marshal(out.Fields["details"])
@@ -161,44 +162,54 @@ func TestApply(t *testing.T) {
 		t.Fatalf("details = %s", d)
 	}
 	if _, ok := in.Fields["key"]; ok {
-		t.Fatal("Apply changed the input's fields")
+		t.Fatal("Type changed the input's fields")
 	}
 
-	// A sender that types its own event is left alone.
+	// An explicit kind, message included, is final.
 	for _, raw := range []string{
-		`{"source":"x","kind":"message","key":"mine","title":"alpha: 1 unit(s) failed","body":"a"}`,
+		`{"source":"x","kind":"message","title":"alpha: 1 unit(s) failed","body":"a"}`,
 		`{"source":"x","kind":"incident","key":"mine","action":"open","title":"alpha: 1 unit(s) failed","body":"a"}`,
 		`{"source":"x","kind":"digest","title":"alpha: 1 unit(s) failed","body":"a"}`,
 	} {
 		in := input(t, v, raw)
-		out, rule, err := Apply(s, in, v)
+		out, rule, err := Type(s, in, v)
 		if out != in || rule != "" || err != nil {
 			t.Errorf("%s: rule %q, err %v; want it untouched", raw, rule, err)
 		}
 	}
 
-	// No rules, or no match: unchanged.
-	in = input(t, v, `{"source":"x","kind":"message","title":"hello"}`)
-	if out, rule, _ := Apply(nil, in, v); out != in || rule != "" {
-		t.Error("nil set changed the input")
+	// Untyped with no rules or no match: stored as a message.
+	in = input(t, v, `{"source":"x","title":"hello"}`)
+	for name, set := range map[string]*Set{"nil set": nil, "no match": s} {
+		out, rule, err := Type(set, in, v)
+		if err != nil || rule != "" || out.Typed.Kind == nil || *out.Typed.Kind != api.KindMessage ||
+			out.Fields["kind"] != "message" {
+			t.Errorf("%s: rule %q, err %v, fields %v; want kind message", name, rule, err, out.Fields)
+		}
 	}
-	if out, rule, _ := Apply(s, in, v); out != in || rule != "" {
-		t.Error("no match changed the input")
+	if _, ok := in.Fields["kind"]; ok {
+		t.Fatal("Type changed the input's fields")
+	}
+
+	// An untyped sender's own key survives when no rule matches.
+	in = input(t, v, `{"source":"x","key":"mine","title":"hello"}`)
+	if out, _, _ := Type(s, in, v); *out.Typed.Key != "mine" {
+		t.Fatalf("key = %v", out.Typed.Key)
 	}
 }
 
 // A rule whose capture comes out empty leaves an incident with no key; the
-// sender's message is kept and the error says why.
-func TestApplyInvalidKeepsInput(t *testing.T) {
+// event is stored as a message and the error says why.
+func TestTypeInvalidFallsBackToMessage(t *testing.T) {
 	v, _ := validate.New()
 	s, err := Parse([]byte(`rules: [{name: a, match: {body: '^(?P<x>\s*)$'}, set: {kind: incident, key: '{x}'}}]`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	in := input(t, v, `{"source":"x","kind":"message","body":"   "}`)
-	out, rule, err := Apply(s, in, v)
-	if err == nil || out != in || rule != "" {
-		t.Fatalf("rule %q, err %v; want the input back and an error", rule, err)
+	in := input(t, v, `{"source":"x","body":"   "}`)
+	out, rule, err := Type(s, in, v)
+	if err == nil || rule != "" || *out.Typed.Kind != api.KindMessage {
+		t.Fatalf("rule %q, err %v, kind %v; want a message and an error", rule, err, out.Typed.Kind)
 	}
 }
 

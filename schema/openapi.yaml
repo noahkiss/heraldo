@@ -182,7 +182,7 @@ paths:
         - tokenQuery: []
       parameters:
         - { name: source, in: query, required: true, schema: { type: string } }
-        - { name: kind, in: query, required: true, schema: { $ref: "#/components/schemas/Kind" } }
+        - { name: kind, in: query, schema: { $ref: "#/components/schemas/Kind" } }
         - { name: key, in: query, schema: { type: string } }
         - { name: action, in: query, schema: { $ref: "#/components/schemas/EventAction" } }
         - { name: ts, in: query, schema: { type: string, format: date-time } }

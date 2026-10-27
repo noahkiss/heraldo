@@ -104,7 +104,7 @@ The server reads its configuration from the environment.
 | `HERALDO_DB` | `heraldo.db` (`/data/heraldo.db` in the image) | SQLite database path. The server runs it in WAL mode, so keep the `-wal` and `-shm` files beside it. |
 | `HERALDO_TOKENS_FILE` | none | Token file, one `<name> <scope> <sha256> [trusted-ingest]` per line |
 | `HERALDO_TOKENS` | none | The same entries inline, separated by commas. Set this or the file, not both. |
-| `HERALDO_RULES` | none | Ingest rules file (YAML) that types untyped messages. The server reloads it within 5 s of a change; a file that does not parse keeps the rules in force and logs an error. A broken file at startup stops the server. Format: [docs/api.md](docs/api.md#ingest-rules), example: `deploy/rules.example.yaml`. |
+| `HERALDO_RULES` | none | Ingest rules file (YAML) that types untyped inputs (no `kind`); without it they are stored as `message`. The server reloads it within 5 s of a change; a file that does not parse keeps the rules in force and logs an error. A broken file at startup stops the server. Format: [docs/api.md](docs/api.md#ingest-rules), example: `deploy/rules.example.yaml`. |
 
 With no tokens, the server refuses every call except `/healthz`.
 

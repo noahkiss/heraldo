@@ -219,11 +219,16 @@ func (s *Store) Import(ctx context.Context, origin, originID string, ev NewEvent
 }
 
 func insert(ctx context.Context, tx *sql.Tx, ev NewEvent) (Record, error) {
+	in := ev.Typed
+	// The server types every input before it stores it (rules.Type), so a
+	// stored event always has a kind.
+	if in.Kind == nil {
+		return Record{}, errors.New("store: event has no kind")
+	}
 	raw, err := json.Marshal(ev.Fields)
 	if err != nil {
 		return Record{}, err
 	}
-	in := ev.Typed
 	ts := ev.ReceivedAt
 	if in.Ts != nil {
 		ts = *in.Ts
@@ -237,7 +242,7 @@ func insert(ctx context.Context, tx *sql.Tx, ev NewEvent) (Record, error) {
 		(id, received_at, ts, source, host, kind, key, action, level, tags, dedup, event)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ev.ID, ev.ReceivedAt.UTC().Format(timeFormat), ts.UTC().Format(timeFormat),
-		in.Source, in.Host, string(in.Kind), in.Key, in.Action, in.Level, tags, in.Dedup, string(raw))
+		in.Source, in.Host, string(*in.Kind), in.Key, in.Action, in.Level, tags, in.Dedup, string(raw))
 	if err != nil {
 		return Record{}, err
 	}
@@ -269,7 +274,7 @@ func derive(ctx context.Context, tx *sql.Tx, ev NewEvent) error {
 	if in.Action != nil {
 		action = string(*in.Action)
 	}
-	switch in.Kind {
+	switch *in.Kind {
 	case api.KindIncident:
 		switch action {
 		case "resolve":

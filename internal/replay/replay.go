@@ -84,7 +84,7 @@ func Run(dir string, rs *rules.Set, v *validate.Validator) (*Report, error) {
 			r.RuleErrors++
 		}
 		in := m.Event.Typed
-		e := Event{File: file, Line: n, TeeID: m.TeeID, Rule: m.Rule, Kind: in.Kind, Source: in.Source}
+		e := Event{File: file, Line: n, TeeID: m.TeeID, Rule: m.Rule, Kind: *in.Kind, Source: in.Source}
 		if in.Ts != nil {
 			e.Ts = *in.Ts
 		}

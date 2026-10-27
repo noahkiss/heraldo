@@ -446,7 +446,7 @@ type Event struct {
 // EventAction Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none.
 type EventAction string
 
-// EventInput One heraldo event as a sender posts it, envelope v1. The kind field picks the meaning of key and action. The server owns id, received_at, hold and delivery: an input that sets any of them is rejected. The stored form, with those fields, is $defs/Event.
+// EventInput One heraldo event as a sender posts it, envelope v1. The kind field picks the meaning of key and action. An input without kind is untyped: the server's ingest rules may type it, and it is stored as kind message when no rule matches. An explicit kind, message included, is final. The server owns id, received_at, hold and delivery: an input that sets any of them is rejected. The stored form, with those fields, is $defs/Event.
 type EventInput struct {
 	// Action Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none.
 	Action *EventAction `json:"action,omitempty"`
@@ -485,7 +485,7 @@ type EventInput struct {
 	Key *string `json:"key,omitempty"`
 
 	// Kind What the event is. message: a one-off notice. incident: a problem with a lifecycle. digest: a batch summary. progress: a Live Activity. checkin: a job run, as with healthchecks.io. status: a named live value for widgets and the status view; it never sends an alert push, only a widget push. incident, progress, checkin and status need a key.
-	Kind Kind `json:"kind"`
+	Kind *Kind `json:"kind,omitempty"`
 
 	// Level Interruption level. Maps to the APNs interruption-level. Without the critical-alerts entitlement, the server sends critical as time-sensitive and records the downgrade in delivery.
 	Level *Level `json:"level,omitempty"`
@@ -746,7 +746,7 @@ type ListEventsParams struct {
 // SendEventParams defines parameters for SendEvent.
 type SendEventParams struct {
 	Source  string       `form:"source" json:"source"`
-	Kind    Kind         `form:"kind" json:"kind"`
+	Kind    *Kind        `form:"kind,omitempty" json:"kind,omitempty"`
 	Key     *string      `form:"key,omitempty" json:"key,omitempty"`
 	Action  *EventAction `form:"action,omitempty" json:"action,omitempty"`
 	Ts      *time.Time   `form:"ts,omitempty" json:"ts,omitempty"`

@@ -1,0 +1,7 @@
+{
+  "source": "legacy-bridge",
+  "title": "web-1: 1 unit(s) failed",
+  "body": "system/example.service",
+  "tags": ["alert"],
+  "level": "time-sensitive"
+}

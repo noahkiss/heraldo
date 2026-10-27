@@ -61,10 +61,23 @@ func TestRefusesNewerSchema(t *testing.T) {
 }
 
 func event(id string, at time.Time) NewEvent {
+	k := api.KindMessage
 	return NewEvent{
 		ID: id, ReceivedAt: at,
 		Fields: map[string]any{"id": id, "source": "s", "kind": "message"},
-		Typed:  api.EventInput{Source: "s", Kind: api.KindMessage},
+		Typed:  api.EventInput{Source: "s", Kind: &k},
+	}
+}
+
+// The server types every input first; an untyped event never reaches the
+// table.
+func TestInsertNeedsKind(t *testing.T) {
+	st := open(t, filepath.Join(t.TempDir(), "h.db"))
+	defer st.Close()
+	ev := event("01K3ZX0000AAAAAAAAAAAAAAAB", time.Now())
+	ev.Typed.Kind = nil
+	if _, _, err := st.Insert(context.Background(), ev); err == nil {
+		t.Fatal("stored an event without a kind")
 	}
 }
 

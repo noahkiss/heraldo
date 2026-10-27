@@ -1,4 +1,4 @@
-// Package rules classifies untyped messages at ingest. A rules file turns a
+// Package rules types untyped inputs at ingest. A rules file turns a
 // legacy {title, body, tag} post into a typed event: an incident that opens
 // or resolves, a digest, or a quiet message.
 //
@@ -27,9 +27,9 @@
 // sender's value.
 //
 // Rules run in file order and the first match wins. They apply only to an
-// input that is kind message with no key and no action: a sender that types
-// its own events is never reclassified. A classified event records the rule
-// in details.heraldo.rule.
+// untyped input, one without kind: an explicit kind, message included, is
+// the sender's final word. Type stores an untyped input no rule matches as
+// kind message. A classified event records the rule in details.heraldo.rule.
 package rules
 
 import (
@@ -224,15 +224,10 @@ func isMatchField(f string) bool {
 	return false
 }
 
-// Eligible reports whether rules may classify an input: kind message with no
-// key and no action.
+// Eligible reports whether rules may classify an input: it has no kind.
 func Eligible(fields map[string]any) bool {
-	if k, _ := fields["kind"].(string); k != string(api.KindMessage) {
-		return false
-	}
-	_, key := fields["key"]
-	_, action := fields["action"]
-	return !key && !action
+	_, typed := fields["kind"]
+	return !typed
 }
 
 // Result is what the first matching rule sets.
@@ -331,6 +326,7 @@ func (r *Rule) result(caps map[string]string) Result {
 // Apply classifies a checked input with s. It returns the input unchanged,
 // and an empty rule name, when the input is not Eligible, no rule matches, or
 // the classified event would not be a valid envelope (the error says why).
+// The result may still be untyped; Type finishes the job.
 func Apply(s *Set, in *validate.Input, v *validate.Validator) (*validate.Input, string, error) {
 	if s.Len() == 0 || !Eligible(in.Fields) {
 		return in, "", nil
@@ -366,6 +362,29 @@ func Apply(s *Set, in *validate.Input, v *validate.Validator) (*validate.Input, 
 		return in, "", fmt.Errorf("rule %s: %w", res.Rule, err)
 	}
 	return out, res.Rule, nil
+}
+
+// Type is what ingest runs on every checked input: Apply, then an input
+// that is still untyped becomes kind message. The result always has a kind.
+// err reports a rule that matched but made an invalid event; the input is
+// then typed as a message all the same.
+func Type(s *Set, in *validate.Input, v *validate.Validator) (*validate.Input, string, error) {
+	out, rule, ruleErr := Apply(s, in, v)
+	if out.Typed.Kind != nil {
+		return out, rule, ruleErr
+	}
+	f := make(map[string]any, len(out.Fields)+1)
+	for k, x := range out.Fields {
+		f[k] = x
+	}
+	f["kind"] = string(api.KindMessage)
+	msg, err := v.Fields(f)
+	if err != nil {
+		// The schema gives an untyped input the limits of a message, so
+		// this means the two have drifted apart.
+		return nil, "", fmt.Errorf("type an untyped input as message: %w", err)
+	}
+	return msg, "", ruleErr
 }
 
 // cut shortens s to n characters.

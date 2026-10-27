@@ -2,8 +2,9 @@
 // directory of monthly JSON Lines files, notifications-YYYY-MM.jsonl, one
 // notification per line.
 //
-// Each entry becomes a kind message event, then the ingest rules, when
-// given, classify it as they would a live post (package rules).
+// Each entry is an untyped event: the ingest rules, when given, type it as
+// they would a live post (package rules), and an entry no rule matches is
+// stored as kind message.
 //
 //	tee field              event field
 //	id                     details.tee.id and dedup; the event id is derived from ts and id.
@@ -185,7 +186,7 @@ type entry struct {
 
 // Map turns one catalogue line into an event ready to store, and returns the
 // tee id it came from: the line's id, or its LegacyID when it has none. It
-// applies no rules.
+// applies no rules, so the event is kind message.
 func Map(line []byte, v *validate.Validator) (store.NewEvent, string, error) {
 	m, err := Classify(line, v, nil)
 	return m.Event, m.TeeID, err
@@ -220,7 +221,6 @@ func Classify(line []byte, v *validate.Validator, rs *rules.Set) (Mapped, error)
 	at := time.Unix(int64(sec), int64(math.Round(frac*1000))*int64(time.Millisecond)).UTC()
 
 	in := map[string]any{
-		"kind":   "message",
 		"source": DefaultSource,
 		"ts":     at.Format(time.RFC3339Nano),
 		// The tee forwards live events with dedup = its catalogue id, so
@@ -272,7 +272,11 @@ func Classify(line []byte, v *validate.Validator, rs *rules.Set) (Mapped, error)
 		return Mapped{}, fmt.Errorf("%s: %w", e.ID, err)
 	}
 	m := Mapped{TeeID: e.ID}
-	checked, m.Rule, m.RuleErr = rules.Apply(rs, checked, v)
+	typed, rule, ruleErr := rules.Type(rs, checked, v)
+	if typed == nil {
+		return Mapped{}, fmt.Errorf("%s: %w", e.ID, ruleErr)
+	}
+	checked, m.Rule, m.RuleErr = typed, rule, ruleErr
 	id := e.ID
 	if !ids.Valid(id) {
 		id = ids.Derived(at, Origin, e.ID)
