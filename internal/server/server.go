@@ -38,10 +38,17 @@ type Options struct {
 	Logger *slog.Logger
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
+	// Done, when closed, ends every open event stream, so a shutdown does
+	// not wait on them. nil means streams end only when the client leaves.
+	Done <-chan struct{}
+	// Heartbeat is the gap between keep-alive comments on an event stream;
+	// 0 means 25 seconds.
+	Heartbeat time.Duration
 }
 
 type server struct {
 	Options
+	hub *hub
 }
 
 // New returns the server's HTTP handler.
@@ -55,13 +62,20 @@ func New(o Options) http.Handler {
 	if o.Tokens == nil {
 		o.Tokens = &auth.Set{}
 	}
-	s := &server{o}
+	if o.Heartbeat == 0 {
+		o.Heartbeat = 25 * time.Second
+	}
+	s := &server{Options: o, hub: newHub()}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("POST /v1/events", s.auth(auth.ScopeWrite, false, s.postEvent))
 	mux.HandleFunc("GET /v1/events", s.auth(auth.ScopeRead, false, s.listEvents))
 	mux.HandleFunc("GET /v1/events/{id}", s.auth(auth.ScopeRead, false, s.getEvent))
 	mux.HandleFunc("GET /v1/send", s.auth(auth.ScopeWrite, true, s.sendEvent))
+	mux.HandleFunc("GET /v1/stream", s.auth(auth.ScopeRead, false, s.stream))
+	mux.HandleFunc("GET /v1/state", s.auth(auth.ScopeRead, false, s.state))
+	mux.HandleFunc("GET /v1/cursors/{name}", s.auth(auth.ScopeRead, false, s.getCursor))
+	mux.HandleFunc("PUT /v1/cursors/{name}", s.auth(auth.ScopeRead, false, s.putCursor))
 	return s.logRequests(mux)
 }
 
@@ -96,6 +110,9 @@ func (w *statusWriter) WriteHeader(code int) {
 	w.status = code
 	w.ResponseWriter.WriteHeader(code)
 }
+
+// Unwrap lets http.ResponseController reach Flush and the write deadline.
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // logRequests logs one line per request. It logs the path, never the query
 // string, because /v1/send may carry a token there.
@@ -293,6 +310,8 @@ func (s *server) store(w http.ResponseWriter, r *http.Request, in *validate.Inpu
 	status := http.StatusCreated
 	if !created {
 		status = http.StatusOK
+	} else {
+		s.hub.poke(rec.Seq)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -355,6 +374,32 @@ func (s *server) listEvents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		f.AfterSeq = seq
+	}
+	if v := q.Get("before"); v != "" {
+		seq, err := store.ParseCursor(v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "before: not a cursor from this server")
+			return
+		}
+		f.BeforeSeq = seq
+	}
+	switch q.Get("order") {
+	case "", "asc":
+	case "desc":
+		f.Desc = true
+	default:
+		writeError(w, http.StatusBadRequest, "order: want asc or desc")
+		return
+	}
+	if v := q.Get("hold"); v != "" {
+		f.Hold = v
+	}
+	// A client can tell from this header that the order was applied; a
+	// server before stage 3 ignored the parameter.
+	if f.Desc {
+		w.Header().Set("Heraldo-Order", "desc")
+	} else {
+		w.Header().Set("Heraldo-Order", "asc")
 	}
 	if v := q.Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)

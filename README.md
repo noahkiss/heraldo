@@ -30,7 +30,7 @@ sends no push notifications yet.
 | `api/` | Go types generated from `schema/` |
 | `cmd/heraldo-server` | The server |
 | `cmd/heraldo` | The CLI |
-| `internal/` | Server packages: store, validation, auth, ingest rules, the tee import and replay |
+| `internal/` | Server packages: store, validation, auth, ingest rules, the tee import and replay; `client`, the API client the CLI uses |
 | `apple/` | Xcode project (XcodeGen): the Heraldo app for iOS and macOS, its extensions, HeraldoKit |
 | `deploy/` | A generic compose file, an example env file and an example rules file |
 | `docs/` | Design notes |
@@ -124,6 +124,72 @@ because `/v1/send` may carry a token there.
 
 To restore, stop the server and replace the database file with a backup. Delete
 any `-wal` and `-shm` files left beside the old database first.
+
+## CLI
+
+`heraldo` is an inbox over a server, and a drop-in for a notify script.
+
+| Command | Does |
+|---|---|
+| `heraldo peek [--mark]` | Lists the events after this client's read cursor. `--mark` moves the cursor past them. With no cursor yet, it lists the newest events. |
+| `heraldo show [--json] <id>` | Prints one event with its full body. |
+| `heraldo ls` | Lists the newest events (20 by default, oldest first). Filters: `--kind`, `--source`, `--host`, `--key`, `--tag`, `-q` (full text). `--open` lists the incidents that are not resolved. |
+| `heraldo held` | Lists events held for triage (`hold.state` is `held`). |
+| `heraldo checkins` | Lists the last run of every check. |
+| `heraldo tail` | Prints new events as they arrive. It takes the `ls` filters, `--unread` (start at the read cursor), `--mark` (move the cursor; not with filters) and `--exec <command>`. |
+| `heraldo ack <key>`, `heraldo resolve <key>` | Posts an `ack` or `resolve` event for an open incident. `-m` adds a note; `--force` posts for a key with no open incident. |
+| `heraldo send` | Posts a notification to an Apprise-compatible notify URL. |
+
+Every list command takes `--json` and prints each event's stored JSON on one
+line.
+
+Settings come from the environment first, then from an env file:
+`$XDG_CONFIG_HOME/heraldo/env` (`~/.config/heraldo/env`), or the file
+`HERALDO_ENV_FILE` names. The file holds `KEY=VALUE` lines. Keep it mode 600.
+
+| Variable | Meaning |
+|---|---|
+| `HERALDO_URL` | The server root, such as `https://heraldo.example.net` |
+| `HERALDO_TOKEN` | A `read` token |
+| `HERALDO_WRITE_TOKEN` | A `write` token, for `ack` and `resolve` |
+| `HERALDO_CLIENT` | The read cursor's name. Default: the host name. |
+| `HERALDO_SOURCE` | The `source` of `ack` and `resolve` events. Default: `heraldo-cli`. |
+| `HERALDO_SEND_URL`, `APPRISE_URL` | `send`'s notify URL; the first one set wins |
+| `NOTIFY_EXTRA_JSON` | `send`: extra JSON fields for the payload, such as `"_nonce": "abc"` |
+
+Read cursors live on the server, one per token and client name. A cursor only
+moves forward.
+
+`tail` is poke-then-fetch. The server sends a poke on `/v1/stream` for each
+stored event; the CLI then lists every event after its cursor. When the stream
+breaks, the CLI reconnects and fetches what it missed. Against a server with no
+stream, it polls every second.
+
+### tail --exec
+
+`tail --exec <command>` runs the command once for each event it prints, one at
+a time, for at most a minute each. The command must be listed in
+`$XDG_CONFIG_HOME/heraldo/exec-allow`: one absolute path per line, `#` for
+comments. The CLI refuses the file when group or others can write to it.
+
+No shell runs. The command gets the event's JSON on stdin, and these variables:
+`HERALDO_EVENT_ID`, `_SOURCE`, `_KIND`, `_ACTION`, `_KEY`, `_HOST`, `_LEVEL`,
+`_TITLE`, `_TAGS` (comma-separated) and `_TS`. It does not get
+`HERALDO_TOKEN` or `HERALDO_WRITE_TOKEN`.
+
+### send
+
+`heraldo send` keeps the contract of a notify script that posts to Apprise:
+
+- `-t`/`--title` (default `System Notification`), `-m`/`--message`. Without
+  `-m`, the message comes from stdin; with a terminal on stdin, `send` fails.
+- `--tag`, `--source`, `--url`, `--image` and `--level` add those fields, for an
+  apprise-tee front door.
+- With no notify URL set, `send` does nothing and exits 0.
+- Success prints `✅ Notification sent successfully.` and exits 0. Success
+  means HTTP 200 with a `Sent` line in the answer.
+- Anything else prints `❌ Failed to send notification. HTTP Status: <code>` and
+  exits 1. A request that got no answer reports `000`.
 
 ## License
 

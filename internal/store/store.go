@@ -393,17 +393,24 @@ func (s *Store) Get(ctx context.Context, id string) (Record, error) {
 // Filter selects events for List. Empty fields do not filter.
 type Filter struct {
 	AfterSeq int64
-	Limit    int
-	Kind     string
-	Source   string
-	Host     string
-	Key      string
-	Tag      string
+	// BeforeSeq, when above 0, keeps events with a lower seq only.
+	BeforeSeq int64
+	// Desc lists newest first.
+	Desc   bool
+	Limit  int
+	Kind   string
+	Source string
+	Host   string
+	Key    string
+	Tag    string
 	// Q is full-text search over title, summary and body. Every word must match.
 	Q string
+	// Hold keeps events whose hold.state is this value, such as held.
+	Hold string
 }
 
-// List returns events after f.AfterSeq in arrival order.
+// List returns events after f.AfterSeq in arrival order, or newest first
+// with f.Desc.
 func (s *Store) List(ctx context.Context, f Filter) ([]Record, error) {
 	where := []string{"seq > ?"}
 	args := []any{f.AfterSeq}
@@ -419,6 +426,14 @@ func (s *Store) List(ctx context.Context, f Filter) ([]Record, error) {
 		where = append(where, "EXISTS (SELECT 1 FROM json_each(events.tags) WHERE value = ?)")
 		args = append(args, f.Tag)
 	}
+	if f.BeforeSeq > 0 {
+		where = append(where, "seq < ?")
+		args = append(args, f.BeforeSeq)
+	}
+	if f.Hold != "" {
+		where = append(where, "json_extract(event, '$.hold.state') = ?")
+		args = append(args, f.Hold)
+	}
 	if q := ftsQuery(f.Q); q != "" {
 		where = append(where, "seq IN (SELECT rowid FROM events_fts WHERE events_fts MATCH ?)")
 		args = append(args, q)
@@ -428,8 +443,12 @@ func (s *Store) List(ctx context.Context, f Filter) ([]Record, error) {
 		limit = 100
 	}
 	args = append(args, limit)
+	order := "seq"
+	if f.Desc {
+		order = "seq DESC"
+	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT seq, id, event FROM events WHERE `+strings.Join(where, " AND ")+` ORDER BY seq LIMIT ?`, args...)
+		`SELECT seq, id, event FROM events WHERE `+strings.Join(where, " AND ")+` ORDER BY `+order+` LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}

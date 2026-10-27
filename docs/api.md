@@ -14,17 +14,20 @@ push notifications.
 |---|---|---|
 | `GET /healthz` | Liveness, with `db` and the event count. 503 when the database does not answer. No auth. | served |
 | `POST /v1/events` | Stores one `EventInput`. Returns the stored `Event` (201), or the first event for a repeated `dedup` (200). | served |
-| `GET /v1/events?after=&limit=&source=&kind=&host=&key=&tag=&q=` | Lists events after a cursor, in arrival order. `q` is full-text search over title, summary and body. | served |
+| `GET /v1/events?after=&before=&order=&limit=&source=&kind=&host=&key=&tag=&q=&hold=` | Lists events after a cursor, in arrival order. `q` is full-text search over title, summary and body. `order=desc` lists newest first. `hold` keeps events whose `hold.state` matches. | served |
 | `GET /v1/events/{id}` | Returns one event with its full body. | served |
 | `GET /v1/send?source=&kind=&...` | Same as `POST /v1/events` for GET-only clients. Scalar fields and `tags` (repeat the parameter) only. | served |
 | `GET /ping/{slug}`, `/start`, `/fail`, `/log`, `/{exit_code}` | Check-in pings in the healthchecks.io shape. `?rid=` pairs runs; `?create=1` creates an unknown check. | 6 |
 | `POST /notify/apprise`, `POST /notify/{key}` | Apprise-compatible ingest. Answers 200 with `Sent`. | 11 |
-| `GET /v1/state` | Flat arrays for the status view: open incidents, running progress, check-ins, set statuses. | 12 |
+| `GET /v1/state` | Flat arrays of the latest event per key: incidents not resolved, progress not ended, every check-in, set statuses. The shape is a stand-in until stage 12. | served |
+| `GET /v1/stream` | Server-sent events: one `poke` per stored event, with the newest cursor. | served |
+| `GET /v1/cursors/{name}`, `PUT /v1/cursors/{name}` | This token's read cursor under `name`. | served |
 
 Auth:
 
 - Every call except `/healthz` takes a bearer token. Each token has a scope:
-  `write` (post and send), `read` (list and get), or `admin` (both).
+  `write` (post and send), `read` (list, get, state, stream and the token's
+  own read cursors), or `admin` (both).
 - A missing or unknown token gets 401. A token without the scope gets 403.
 - `GET /v1/send` also takes the token as a `token` query parameter. A token in
   the URL ends up in access logs, proxy logs and browser history. Use the header
@@ -51,6 +54,36 @@ Paging:
   with it again.
 - The order is arrival at this server. An event imported later still appears
   after every cursor handed out before it.
+- `order=desc` lists newest first. Its `next_cursor` is the cursor of the
+  oldest event on the page; pass it as `before` for the next page. `before`
+  also works with the default order.
+- Every list answer has a `Heraldo-Order` header, `asc` or `desc`. A server
+  before stage 3 ignores `order`, `before` and `hold` and sends no header, so a
+  client can tell.
+
+Read cursors:
+
+- A client keeps its read position on the server with
+  `PUT /v1/cursors/{name}` and `{"cursor": "<a list cursor>"}`. `name` is the
+  client's own label, such as its machine name: 1 to 64 of `A-Z a-z 0-9 . _ -`.
+- Cursors belong to the token. A token reads and moves only its own, so two
+  tokens can use the same name.
+- A cursor only moves forward. A `PUT` at or before the stored cursor changes
+  nothing, and the answer is the stored cursor. Two copies of one client can
+  therefore not move each other back. A cursor past the newest event gets 400.
+- `GET` answers 404 for a name with no cursor.
+
+Event stream:
+
+- `GET /v1/stream` is server-sent events. Each stored event sends
+  `event: poke` with `data: {"cursor": "<newest cursor>"}`. The first poke
+  comes on connect and carries the current newest cursor.
+- A poke carries no event. The client lists the events after its own cursor,
+  so a missed poke loses nothing. Pokes coalesce: a slow client gets the newest
+  cursor, not every one.
+- A `: keep-alive` comment comes every 25 seconds. The server ends open streams
+  when it shuts down; a client reconnects and fetches what it missed.
+- An event that `import-tee` stores in another process sends no poke.
 
 Dedup:
 
