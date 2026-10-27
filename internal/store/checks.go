@@ -21,19 +21,19 @@ type queryer interface {
 
 var checkColList = []string{"key", "host", "period_s", "cron", "tz", "grace_s", "max_runtime_s", "reminder_s",
 	"state", "state_since", "down_reason", "created_at", "last_ping", "last_event", "started_at", "start_rid",
-	"last_success", "last_duration_ms", "last_log_event", "due_at", "reminded_at"}
+	"last_success", "last_duration_ms", "last_log_event", "due_at", "reminded_at", "ping_key_hash", "ping_key_at"}
 
 var checkCols = strings.Join(checkColList, ", ")
 
 func scanCheck(sc interface{ Scan(...any) error }) (checkin.Check, error) {
 	var c checkin.Check
-	var host, cronExpr, tz, reason, lastEvent, rid, logEvent sql.NullString
+	var host, cronExpr, tz, reason, lastEvent, rid, logEvent, keyHash, keyAt sql.NullString
 	var period, maxRun, dur sql.NullInt64
 	var grace, reminder int64
 	var since, created string
 	var lastPing, started, success, due, reminded sql.NullString
 	err := sc.Scan(&c.Key, &host, &period, &cronExpr, &tz, &grace, &maxRun, &reminder, &c.State, &since,
-		&reason, &created, &lastPing, &lastEvent, &started, &rid, &success, &dur, &logEvent, &due, &reminded)
+		&reason, &created, &lastPing, &lastEvent, &started, &rid, &success, &dur, &logEvent, &due, &reminded, &keyHash, &keyAt)
 	if err != nil {
 		return c, err
 	}
@@ -45,6 +45,7 @@ func scanCheck(sc interface{ Scan(...any) error }) (checkin.Check, error) {
 	c.StateSince, c.CreatedAt = parseTime(since), parseTime(created)
 	c.LastPing, c.StartedAt, c.LastSuccess = parseTime(lastPing.String), parseTime(started.String), parseTime(success.String)
 	c.DueAt, c.RemindedAt = parseTime(due.String), parseTime(reminded.String)
+	c.PingKeyHash, c.PingKeyAt = keyHash.String, parseTime(keyAt.String)
 	c.LastDuration = -1
 	if dur.Valid {
 		c.LastDuration = time.Duration(dur.Int64) * time.Millisecond
@@ -92,7 +93,7 @@ func saveCheck(ctx context.Context, q queryer, c checkin.Check) error {
 	}
 	s := c.Schedule
 	_, err := q.ExecContext(ctx, `INSERT INTO checkins (`+checkCols+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (key) DO UPDATE SET host = excluded.host, period_s = excluded.period_s,
 		  cron = excluded.cron, tz = excluded.tz, grace_s = excluded.grace_s,
 		  max_runtime_s = excluded.max_runtime_s, reminder_s = excluded.reminder_s,
@@ -100,12 +101,13 @@ func saveCheck(ctx context.Context, q queryer, c checkin.Check) error {
 		  last_ping = excluded.last_ping, last_event = excluded.last_event, started_at = excluded.started_at,
 		  start_rid = excluded.start_rid, last_success = excluded.last_success,
 		  last_duration_ms = excluded.last_duration_ms, last_log_event = excluded.last_log_event,
-		  due_at = excluded.due_at, reminded_at = excluded.reminded_at`,
+		  due_at = excluded.due_at, reminded_at = excluded.reminded_at,
+		  ping_key_hash = excluded.ping_key_hash, ping_key_at = excluded.ping_key_at`,
 		c.Key, nullStr(c.Host), nullSecs(s.Period), nullStr(s.Cron), nullStr(s.TZ), int64(s.Grace/time.Second),
 		nullSecs(s.MaxRuntime), int64(s.Reminder/time.Second), c.State, fmtTime(c.StateSince),
 		nullStr(c.DownReason), fmtTime(c.CreatedAt), fmtTime(c.LastPing), nullStr(c.LastEvent),
 		fmtTime(c.StartedAt), nullStr(c.StartRID), fmtTime(c.LastSuccess), dur, nullStr(c.LastLogEvent),
-		fmtTime(c.DueAt), fmtTime(c.RemindedAt))
+		fmtTime(c.DueAt), fmtTime(c.RemindedAt), nullStr(c.PingKeyHash), fmtTime(c.PingKeyAt))
 	return err
 }
 
@@ -350,7 +352,7 @@ func (s *Store) SaveTicked(ctx context.Context, was, c checkin.Check) (bool, err
 		return false, err
 	}
 	if cur.LastEvent != was.LastEvent || cur.State != was.State || !cur.DueAt.Equal(was.DueAt) ||
-		cur.Schedule != was.Schedule {
+		cur.Schedule != was.Schedule || cur.PingKeyHash != was.PingKeyHash {
 		return false, nil
 	}
 	if err := saveCheck(ctx, tx, c); err != nil {
@@ -376,4 +378,35 @@ func (s *Store) IncidentState(ctx context.Context, key string) (string, error) {
 		return "", nil
 	}
 	return st, err
+}
+
+// SetPingKey stores the hash of a check's new ping key, which replaces any
+// old one; an empty hash removes the key. It returns ErrNotFound for an
+// unknown check.
+func (s *Store) SetPingKey(ctx context.Context, key, hash string) error {
+	s.wmu.Lock()
+	defer s.wmu.Unlock()
+	at := any(nil)
+	if hash != "" {
+		at = fmtTime(s.now())
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE checkins SET ping_key_hash = ?, ping_key_at = ? WHERE key = ?`,
+		nullStr(hash), at, key)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// CheckByPingKey returns the key of the check whose ping key hashes to hash.
+func (s *Store) CheckByPingKey(ctx context.Context, hash string) (string, bool, error) {
+	var key string
+	err := s.db.QueryRowContext(ctx, `SELECT key FROM checkins WHERE ping_key_hash = ?`, hash).Scan(&key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	return key, err == nil, err
 }

@@ -2,7 +2,8 @@
 -- keyed by its slug, which is also the key of its check-in events. A check
 -- made through the API has had no ping yet, so last_ping may be NULL; the
 -- table is rebuilt for that. Times are in the store's fixed-width format;
--- durations are seconds, except last_duration_ms.
+-- durations are seconds, except last_duration_ms. A ping key lets a sender
+-- ping this one check with no bearer token; only its hash is stored.
 CREATE TABLE checks (
     key              TEXT PRIMARY KEY,
     host             TEXT,
@@ -24,7 +25,9 @@ CREATE TABLE checks (
     last_duration_ms INTEGER,
     last_log_event   TEXT,
     due_at           TEXT,               -- the next ping is due
-    reminded_at      TEXT                -- the incident last opened or reminded
+    reminded_at      TEXT,               -- the incident last opened or reminded
+    ping_key_hash    TEXT UNIQUE,        -- SHA-256 hex of the check's ping key
+    ping_key_at      TEXT                -- when the key was minted
 );
 
 -- Checks the scheduler judges: the rest only change on a ping.

@@ -16,7 +16,7 @@ import (
 
 // ---- checkins ----------------------------------------------------------
 
-const checkinsUsage = `[--json] | show <slug> | create <slug> [flags] | pause <slug> | resume <slug>`
+const checkinsUsage = `[--json] | show <slug> | create <slug> [flags] | pause <slug> | resume <slug> | key [--remove] <slug>`
 
 // checkins lists the checks, or runs one of its subcommands.
 func (a *app) checkins(ctx context.Context, args []string) error {
@@ -28,6 +28,8 @@ func (a *app) checkins(ctx context.Context, args []string) error {
 			return a.checkCreate(ctx, args[1:])
 		case "pause", "resume":
 			return a.checkPause(ctx, args[0], args[1:])
+		case "key":
+			return a.checkKey(ctx, args[1:])
 		}
 	}
 	fs := a.flags("checkins", checkinsUsage)
@@ -152,6 +154,9 @@ func (a *app) printCheck(ch api.Check) {
 	if ch.Incident != nil {
 		fmt.Fprintf(w, "incident:  checkin:%s %s\n", oneLine(ch.Key), *ch.Incident)
 	}
+	if ch.PingKeyAt != nil {
+		fmt.Fprintf(w, "ping key:  minted %s\n", stampOr(ch.PingKeyAt))
+	}
 	if ch.LastLog != nil {
 		fmt.Fprintf(w, "last log (%s):\n%s\n", stampOr(ch.LastLogAt), strings.TrimRight(clean(*ch.LastLog), "\n"))
 	}
@@ -248,6 +253,39 @@ func (a *app) checkPause(ctx context.Context, op string, args []string) error {
 		return err
 	}
 	fmt.Fprintf(a.stdout, "%s: %s\n", oneLine(ch.Key), checkState(ch))
+	return nil
+}
+
+// checkKey is checkins key: a new ping key for the check, printed once as
+// its ping URL. The old key stops working. --remove removes the key.
+func (a *app) checkKey(ctx context.Context, args []string) error {
+	fs := a.flags("checkins key", "[--remove] <slug>")
+	remove := fs.Bool("remove", false, "remove the key; pings with it get 404")
+	pos, err := parse(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		fs.Usage()
+		return errUsage
+	}
+	c, err := a.writeClient()
+	if err != nil {
+		return err
+	}
+	if *remove {
+		if err := c.RemovePingKey(ctx, pos[0]); err != nil {
+			return err
+		}
+		fmt.Fprintf(a.stdout, "%s: ping key removed\n", oneLine(pos[0]))
+		return nil
+	}
+	k, err := c.MintPingKey(ctx, pos[0])
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(a.stdout, "%s%s\n", strings.TrimRight(c.BaseURL, "/"), k.Path)
+	fmt.Fprintln(a.stderr, "The server shows this key once. Append /start, /fail, /log or an exit code to the URL.")
 	return nil
 }
 

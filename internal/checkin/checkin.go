@@ -146,6 +146,10 @@ type Check struct {
 	DownReason string
 	// RemindedAt is when the check's incident last opened or reminded.
 	RemindedAt time.Time
+	// PingKeyHash is the SHA-256 hex of the check's ping key, empty when it
+	// has none; PingKeyAt is when the key was minted.
+	PingKeyHash string
+	PingKeyAt   time.Time
 }
 
 // New returns a check created at t.

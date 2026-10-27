@@ -37,6 +37,8 @@ writing:
   resolve <key>    resolve an open incident (HERALDO_WRITE_TOKEN)
   checkins create|pause|resume <slug>
                    add or change a check, pause or resume it (HERALDO_WRITE_TOKEN)
+  checkins key [--remove] <slug>
+                   print a new ping URL for a check; the old one stops working
   send             send a notification through HERALDO_SEND_URL or APPRISE_URL
 
   version          print the version

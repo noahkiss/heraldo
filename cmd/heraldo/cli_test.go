@@ -301,6 +301,22 @@ func TestCheckins(t *testing.T) {
 	if r := f.run("checkins", "resume", "backup"); r.code != 0 || r.stdout != "backup: new\n" {
 		t.Fatalf("resume: %+v", r)
 	}
+	r = f.run("checkins", "key", "backup")
+	pingURL := strings.TrimSpace(r.stdout)
+	if r.code != 0 || !strings.HasPrefix(pingURL, f.srv.URL+"/p/") || len(pingURL) != len(f.srv.URL)+3+32 {
+		t.Fatalf("key: %+v", r)
+	}
+	resp, err := http.Get(pingURL + "/log")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("ping by key: %v %v", resp, err)
+	}
+	resp.Body.Close()
+	if r := f.run("checkins", "show", "backup"); !strings.Contains(r.stdout, "ping key:  minted") {
+		t.Fatalf("show after key: %+v", r)
+	}
+	if r := f.run("checkins", "key", "--remove", "backup"); r.code != 0 || r.stdout != "backup: ping key removed\n" {
+		t.Fatalf("key --remove: %+v", r)
+	}
 	if r := f.run("checkins", "pause", "nope"); r.code != 1 || !strings.Contains(r.stderr, "no check") {
 		t.Fatalf("pause unknown: %+v", r)
 	}

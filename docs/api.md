@@ -17,10 +17,12 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `GET /v1/events?after=&before=&order=&limit=&source=&kind=&host=&key=&tag=&q=&hold=` | Lists events after a cursor, in arrival order. `q` is full-text search over title, summary and body. `order=desc` lists newest first. `hold` keeps events whose `hold.state` matches. | served |
 | `GET /v1/events/{id}` | Returns one event with its full body. | served |
 | `GET /v1/send?source=&kind=&...` | Same as `POST /v1/events` for GET-only clients. Scalar fields and `tags` (repeat the parameter) only. | served |
-| `GET` or `POST /ping/{slug}`, `/start`, `/fail`, `/log`, `/{exit_code}` | Check-in pings in the healthchecks.io shape. `?rid=` pairs runs; `?create=1` creates an unknown check. Answers `OK`. See "Check-ins". | served |
+| `GET` or `POST /ping/{slug}`, `/start`, `/fail`, `/log`, `/{exit_code}` | Check-in pings in the healthchecks.io shape, with a write token. `?rid=` pairs runs; `?create=1` creates an unknown check. Answers `OK`. See "Check-ins". | served |
+| `GET` or `POST /p/{key}`, `/start`, `/fail`, `/log`, `/{exit_code}` | The same pings with a check's ping key and no bearer token. | served |
 | `GET /v1/checkins`, `GET /v1/checkins/{slug}` | Every check, or one: schedule, state, next due time, last run length, last log. | served |
 | `PUT /v1/checkins/{slug}` | Creates a check, or replaces a known check's host and schedule. | served |
 | `POST /v1/checkins/{slug}/pause`, `/resume` | Pauses or resumes a check. | served |
+| `POST`, `DELETE /v1/checkins/{slug}/key` | Mints a check's ping key (replacing the old one), or removes it. | served |
 | `POST /notify/apprise`, `POST /notify/{key}` | Apprise-compatible ingest. Answers 200 with `Sent`. | 11 |
 | `GET /v1/state` | Flat arrays of the latest event per key: incidents not resolved, progress not ended, every check-in, set statuses. The shape is a stand-in until stage 12. | served |
 | `GET /v1/stream` | Server-sent events: one `poke` per stored event, with the newest cursor. | served |
@@ -30,7 +32,7 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 
 Auth:
 
-- Every call except `/healthz` takes a bearer token. Each token has a scope:
+- Every call except `/healthz` and `/p/{key}` takes a bearer token. Each token has a scope:
   `write` (post and send), `read` (list, get, state, stream, the read
   cursors and devices), or `admin` (both).
 - A `read` token may register, update and remove devices, as it may move the
@@ -38,12 +40,13 @@ Auth:
   history, cursors and device registration, and a `write` token for the
   notification actions (Ack) and for sending an event.
 - A missing or unknown token gets 401. A token without the scope gets 403.
-- `GET /v1/send` and the pings (`/ping/...`) also take the token as a `token`
-  query parameter. A token in the URL ends up in access logs, proxy logs and
-  browser history. Use the header when the client can set one. Other calls
-  refuse the parameter.
-- A ping takes a `write` token, as any post does. Reading checks takes a
-  `read` token; `PUT`, pause and resume take a `write` token.
+- `GET /v1/send` also takes the token as a `token` query parameter. A token in
+  the URL ends up in access logs, proxy logs and browser history. Use the header
+  when the client can set one. Other calls refuse the parameter.
+- `/ping/{slug}` takes a `write` token in the header, as any post does.
+  `/p/{key}` takes a check's ping key instead (see "Ping keys"). Reading
+  checks takes a `read` token; `PUT`, pause, resume and the ping key calls
+  take a `write` token.
 - The server stores each token's SHA-256 only. The README shows the token file.
 - A write token with the `trusted-ingest` capability is a bridge, such as
   apprise-tee. Its events get two extras:
@@ -286,16 +289,19 @@ the run's log.
 | `create=1` | Creates the check when the slug is unknown. Without it, an unknown slug gets 404. |
 | `period`, `cron`, `tz`, `grace`, `max_runtime`, `reminder` | The schedule of a check that `create=1` makes. A duration is seconds or a Go duration such as `90m`. Ignored for a known check. |
 | `source`, `host` | The event's `source` (default `checkin`) and `host`. |
-| `token` | The write token, for a client that cannot set a header. |
+
+`/p/{key}` takes the same paths after the key, and the same parameters but
+`create` (400): a ping key pings a known check only.
 
 ```sh
-# A cron job that measures itself and sends its output. PING_TOKEN is a
-# write token.
-curl -fsS -m 10 -H "Authorization: Bearer $PING_TOKEN" \
-  "https://heraldo.example.net/ping/nightly-db/start?rid=$$&create=1&cron=0+3+*+*+*&grace=1h"
+# Once, with a write token: create the check and get its ping URL.
+heraldo checkins create nightly-db --cron '0 3 * * *' --tz Europe/Madrid --grace 1h
+heraldo checkins key nightly-db   # prints https://heraldo.example.net/p/<key>
+
+# In the job. PING_URL is that URL, kept in the job's env file.
+curl -fsS -m 10 "$PING_URL/start?rid=$$"
 out=$(run-backup 2>&1); code=$?
-printf '%s' "$out" | curl -fsS -m 10 -H "Authorization: Bearer $PING_TOKEN" \
-  --data-binary @- "https://heraldo.example.net/ping/nightly-db/$code?rid=$$"
+printf '%s' "$out" | curl -fsS -m 10 --data-binary @- "$PING_URL/$code?rid=$$"
 ```
 
 - Each ping stores one event: `kind: checkin`, `key` the slug, `action`
@@ -306,6 +312,37 @@ printf '%s' "$out" | curl -fsS -m 10 -H "Authorization: Bearer $PING_TOKEN" \
 - A failed run's event has the title `<slug> failed` or
   `<slug> failed (exit <code>)`, and pushes as the push table says.
 - The answer is `200` with `OK`.
+
+### Ping keys
+
+A ping key lets a job ping one check with no bearer token. It is for the
+URL that a cron line, a systemd unit or a device webhook carries, where a
+token would leak into shell history, process lists and logs.
+
+- `POST /v1/checkins/{slug}/key` (write token) mints a key and answers
+  `{"key": "...", "path": "/p/<key>"}` with 201. A key is 24 random bytes,
+  base64url: 32 characters.
+- The server stores only the key's SHA-256, as it does for tokens. The
+  answer is the only time it shows the key. `Check.ping_key_at` says when
+  the key was minted.
+- Minting again replaces the key; the old one gets 404 at once. That is the
+  rotation. `DELETE /v1/checkins/{slug}/key` removes the key.
+- A key does one thing: ping its own check. It cannot create a check, read
+  anything, or post other events. A leaked cron line can fake runs of that
+  one check, and nothing else. Rotate the key to end that.
+- An unknown or malformed key gets 404, the same answer, so a probe learns
+  nothing.
+- The request log shows the path as `/p/<key>/...` and the caller as
+  `ping-key:<slug>`, never the key.
+- Any write token may mint a key for any check. That grants nothing new: a
+  write token can already ping any check through `/ping/{slug}`.
+- A check has no key until one is minted. `/ping/{slug}` with a write token
+  in the header always works.
+
+Why a key per check, and not the write token in the URL: a write token posts
+any event and pings every check, so one leaked cron line would expose all of
+them. A per-check key bounds the damage to one check, needs no change to the
+token list, and rotates with one call.
 
 ### Schedule
 
@@ -392,8 +429,8 @@ a dead job, so the sender owns sleep:
 (the table above, with defaults filled in), `created_at`, `last_ping`,
 `last_event` (the id of the last check-in event), `started_at` (the run in
 progress), `last_success`, `last_duration_ms`, `next_due`, `down_after`,
-`last_log` (the body of the last ping that had one), `last_log_at`, and
-`incident` (`open`, `acked` or `resolved`, when the check ever had one).
+`last_log` (the body of the last ping that had one), `last_log_at`,
+`ping_key_at` (when the ping key was minted; never the key), and `incident` (`open`, `acked` or `resolved`, when the check ever had one).
 
 `PUT /v1/checkins/{slug}` takes a `CheckConfig`: `host` and the schedule
 fields. Every field is replaced; a field left out takes its default. It

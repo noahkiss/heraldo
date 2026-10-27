@@ -490,9 +490,6 @@ paths:
       operationId: pingSuccess
       summary: Record a successful run (healthchecks.io shape).
       tags: [checkins]
-      security:
-        - bearerAuth: []
-        - tokenQuery: []
       responses:
         "200":
           $ref: "#/components/responses/PingOK"
@@ -508,9 +505,6 @@ paths:
       operationId: pingSuccessWithLog
       summary: Record a successful run with a log in the body.
       tags: [checkins]
-      security:
-        - bearerAuth: []
-        - tokenQuery: []
       requestBody:
         $ref: "#/components/requestBodies/PingLog"
       responses:
@@ -535,9 +529,6 @@ paths:
       operationId: pingStart
       summary: Record the start of a run.
       tags: [checkins]
-      security:
-        - bearerAuth: []
-        - tokenQuery: []
       responses:
         "200":
           $ref: "#/components/responses/PingOK"
@@ -553,9 +544,6 @@ paths:
       operationId: pingStartWithLog
       summary: Record the start of a run with a log in the body.
       tags: [checkins]
-      security:
-        - bearerAuth: []
-        - tokenQuery: []
       requestBody:
         $ref: "#/components/requestBodies/PingLog"
       responses:
@@ -580,9 +568,6 @@ paths:
       operationId: pingFail
       summary: Record a failed run.
       tags: [checkins]
-      security:
-        - bearerAuth: []
-        - tokenQuery: []
       responses:
         "200":
           $ref: "#/components/responses/PingOK"
@@ -598,9 +583,6 @@ paths:
       operationId: pingFailWithLog
       summary: Record a failed run with a log in the body.
       tags: [checkins]
-      security:
-        - bearerAuth: []
-        - tokenQuery: []
       requestBody:
         $ref: "#/components/requestBodies/PingLog"
       responses:
@@ -625,9 +607,6 @@ paths:
       operationId: pingLogGet
       summary: Record a ping that changes nothing but the last ping time.
       tags: [checkins]
-      security:
-        - bearerAuth: []
-        - tokenQuery: []
       responses:
         "200":
           $ref: "#/components/responses/PingOK"
@@ -643,9 +622,6 @@ paths:
       operationId: pingLog
       summary: Attach a log without changing the check's state.
       tags: [checkins]
-      security:
-        - bearerAuth: []
-        - tokenQuery: []
       requestBody:
         $ref: "#/components/requestBodies/PingLog"
       responses:
@@ -678,9 +654,6 @@ paths:
       operationId: pingExitCode
       summary: Record a run by its exit code.
       tags: [checkins]
-      security:
-        - bearerAuth: []
-        - tokenQuery: []
       responses:
         "200":
           $ref: "#/components/responses/PingOK"
@@ -696,9 +669,214 @@ paths:
       operationId: pingExitCodeWithLog
       summary: Record a run by its exit code, with a log in the body.
       tags: [checkins]
-      security:
-        - bearerAuth: []
-        - tokenQuery: []
+      requestBody:
+        $ref: "#/components/requestBodies/PingLog"
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /p/{key}:
+    parameters:
+      - $ref: "#/components/parameters/PingKeyPath"
+      - $ref: "#/components/parameters/Rid"
+      - $ref: "#/components/parameters/PingSource"
+      - $ref: "#/components/parameters/PingHost"
+    get:
+      operationId: keyPingSuccess
+      summary: Record a successful run (healthchecks.io shape).
+      tags: [checkins]
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: keyPingSuccessWithLog
+      summary: Record a successful run with a log in the body.
+      tags: [checkins]
+      security: []
+      requestBody:
+        $ref: "#/components/requestBodies/PingLog"
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /p/{key}/start:
+    parameters:
+      - $ref: "#/components/parameters/PingKeyPath"
+      - $ref: "#/components/parameters/Rid"
+      - $ref: "#/components/parameters/PingSource"
+      - $ref: "#/components/parameters/PingHost"
+    get:
+      operationId: keyPingStart
+      summary: Record the start of a run.
+      tags: [checkins]
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: keyPingStartWithLog
+      summary: Record the start of a run with a log in the body.
+      tags: [checkins]
+      security: []
+      requestBody:
+        $ref: "#/components/requestBodies/PingLog"
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /p/{key}/fail:
+    parameters:
+      - $ref: "#/components/parameters/PingKeyPath"
+      - $ref: "#/components/parameters/Rid"
+      - $ref: "#/components/parameters/PingSource"
+      - $ref: "#/components/parameters/PingHost"
+    get:
+      operationId: keyPingFail
+      summary: Record a failed run.
+      tags: [checkins]
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: keyPingFailWithLog
+      summary: Record a failed run with a log in the body.
+      tags: [checkins]
+      security: []
+      requestBody:
+        $ref: "#/components/requestBodies/PingLog"
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /p/{key}/log:
+    parameters:
+      - $ref: "#/components/parameters/PingKeyPath"
+      - $ref: "#/components/parameters/Rid"
+      - $ref: "#/components/parameters/PingSource"
+      - $ref: "#/components/parameters/PingHost"
+    get:
+      operationId: keyPingLogGet
+      summary: Record a ping that changes nothing but the last ping time.
+      tags: [checkins]
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: keyPingLog
+      summary: Attach a log without changing the check's state.
+      tags: [checkins]
+      security: []
+      requestBody:
+        $ref: "#/components/requestBodies/PingLog"
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /p/{key}/{exit_code}:
+    parameters:
+      - $ref: "#/components/parameters/PingKeyPath"
+      - name: exit_code
+        in: path
+        required: true
+        description: The job's exit code. 0 records success, anything else records a failure.
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 255
+      - $ref: "#/components/parameters/Rid"
+      - $ref: "#/components/parameters/PingSource"
+      - $ref: "#/components/parameters/PingHost"
+    get:
+      operationId: keyPingExitCode
+      summary: Record a run by its exit code.
+      tags: [checkins]
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: keyPingExitCodeWithLog
+      summary: Record a run by its exit code, with a log in the body.
+      tags: [checkins]
+      security: []
       requestBody:
         $ref: "#/components/requestBodies/PingLog"
       responses:
@@ -791,6 +969,46 @@ paths:
       responses:
         "200":
           description: The check, paused.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Check"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/checkins/{slug}/key:
+    parameters:
+      - $ref: "#/components/parameters/Slug"
+    post:
+      operationId: mintPingKey
+      summary: Mint the check's ping key, replacing the old one.
+      description: |
+        The answer is the only time the server shows the key; it stores the SHA-256.
+        The key in /p/{key} pings this one check and does nothing else.
+      tags: [checkins]
+      responses:
+        "201":
+          description: The new key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PingKey"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: removePingKey
+      summary: Remove the check's ping key. /p/ pings with it get 404.
+      tags: [checkins]
+      responses:
+        "200":
+          description: The check.
           content:
             application/json:
               schema:
@@ -914,6 +1132,14 @@ components:
       schema:
         type: integer
         enum: [0, 1]
+    PingKeyPath:
+      name: key
+      in: path
+      required: true
+      description: A check's ping key, from POST /v1/checkins/{slug}/key. 32 characters, base64url.
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9_-]{32}$"
     PingSource:
       name: source
       in: query
@@ -1234,10 +1460,24 @@ components:
         last_log_at:
           type: string
           format: date-time
+        ping_key_at:
+          type: string
+          format: date-time
+          description: When the check's ping key was minted. Missing when it has none.
         incident:
           type: string
           enum: [open, acked, resolved]
           description: "The state of the check's incident, checkin:<key>. Missing when it never had one."
+    PingKey:
+      type: object
+      required: [key, path]
+      properties:
+        key:
+          type: string
+          description: The ping key. Shown once; the server keeps its SHA-256.
+        path:
+          type: string
+          description: The ping path, /p/<key>. Append /start, /fail, /log or an exit code.
     CheckList:
       type: object
       required: [checkins]

@@ -3,16 +3,20 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strconv"
 	"time"
 	"unicode/utf8"
 
 	"github.com/noahkiss/heraldo/api"
+	"github.com/noahkiss/heraldo/internal/auth"
 	"github.com/noahkiss/heraldo/internal/checkin"
 	"github.com/noahkiss/heraldo/internal/store"
 )
@@ -25,22 +29,55 @@ const checkinSource = "heraldo"
 
 // pingParams are the query parameters a ping takes.
 var pingParams = map[string]bool{
-	"rid": true, "create": true, "token": true, "source": true, "host": true,
+	"rid": true, "create": true, "source": true, "host": true,
 	"period": true, "cron": true, "tz": true, "grace": true, "max_runtime": true, "reminder": true,
 }
 
 // ---- ping API ----------------------------------------------------------
 
 // ping is GET|POST /ping/{slug}[/start|/fail|/log|/{exit_code}], in the
-// healthchecks.io shape. It stores one check-in event; the body, cut to
-// LogLimit, is its log.
+// healthchecks.io shape, with a write token in the Authorization header.
 func (s *server) ping(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	slug := r.PathValue("slug")
 	if !checkin.Slug.MatchString(slug) {
 		writeError(w, http.StatusBadRequest, "slug: 1 to 200 of A-Z, a-z, 0-9, dot, underscore, colon and dash")
 		return
 	}
+	s.recordPing(w, r, slug, false)
+}
+
+// pingKey is the form of a ping key: 24 random bytes, base64url.
+var pingKey = regexp.MustCompile(`^[A-Za-z0-9_-]{32}$`)
+
+// keyPing is GET|POST /p/{key}[/start|/fail|/log|/{exit_code}]. The key
+// names one check and is the only credential: it can ping that check and
+// nothing else, so a leaked cron line exposes one check.
+func (s *server) keyPing(w http.ResponseWriter, r *http.Request) {
+	k := r.PathValue("key")
+	slug, found := "", false
+	if pingKey.MatchString(k) {
+		var err error
+		slug, found, err = s.Store.CheckByPingKey(r.Context(), auth.Hash(k))
+		if err != nil {
+			s.Logger.Error("ping key", "err", err)
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "unknown ping key")
+		return
+	}
+	if who, _ := r.Context().Value(ctxKey{}).(*string); who != nil {
+		*who = "ping-key:" + slug
+	}
+	s.recordPing(w, r, slug, true)
+}
+
+// recordPing stores one check-in event for slug; the body, cut to LogLimit,
+// is its log. byKey is a ping key's ping, which may not create a check.
+func (s *server) recordPing(w http.ResponseWriter, r *http.Request, slug string, byKey bool) {
+	ctx := r.Context()
 	var action string
 	var exit *int
 	switch op := r.PathValue("op"); op {
@@ -86,6 +123,10 @@ func (s *server) ping(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.Logger.Error("ping: check", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if byKey && q.Has("create") {
+		writeError(w, http.StatusBadRequest, "create: a ping key pings a known check; create checks with a write token")
 		return
 	}
 	if !found {
@@ -213,6 +254,60 @@ func parseDuration(v string) (time.Duration, error) {
 	return d, nil
 }
 
+// newPingKey returns a new ping key.
+func newPingKey() (string, error) {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// mintPingKey is POST /v1/checkins/{slug}/key: a new ping key for the
+// check, which replaces the old one. The answer is the only time the server
+// shows the key; it keeps the hash.
+func (s *server) mintPingKey(w http.ResponseWriter, r *http.Request) {
+	slug, ok := s.slug(w, r)
+	if !ok {
+		return
+	}
+	k, err := newPingKey()
+	if err == nil {
+		err = s.Store.SetPingKey(r.Context(), slug, auth.Hash(k))
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "no check %q", slug)
+		return
+	}
+	if err != nil {
+		s.Logger.Error("ping key", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	s.Logger.Info("ping key minted", "check", slug, "by", tokenFrom(r).Name)
+	writeJSON(w, http.StatusCreated, api.PingKey{Key: k, Path: "/p/" + k})
+}
+
+// removePingKey is DELETE /v1/checkins/{slug}/key.
+func (s *server) removePingKey(w http.ResponseWriter, r *http.Request) {
+	slug, ok := s.slug(w, r)
+	if !ok {
+		return
+	}
+	err := s.Store.SetPingKey(r.Context(), slug, "")
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "no check %q", slug)
+		return
+	}
+	if err != nil {
+		s.Logger.Error("ping key", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	s.Logger.Info("ping key removed", "check", slug, "by", tokenFrom(r).Name)
+	s.checkAnswer(w, r, slug, http.StatusOK)
+}
+
 // ---- checks API --------------------------------------------------------
 
 func checkJSON(v store.CheckView) api.Check {
@@ -222,6 +317,7 @@ func checkJSON(v store.CheckView) api.Check {
 		Host: strPtr(c.Host), LastEvent: strPtr(c.LastEvent), LastLog: strPtr(v.LastLog),
 		LastPing: timePtr(c.LastPing), LastSuccess: timePtr(c.LastSuccess), StartedAt: timePtr(c.StartedAt),
 		NextDue: timePtr(c.DueAt), DownAfter: timePtr(c.DownAfter()), LastLogAt: timePtr(v.LastLogAt),
+		PingKeyAt: timePtr(c.PingKeyAt),
 	}
 	if c.LastLogEvent == "" {
 		out.LastLogAt = nil

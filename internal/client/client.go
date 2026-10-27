@@ -244,6 +244,19 @@ func (c *Client) SetPaused(ctx context.Context, slug string, paused bool) (api.C
 	return ch, err
 }
 
+// MintPingKey makes a new ping key for a check, replacing the old one, with
+// the write token.
+func (c *Client) MintPingKey(ctx context.Context, slug string) (api.PingKey, error) {
+	var k api.PingKey
+	err := c.do(ctx, http.MethodPost, "/v1/checkins/"+url.PathEscape(slug)+"/key", nil, c.writeToken(), nil, &k)
+	return k, err
+}
+
+// RemovePingKey removes a check's ping key, with the write token.
+func (c *Client) RemovePingKey(ctx context.Context, slug string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/checkins/"+url.PathEscape(slug)+"/key", nil, c.writeToken(), nil, nil)
+}
+
 func (c *Client) writeToken() string {
 	if c.WriteToken == "" {
 		return c.Token

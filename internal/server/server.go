@@ -111,14 +111,19 @@ func NewServer(o Options) *Server {
 	mux.HandleFunc("PUT /v1/devices/{id}", s.auth(DeviceScope, false, s.updateDevice))
 	mux.HandleFunc("DELETE /v1/devices/{id}", s.auth(DeviceScope, false, s.removeDevice))
 	for _, m := range []string{"GET", "POST"} {
-		mux.HandleFunc(m+" /ping/{slug}", s.auth(auth.ScopeWrite, true, s.ping))
-		mux.HandleFunc(m+" /ping/{slug}/{op}", s.auth(auth.ScopeWrite, true, s.ping))
+		mux.HandleFunc(m+" /ping/{slug}", s.auth(auth.ScopeWrite, false, s.ping))
+		mux.HandleFunc(m+" /ping/{slug}/{op}", s.auth(auth.ScopeWrite, false, s.ping))
+		// A ping key in the path is the credential: no bearer token.
+		mux.HandleFunc(m+" /p/{key}", s.keyPing)
+		mux.HandleFunc(m+" /p/{key}/{op}", s.keyPing)
 	}
 	mux.HandleFunc("GET /v1/checkins", s.auth(auth.ScopeRead, false, s.listChecks))
 	mux.HandleFunc("GET /v1/checkins/{slug}", s.auth(auth.ScopeRead, false, s.getCheck))
 	mux.HandleFunc("PUT /v1/checkins/{slug}", s.auth(auth.ScopeWrite, false, s.putCheck))
 	mux.HandleFunc("POST /v1/checkins/{slug}/pause", s.auth(auth.ScopeWrite, false, s.pauseCheck))
 	mux.HandleFunc("POST /v1/checkins/{slug}/resume", s.auth(auth.ScopeWrite, false, s.resumeCheck))
+	mux.HandleFunc("POST /v1/checkins/{slug}/key", s.auth(auth.ScopeWrite, false, s.mintPingKey))
+	mux.HandleFunc("DELETE /v1/checkins/{slug}/key", s.auth(auth.ScopeWrite, false, s.removePingKey))
 	return &Server{Handler: s.logRequests(mux), s: s}
 }
 
@@ -158,7 +163,8 @@ func (w *statusWriter) WriteHeader(code int) {
 func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // logRequests logs one line per request. It logs the path, never the query
-// string, because /v1/send and /ping may carry a token there.
+// string, because /v1/send may carry a token there; and a ping key in a /p/
+// path is logged as <key>.
 func (s *server) logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -169,9 +175,21 @@ func (s *server) logRequests(next http.Handler) http.Handler {
 		if r.URL.Path == "/healthz" && sw.status == http.StatusOK {
 			return
 		}
-		s.Logger.Info("request", "method", r.Method, "path", r.URL.Path, "status", sw.status,
+		s.Logger.Info("request", "method", r.Method, "path", redactPath(r.URL.Path), "status", sw.status,
 			"ms", time.Since(start).Milliseconds(), "token", who)
 	})
+}
+
+// redactPath hides the ping key in a /p/<key>[/op] path.
+func redactPath(p string) string {
+	rest, ok := strings.CutPrefix(p, "/p/")
+	if !ok {
+		return p
+	}
+	if _, op, found := strings.Cut(rest, "/"); found {
+		return "/p/<key>/" + op
+	}
+	return "/p/<key>"
 }
 
 // auth requires a token with scope need. queryToken allows the token
@@ -191,7 +209,7 @@ func (s *server) auth(need auth.Scope, queryToken bool, h http.HandlerFunc) http
 		if presented == "" && r.URL.Query().Has("token") {
 			if !queryToken {
 				w.Header().Set("WWW-Authenticate", `Bearer`)
-				writeError(w, http.StatusUnauthorized, "the token parameter is accepted only on /v1/send and /ping; use the Authorization header")
+				writeError(w, http.StatusUnauthorized, "the token parameter is accepted only on /v1/send; use the Authorization header")
 				return
 			}
 			presented = r.URL.Query().Get("token")

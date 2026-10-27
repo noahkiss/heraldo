@@ -106,7 +106,8 @@ func TestPingAuth(t *testing.T) {
 	if rec := e.do(t, http.MethodGet, "/ping/a?create=1", readTok, nil); rec.Code != http.StatusForbidden {
 		t.Fatalf("read token: %d", rec.Code)
 	}
-	if rec := e.do(t, http.MethodGet, "/ping/a?create=1&token="+writeTok, "", nil); rec.Code != http.StatusOK {
+	// A write token in the URL is refused: a URL-only client uses a ping key.
+	if rec := e.do(t, http.MethodGet, "/ping/a?create=1&token="+writeTok, "", nil); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("query token: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := e.do(t, http.MethodPut, "/v1/checkins/a", readTok, []byte(`{}`)); rec.Code != http.StatusForbidden {
@@ -361,5 +362,87 @@ func TestRestartKeepsState(t *testing.T) {
 	e.tick(t)
 	if c := e.check(t, "job"); c.State != api.CheckStateDown || *c.Incident != api.CheckIncidentOpen {
 		t.Fatalf("after the start-up grace: %+v", c)
+	}
+}
+
+func TestPingKey(t *testing.T) {
+	e := newEnv(t)
+	e.ping(t, "/ping/job?create=1&period=1h", "")
+	e.ping(t, "/ping/other?create=1", "")
+	if rec := e.do(t, http.MethodPost, "/v1/checkins/job/key", readTok, nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("mint with a read token: %d", rec.Code)
+	}
+	if rec := e.do(t, http.MethodPost, "/v1/checkins/nope/key", writeTok, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("mint for an unknown check: %d", rec.Code)
+	}
+	rec := e.do(t, http.MethodPost, "/v1/checkins/job/key", writeTok, nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("mint: %d %s", rec.Code, rec.Body.String())
+	}
+	k := decode[api.PingKey](t, rec)
+	if len(k.Key) != 32 || k.Path != "/p/"+k.Key {
+		t.Fatalf("key: %+v", k)
+	}
+	if c := e.check(t, "job"); c.PingKeyAt == nil {
+		t.Fatalf("no ping_key_at: %+v", c)
+	}
+	// The key alone pings its check, with no bearer token.
+	e.clock.add(time.Minute)
+	if c := e.ping(t, k.Path+"/start?rid=r", ""); c != http.StatusOK {
+		t.Fatalf("key start: %d", c)
+	}
+	e.clock.add(time.Minute)
+	if rec := e.do(t, http.MethodPost, k.Path+"/0?rid=r", "", []byte("done")); rec.Code != http.StatusOK || rec.Body.String() != "OK" {
+		t.Fatalf("key exit 0: %d %s", rec.Code, rec.Body.String())
+	}
+	c := e.check(t, "job")
+	if c.State != api.CheckStateUp || *c.LastDurationMs != 60000 || *c.LastLog != "done" {
+		t.Fatalf("after key pings: %+v", c)
+	}
+	if o := e.check(t, "other"); o.LastPing.After(c.CreatedAt.Add(time.Second)) {
+		t.Fatalf("the key pinged another check: %+v", o)
+	}
+	// A key cannot create checks, and bad or unknown keys get 404.
+	if c := e.ping(t, k.Path+"?create=1", ""); c != http.StatusBadRequest {
+		t.Fatalf("create by key: %d", c)
+	}
+	for _, p := range []string{"/p/short", "/p/" + strings.Repeat("A", 32), "/p/" + strings.Repeat("A", 32) + "/fail"} {
+		if rec := e.do(t, http.MethodGet, p, "", nil); rec.Code != http.StatusNotFound {
+			t.Errorf("%s: %d", p, rec.Code)
+		}
+	}
+	// Minting again rotates: the old key stops working.
+	k2 := decode[api.PingKey](t, e.do(t, http.MethodPost, "/v1/checkins/job/key", writeTok, nil))
+	if rec := e.do(t, http.MethodGet, k.Path, "", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("old key after rotate: %d", rec.Code)
+	}
+	if c := e.ping(t, k2.Path, ""); c != http.StatusOK {
+		t.Fatalf("new key: %d", c)
+	}
+	// A tick keeps the key (it writes the whole row).
+	e.clock.add(2 * time.Hour)
+	e.tick(t)
+	if c := e.ping(t, k2.Path, ""); c != http.StatusOK {
+		t.Fatalf("key after a tick: %d", c)
+	}
+	rec = e.do(t, http.MethodDelete, "/v1/checkins/job/key", writeTok, nil)
+	if rec.Code != http.StatusOK || decode[api.Check](t, rec).PingKeyAt != nil {
+		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := e.do(t, http.MethodGet, k2.Path, "", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("removed key: %d", rec.Code)
+	}
+}
+
+func TestRedactPath(t *testing.T) {
+	for in, want := range map[string]string{
+		"/p/abc":        "/p/<key>",
+		"/p/abc/start":  "/p/<key>/start",
+		"/ping/a/start": "/ping/a/start",
+		"/v1/events":    "/v1/events",
+	} {
+		if got := redactPath(in); got != want {
+			t.Errorf("%s: %s", in, got)
+		}
 	}
 }

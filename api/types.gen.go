@@ -491,6 +491,9 @@ type Check struct {
 	// NextDue When the next ping is due. The check turns late then.
 	NextDue *time.Time `json:"next_due,omitempty"`
 
+	// PingKeyAt When the check's ping key was minted. Missing when it has none.
+	PingKeyAt *time.Time `json:"ping_key_at,omitempty"`
+
 	// Schedule When a check expects pings. Set period_s, or cron with an optional tz, or neither for an unscheduled check that only a failed or overrun run takes down.
 	Schedule CheckSchedule `json:"schedule"`
 
@@ -935,6 +938,15 @@ type Permissions struct {
 	TimeSensitive *bool `json:"time_sensitive,omitempty"`
 }
 
+// PingKey defines model for PingKey.
+type PingKey struct {
+	// Key The ping key. Shown once; the server keeps its SHA-256.
+	Key string `json:"key"`
+
+	// Path The ping path, /p/<key>. Append /start, /fail, /log or an exit code.
+	Path string `json:"path"`
+}
+
 // Schedule When the check expects a ping. The server uses it only to create a check it does not know yet, as healthchecks.io does with ?create=1; after that the check's config lives on the server. Set period_s, or cron with an optional tz, not both.
 type Schedule struct {
 	// Cron Cron expression for the expected pings.
@@ -974,6 +986,9 @@ type Create int
 // PingHost defines model for PingHost.
 type PingHost = string
 
+// PingKeyPath defines model for PingKeyPath.
+type PingKeyPath = string
+
 // PingSource defines model for PingSource.
 type PingSource = string
 
@@ -988,6 +1003,141 @@ type Repeat = Event
 
 // Stored One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold and delivery.
 type Stored = Event
+
+// KeyPingSuccessParams defines parameters for KeyPingSuccess.
+type KeyPingSuccessParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// KeyPingSuccessWithLogTextBody defines parameters for KeyPingSuccessWithLog.
+type KeyPingSuccessWithLogTextBody = string
+
+// KeyPingSuccessWithLogParams defines parameters for KeyPingSuccessWithLog.
+type KeyPingSuccessWithLogParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// KeyPingFailParams defines parameters for KeyPingFail.
+type KeyPingFailParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// KeyPingFailWithLogTextBody defines parameters for KeyPingFailWithLog.
+type KeyPingFailWithLogTextBody = string
+
+// KeyPingFailWithLogParams defines parameters for KeyPingFailWithLog.
+type KeyPingFailWithLogParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// KeyPingLogGetParams defines parameters for KeyPingLogGet.
+type KeyPingLogGetParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// KeyPingLogTextBody defines parameters for KeyPingLog.
+type KeyPingLogTextBody = string
+
+// KeyPingLogParams defines parameters for KeyPingLog.
+type KeyPingLogParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// KeyPingStartParams defines parameters for KeyPingStart.
+type KeyPingStartParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// KeyPingStartWithLogTextBody defines parameters for KeyPingStartWithLog.
+type KeyPingStartWithLogTextBody = string
+
+// KeyPingStartWithLogParams defines parameters for KeyPingStartWithLog.
+type KeyPingStartWithLogParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// KeyPingExitCodeParams defines parameters for KeyPingExitCode.
+type KeyPingExitCodeParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// KeyPingExitCodeWithLogTextBody defines parameters for KeyPingExitCodeWithLog.
+type KeyPingExitCodeWithLogTextBody = string
+
+// KeyPingExitCodeWithLogParams defines parameters for KeyPingExitCodeWithLog.
+type KeyPingExitCodeWithLogParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
 
 // PingSuccessParams defines parameters for PingSuccess.
 type PingSuccessParams struct {
@@ -1241,6 +1391,21 @@ type NotifyAppriseKeyJSONRequestBody = AppriseNotify
 
 // NotifyAppriseKeyFormdataRequestBody defines body for NotifyAppriseKey for application/x-www-form-urlencoded ContentType.
 type NotifyAppriseKeyFormdataRequestBody = AppriseNotify
+
+// KeyPingSuccessWithLogTextRequestBody defines body for KeyPingSuccessWithLog for text/plain ContentType.
+type KeyPingSuccessWithLogTextRequestBody = KeyPingSuccessWithLogTextBody
+
+// KeyPingFailWithLogTextRequestBody defines body for KeyPingFailWithLog for text/plain ContentType.
+type KeyPingFailWithLogTextRequestBody = KeyPingFailWithLogTextBody
+
+// KeyPingLogTextRequestBody defines body for KeyPingLog for text/plain ContentType.
+type KeyPingLogTextRequestBody = KeyPingLogTextBody
+
+// KeyPingStartWithLogTextRequestBody defines body for KeyPingStartWithLog for text/plain ContentType.
+type KeyPingStartWithLogTextRequestBody = KeyPingStartWithLogTextBody
+
+// KeyPingExitCodeWithLogTextRequestBody defines body for KeyPingExitCodeWithLog for text/plain ContentType.
+type KeyPingExitCodeWithLogTextRequestBody = KeyPingExitCodeWithLogTextBody
 
 // PingSuccessWithLogTextRequestBody defines body for PingSuccessWithLog for text/plain ContentType.
 type PingSuccessWithLogTextRequestBody = PingSuccessWithLogTextBody
