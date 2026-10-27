@@ -24,16 +24,19 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `GET /v1/cursors/{name}`, `PUT /v1/cursors/{name}` | The read cursor called `name`, shared by every client, with its `unread` count. | served |
 | `GET /v1/devices`, `POST /v1/devices` | Lists devices; registers a device or refreshes the one with that APNs token. | served |
 | `GET`, `PUT`, `DELETE /v1/devices/{id}` | One device: read, replace its registration, retire it. | served |
+| `GET /v1/mutes`, `POST /v1/mutes`, `DELETE /v1/mutes/{id}` | Mutes in force; mute a source or key for a while; end a mute. | served |
+| `GET /v1/icons`, `GET`, `PUT`, `DELETE /v1/icons/{name}` | The icon registry: list, fetch an image, store one, remove one. | served |
 
 Auth:
 
 - Every call except `/healthz` takes a bearer token. Each token has a scope:
-  `write` (post and send), `read` (list, get, state, stream, the read
-  cursors and devices), or `admin` (both).
+  `write` (post and send, make and end mutes), `read` (list, get, state,
+  stream, the read cursors, devices, and listing mutes and icons), or `admin`
+  (both, and storing and removing icons).
 - A `read` token may register, update and remove devices, as it may move the
   read cursors. The apps hold a token pair, like the CLI: a `read` token for
   history, cursors and device registration, and a `write` token for the
-  notification actions (Ack) and for sending an event.
+  notification actions (Ack, Mute 1 h) and for sending an event.
 - A missing or unknown token gets 401. A token without the scope gets 403.
 - `GET /v1/send` also takes the token as a `token` query parameter. A token in
   the URL ends up in access logs, proxy logs and browser history. Use the header
@@ -82,7 +85,8 @@ Read cursors:
 - `GET` answers 404 for a name with no cursor.
 - Every answer carries `unread`: the events after the cursor that push an
   alert (see "Push"). It is the app's badge. Held and store-only events,
-  incident acks, progress, status and passing check-ins do not count.
+  incident acks, progress, status and passing check-ins do not count, nor
+  does an event a mute or an inhibit rule held back.
 
 Event stream:
 
@@ -180,6 +184,10 @@ Which events push, and how loud:
 
 - Before the table: a held event (`hold.state` is `held`), a store-only event
   (`hold.store_only`), and an event past `expires_at` never push.
+- After the table: a mute ("Mutes") or an inhibit rule ("Inhibit rules") holds
+  back an event that would push. `delivery` records `skipped` per device, with
+  the reason in `error`, such as `muted by mute_01J...` or
+  `inhibited by host-down: host:web-1 is open`.
 - A quiet message is one with `level: passive`. An ingest rule can set it.
 - `critical` goes out as `time-sensitive`: the app has no critical-alerts
   entitlement. `delivery` records `level: time-sensitive` and the note
@@ -222,6 +230,7 @@ event that did not push has no `delivery`.
     "action": "open",
     "url": "https://example.com/status",
     "image": "https://example.com/graph.png",
+    "icon": "uptime",
     "truncated": true
   }
 }
@@ -230,14 +239,16 @@ event that did not push has no `delivery`.
 | Payload | From |
 |---|---|
 | `alert.title` | `title`, else `source` |
-| `alert.body` | `summary`, else `body`. A body is cut at a character boundary, with `…`, so the payload fits 4 KB. |
+| `alert.body` | `summary`, else `body`. A body is cut at a character boundary, with `…`, so the payload fits 4 KB. An incident resolve says `Resolved after 12 min` instead; a re-alert starts with `Still open after 30 min.`; a digest without a summary shows the first line of its body. |
 | `badge` | `unread` of the `inbox` cursor when the push goes out |
 | `sound` | `sound`, default `default`; none for `passive` or `sound: none` |
 | `thread-id` | `thread`, else `source` |
-| `category` | `incident` for an incident `open`, `update` or no action; `event` for the rest. The app registers both: `incident` has Ack and Open; `event` has Open. Mute waits for a server-side mute. |
+| `category` | `incident` for an incident `open`, `update` or no action; `event` for the rest. The app registers both: `incident` has Ack, Mute 1 h and Open; `event` has Mute 1 h and Open. Mute 1 h on an incident mutes its key; on an event, its source. |
 | `mutable-content` | Always 1, so the notification service extension runs. |
 | `interruption-level` | The table above. |
 | `relevance-score` | `relevance` |
+| `heraldo.icon` | The registry icon for the event: its `icon` when the registry has that name, else the icon named after its `source`. The extension fetches `GET /v1/icons/{name}` and attaches it as the thumbnail when the event has no `image`. |
+| `heraldo.icon_url` | The event's `icon`, when it is an `https` URL. The extension fetches it without a token. |
 | `heraldo.truncated` | The alert does not carry the full text: the body was cut, or the alert shows the summary of an event that also has a body. The extension fetches `GET /v1/events/{id}`. |
 
 Headers: `apns-push-type: alert`; `apns-topic` from the device; `apns-collapse-id`
@@ -245,12 +256,94 @@ is the first 32 hex characters of the SHA-256 of `key`, when the event has one;
 `apns-expiration` is `expires_at` when set, and absent otherwise, so APNs keeps
 the push for an offline device.
 
+## Incidents
+
+An incident is the events that share a `key` with kind `incident`. The
+server keeps one row per key and stores a snapshot of it on each incident
+event, in the server field `incident`.
+
+| Event | Incident after it |
+|---|---|
+| `open`, `update`, no action | A new or resolved incident opens at this event. An acked one stays acked; an open one stays open. |
+| `ack` | An open incident is acked. A resolved one stays resolved. |
+| `resolve` | The incident resolves at this event. A resolved one keeps its first resolve. A resolve with no open before it opens and resolves at once. |
+
+- `GET /v1/state` lists the incidents that are not resolved, each as its
+  latest event; its `incident.state` says open or acked.
+- A resolve pushes `Resolved after 12 min` (from `incident.opened_at` and
+  `resolved_at`), passive, with the same `apns-collapse-id` as the open. The
+  phone replaces the incident's notification with it, so a failure and its
+  recovery show as one notification.
+
+Re-alerts:
+
+- An incident `open`, `update` or untyped event at level `time-sensitive` or
+  `critical`, with `details.heraldo.realert_s` of 60 or more, schedules a
+  re-alert. An ingest rule sets it with `set.realert` (see "Ingest rules").
+- While the incident is open, the server pushes that event again every
+  `realert_s` seconds, with `Still open after 30 min.` before the text and the
+  same collapse id. No event is stored; the re-alert's outcome replaces the
+  event's `delivery`.
+- An ack or a resolve ends the re-alerts. A later open or update with an
+  interval starts them again; one without an interval keeps the schedule.
+- The server checks every 30 seconds. After downtime it sends one re-alert,
+  not one per missed interval. Only a server with push on sends re-alerts.
+- A mute or an inhibit rule holds a re-alert back, and the schedule moves on.
+
+## Mutes
+
+A mute holds back pushes for a while. Matching events are stored, listed and
+synced as usual; only the push is skipped. The app's Mute 1 h action makes one.
+
+`POST /v1/mutes` takes a write token and a `MuteInput`:
+
+| Field | Meaning |
+|---|---|
+| `source` | Mute events from this source. 128 bytes. |
+| `key` | Mute events with this key, such as one incident. 255 bytes. |
+| `until` | When the mute ends, RFC 3339. |
+| `for` | How long the mute lasts, a Go duration such as `1h` or `90m`, instead of `until`. |
+
+- Give `source`, `key` or both. With both, an event must match both.
+- Give `until` or `for`, not both. The end is in the future, at most 366 days
+  ahead. Otherwise 400.
+- The answer, 201, is a `Mute`: `id` (`mute_` plus a ULID), `source`, `key`,
+  `until`, `created_at`, `ended_at` and `active`.
+- `GET /v1/mutes` takes a read token and lists the mutes in force, soonest
+  to end first.
+- `DELETE /v1/mutes/{id}` takes a write token and ends the mute now. A mute
+  that already ended is returned as it is. 404 for an unknown id.
+- Mutes hold back pushes and re-alerts, not storage, the event stream, or the
+  read cursors.
+
+## Icons
+
+The icon registry maps a name to an image. An admin token writes it; there
+are no open uploads.
+
+- `PUT /v1/icons/{name}` with the image as the body stores or replaces the
+  icon: 201 new, 200 replaced. PNG or JPEG, up to 256 KiB; the server checks
+  the bytes, not the header. A square image of 256 by 256 pixels or more shows
+  best. `name` is 1 to 128 of `A-Z a-z 0-9 . _ -`, starting with a letter or
+  digit. Other types get 415.
+- `GET /v1/icons/{name}` (read) returns the image. Its `ETag` is the image's
+  SHA-256; `If-None-Match` answers 304.
+- `GET /v1/icons` (read) lists `{name, content_type, bytes, sha256, updated_at}`.
+- `DELETE /v1/icons/{name}` (admin) removes it: 204.
+- An event names its icon in `icon`. Without one, an icon named after the
+  event's `source` is used. The push carries the name in `heraldo.icon`.
+
+```sh
+curl -X PUT --data-binary @backup.png -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "$HERALDO_URL/v1/icons/backup"
+```
+
 ## Input and stored events
 
 - **`EventInput`** is what a sender posts. It is the schema root.
 - **`Event`** is what the read API returns: `$defs/Event` in the schema.
-- The server owns `id`, `received_at`, `hold` and `delivery`. An input that sets
-  any of them is rejected. `ts` stays the sender's; the server fills it with the
+- The server owns `id`, `received_at`, `hold`, `delivery` and `incident`. An
+  input that sets any of them is rejected. `ts` stays the sender's; the server fills it with the
   arrival time when it is missing.
 
 ## Envelope v1
@@ -287,7 +380,7 @@ Sender fields:
 | `level` | `passive`, `active`, `time-sensitive`, `critical` | Interruption level. Default `active`. |
 | `thread` | string, 128 | Notification thread. Defaults to the source. |
 | `url`, `image` | URI | Tap target and attached image. |
-| `icon` | string, 512 | Source icon: a URL or a symbol name. |
+| `icon` | string, 512 | Source icon: an `https` URL, or a name in the icon registry. |
 | `sound` | string, 64 | `default`, `none`, or a sound bundled with the app. |
 | `tags` | up to 16 strings of 64 | Labels for rule matching, such as Apprise tags. |
 | `dedup` | string, 128 | Idempotency id. A repeat within 24 hours is dropped. |
@@ -344,7 +437,8 @@ that, the check's config lives on the server.
 | `id` | Event id: a ULID (26 characters, sortable by time). Live events get the arrival time. |
 | `received_at` | When the server stored the event. |
 | `hold` | Triage state. |
-| `delivery` | Per-device outcome: `sent` or `failed`, with the level the push carried. `skipped` is reserved for device settings. See "Push". |
+| `delivery` | Per-device outcome: `sent`, `failed`, or `skipped` (a mute or an inhibit rule held it back), with the level the push carried. See "Push". |
+| `incident` | On an incident event: the incident after this event, `{state, opened_at, resolved_at}`. `state` is `open`, `acked` or `resolved`. See "Incidents". |
 
 ## APNs mapping
 
@@ -443,6 +537,9 @@ rules:
   `checkin`), `key`, `action`, `level`, `thread` and `host`. `incident` and
   `checkin` need a `key`. A field the rule leaves out keeps the sender's
   value. A value longer than the envelope allows is cut.
+- An `incident` rule may also set `realert`, a Go duration of a minute or
+  more, such as `15m`. The event stores it as `details.heraldo.realert_s`. It
+  re-alerts only a `time-sensitive` or `critical` incident (see "Incidents").
 - The stored event records the rule in `details.heraldo.rule`.
 - When a rule's result is not a valid envelope (a capture came out empty, so
   an incident has no key), the server logs a warning and stores the event as
@@ -454,6 +551,31 @@ rules:
 An incident's recovery pairs with its failure only when both rules build the
 same key. One event carries one key, so a post that lists several items
 (units, containers) can key on one of them only.
+
+### Inhibit rules
+
+An `inhibit` list beside `rules` holds back the pushes of child incidents
+while a parent incident is open, such as a host that is down muting its
+units and containers.
+
+```yaml
+inhibit:
+  - name: host-down
+    parent: '^host:(?P<host>[\w.-]+)$'
+    children: '^(unit|container):{host}:'
+```
+
+- `parent` is a regular expression on an incident key. `children` is one
+  too; `{name}` in it is replaced with the parent's capture, quoted, so a dot
+  in a host name matches a dot only.
+- While an incident whose key matches `parent` is open or acked, an event
+  whose key matches `children` is stored but not pushed. Its `delivery` says
+  `skipped` and names the rule and the parent.
+- The parent's own events are never held back by its own rule.
+- A resolve of the parent ends the hold. A child still open then re-alerts
+  on its schedule, if it has one.
+- A placeholder that names no capture in `parent` is an error when the file
+  loads.
 
 `heraldo-server replay-tee -rules <file> <dir>` runs a catalogue through a
 rules file in memory, with no database, and prints:
