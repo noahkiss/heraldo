@@ -682,6 +682,8 @@ A check's incident has the key `checkin:<slug>` and the source `heraldo`.
   systemd `OnFailure` messages, are such checks.
 - `late` raises nothing. The app and CLI show it.
 - A ping to a paused check is stored; a failed run's event is `passive`.
+- Ping rules ("Ingest rules") can set a run's `level` or hold it, such as
+  holding one check's failures for triage.
   Pausing resolves an open incident.
 - An acked incident gets no reminders. It still resolves on the next success.
 
@@ -887,7 +889,8 @@ The rules apply to an untyped input, one without `kind`, on
 `POST /v1/events`, `GET /v1/send` and `import-tee` (catalogue lines are
 untyped). A sender that sets `kind`, `message` included, is never retyped.
 An untyped input that no rule matches is stored as `message`, with the
-sender's other fields as sent.
+sender's other fields as sent. Ping rules (below) apply to the check-in
+events of `/ping` and `/p`.
 
 ```yaml
 rules:
@@ -906,7 +909,7 @@ rules:
 - Rules run in file order. The first rule that matches wins; the rest are
   not tried.
 - `match` takes Go RE2 regular expressions on `source`, `host`, `tag`,
-  `title` and `body`. Every field a rule names must match. `tag` matches when
+  `title`, `body`, `key`, `action` and `kind`. Every field a rule names must match. `tag` matches when
   any one tag does, and `^$` matches an untagged event. A missing field reads
   as the empty string. A rule with no `match` matches everything.
 - Named groups, `(?P<name>...)`, are captures. `{name}` in `key`, `host` or
@@ -919,6 +922,15 @@ rules:
 - An `incident` rule may also set `realert`, a Go duration of a minute or
   more, such as `15m`. The event stores it as `details.heraldo.realert_s`. It
   re-alerts only a `time-sensitive` or `critical` incident (see "Incidents").
+- Any rule may set `hold: true`. The event is stored with `hold`
+  `{state: held, reason: "rule <name>", store_only: true}`, so it never
+  pushes and lists under `?hold=held`.
+- A rule whose `match` names `kind` is a ping rule. It applies only to the
+  check-in event a ping makes (`/ping/{slug}` and `/p/{key}`), never to an
+  untyped input, and no other rule sees ping events. It keeps the event's
+  `kind`, `key` and `action`: its `set` takes `level`, `thread`, `host` and
+  `hold` only. A held failed run still moves the check to `down` and opens
+  its incident; the hold stops the run's own push.
 - The stored event records the rule in `details.heraldo.rule`.
 - When a rule's result is not a valid envelope (a capture came out empty, so
   an incident has no key), the server logs a warning and stores the event as

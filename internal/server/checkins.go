@@ -185,7 +185,7 @@ func (s *server) recordPing(w http.ResponseWriter, r *http.Request, slug string,
 		s.badInput(w, err)
 		return
 	}
-	if _, _, err := s.ingest(ctx, in, false); err != nil {
+	if _, _, err := s.ingestPing(ctx, in); err != nil {
 		writeError(w, http.StatusInternalServerError, "could not store the ping")
 		return
 	}

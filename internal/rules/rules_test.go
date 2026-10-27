@@ -50,6 +50,9 @@ func TestParseErrors(t *testing.T) {
 		"realert on message": `rules: [{name: a, set: {kind: message, realert: 10m}}]`,
 		"realert too short":  `rules: [{name: a, set: {kind: incident, key: k, realert: 30s}}]`,
 		"realert not a time": `rules: [{name: a, set: {kind: incident, key: k, realert: often}}]`,
+		"ping rule kind":     `rules: [{name: a, match: {kind: checkin}, set: {kind: checkin, key: k}}]`,
+		"ping rule action":   `rules: [{name: a, match: {kind: checkin}, set: {action: fail}}]`,
+		"ping rule realert":  `rules: [{name: a, match: {kind: checkin}, set: {realert: 10m}}]`,
 		"inhibit no name":    `inhibit: [{parent: a, children: b}]`,
 		"inhibit no parent":  `inhibit: [{name: a, children: b}]`,
 		"inhibit bad parent": `inhibit: [{name: a, parent: '(', children: b}]`,
@@ -204,6 +207,43 @@ func TestApply(t *testing.T) {
 	in = input(t, v, `{"source":"x","key":"mine","title":"hello"}`)
 	if out, _, _ := Type(s, in, v); *out.Typed.Key != "mine" {
 		t.Fatalf("key = %v", out.Typed.Key)
+	}
+}
+
+// A ping rule sees only ping events, and keeps their kind, key and action;
+// a hold rule's hold is store-only.
+func TestPingRules(t *testing.T) {
+	v, _ := validate.New()
+	s, err := Parse([]byte(`rules:
+  - name: quiet-backup
+    match: {kind: '^checkin$', key: '^backup$'}
+    set: {level: passive, hold: true}
+  - name: all
+    set: {kind: digest}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ping := input(t, v, `{"source":"checkin","kind":"checkin","key":"backup","action":"fail","title":"backup failed"}`)
+	out, rule, err := ApplyPing(s, ping, v)
+	if err != nil || rule != "quiet-backup" || *out.Typed.Kind != api.KindCheckin || *out.Typed.Key != "backup" ||
+		*out.Typed.Action != api.EventActionFail || *out.Typed.Level != api.LevelPassive {
+		t.Fatalf("rule %q, err %v, typed %+v", rule, err, out.Typed)
+	}
+	if h := s.Hold(rule); h["state"] != "held" || h["store_only"] != true {
+		t.Fatalf("hold %v", h)
+	}
+	if s.Hold("all") != nil || s.Hold("") != nil {
+		t.Fatal("a rule without hold holds")
+	}
+	// Another check: no ping rule matches, and the catch-all never sees it.
+	other := input(t, v, `{"source":"checkin","kind":"checkin","key":"other","action":"fail"}`)
+	if out, rule, _ := ApplyPing(s, other, v); out != other || rule != "" {
+		t.Fatalf("other: rule %q", rule)
+	}
+	// An untyped input never meets a ping rule.
+	if _, rule, _ := Type(s, input(t, v, `{"source":"checkin","key":"backup","title":"x"}`), v); rule != "all" {
+		t.Fatalf("untyped: rule %q", rule)
 	}
 }
 

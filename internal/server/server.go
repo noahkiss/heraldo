@@ -393,7 +393,8 @@ func (s *server) store(w http.ResponseWriter, r *http.Request, in *validate.Inpu
 // and queues the push. trusted is the trusted-ingest capability. It logs its
 // own errors.
 func (s *server) ingest(ctx context.Context, in *validate.Input, trusted bool) (store.Record, bool, error) {
-	typed, _, err := rules.Type(s.Rules.Rules(), in, s.Validator)
+	set := s.Rules.Rules()
+	typed, rule, err := rules.Type(set, in, s.Validator)
 	if typed == nil {
 		s.Logger.Error("type", "err", err)
 		return store.Record{}, false, err
@@ -403,7 +404,23 @@ func (s *server) ingest(ctx context.Context, in *validate.Input, trusted bool) (
 		// lose it.
 		s.Logger.Warn("rules: matched, but the typed event is not valid; stored as a message", "err", err)
 	}
-	in = typed
+	return s.insert(ctx, typed, set.Hold(rule), trusted)
+}
+
+// ingestPing is ingest for the check-in event of a ping: the ping rules
+// run on it instead of the rules for untyped inputs.
+func (s *server) ingestPing(ctx context.Context, in *validate.Input) (store.Record, bool, error) {
+	set := s.Rules.Rules()
+	out, rule, err := rules.ApplyPing(set, in, s.Validator)
+	if err != nil {
+		s.Logger.Warn("rules: matched a ping, but the result is not valid; stored as sent", "err", err)
+	}
+	return s.insert(ctx, out, set.Hold(rule), false)
+}
+
+// insert stores and announces a typed input. hold, when set, is the hold a
+// rule gave it.
+func (s *server) insert(ctx context.Context, in *validate.Input, hold map[string]any, trusted bool) (store.Record, bool, error) {
 	now := s.Now().UTC()
 	id := ids.New(now)
 	f := in.Fields
@@ -411,6 +428,9 @@ func (s *server) ingest(ctx context.Context, in *validate.Input, trusted bool) (
 	f["received_at"] = now.Format(time.RFC3339Nano)
 	if _, ok := f["ts"]; !ok {
 		f["ts"] = now.Format(time.RFC3339Nano)
+	}
+	if hold != nil {
+		f["hold"] = hold
 	}
 	if trusted {
 		if h := bridgedHold(f); h != nil {

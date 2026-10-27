@@ -16,8 +16,8 @@
 //	      host: '{host}'
 //	      level: time-sensitive
 //
-// match holds regular expressions (Go RE2 syntax) on source, host, tag, title
-// and body. Every field a rule names must match; a rule with no match fields
+// match holds regular expressions (Go RE2 syntax) on source, host, tag, title,
+// body, key, action and kind. Every field a rule names must match; a rule with no match fields
 // matches everything. tag matches when any one tag does. A missing field
 // reads as the empty string. Named groups, (?P<name>...), are captures:
 // {name} in a set value is replaced with the captured text.
@@ -27,7 +27,13 @@
 // sender's value. An incident rule may also set realert, a Go duration of a
 // minute or more: an open time-sensitive or critical incident is pushed
 // again at that interval until it is acked or resolved. It is stored as
-// details.heraldo.realert_s.
+// details.heraldo.realert_s. Any rule may set hold: true; the server then
+// stores the event held and store-only, so it never pushes.
+//
+// A rule whose match names kind is a ping rule. It sees only the check-in
+// events the ping API makes (ApplyPing), never an untyped input, and it
+// keeps the event's kind, key and action: its set gives level, thread, host
+// and hold only.
 //
 // inhibit, beside rules, holds back the pushes of child incidents while a
 // parent incident is not resolved:
@@ -42,9 +48,9 @@
 // incident whose key matches parent is open or acked, an event whose key
 // matches children, and is not the parent, is stored but not pushed.
 //
-// Rules run in file order and the first match wins. They apply only to an
-// untyped input, one without kind: an explicit kind, message included, is
-// the sender's final word. Type stores an untyped input no rule matches as
+// Rules run in file order and the first match wins. Apart from ping rules,
+// they apply only to an untyped input, one without kind: an explicit kind,
+// message included, is the sender's final word. Type stores an untyped input no rule matches as
 // kind message. A classified event records the rule in details.heraldo.rule.
 package rules
 
@@ -68,7 +74,7 @@ import (
 )
 
 // matchFields are the event fields a rule can match on.
-var matchFields = []string{"source", "host", "tag", "title", "body"}
+var matchFields = []string{"source", "host", "tag", "title", "body", "key", "action", "kind"}
 
 // setLimits are the fields a rule can set that take a template, with the
 // envelope's length limit for each.
@@ -110,6 +116,7 @@ type setSpec struct {
 	Host   string `yaml:"host"`
 	// Realert is a Go duration, such as 15m.
 	Realert string `yaml:"realert"`
+	Hold    bool   `yaml:"hold"`
 }
 
 // Rule is one compiled rule.
@@ -122,6 +129,9 @@ type Rule struct {
 	tmpl   map[string]string // key, thread, host
 	// realert is the re-alert interval; 0 means none.
 	realert time.Duration
+	// ping is set on a rule whose match names kind: it applies to ping
+	// events only. hold stores the event held.
+	ping, hold bool
 }
 
 // MinRealert is the shortest re-alert interval a rule may set.
@@ -304,6 +314,13 @@ func compile(spec ruleSpec) (*Rule, error) {
 		r.match[field] = re
 	}
 
+	r.hold = spec.Set.Hold
+	if _, r.ping = r.match["kind"]; r.ping {
+		if spec.Set.Kind != "" || spec.Set.Key != "" || spec.Set.Action != "" || spec.Set.Realert != "" {
+			return nil, errors.New("set: a rule that matches kind keeps the event's kind, key and action; it sets level, thread, host and hold only")
+		}
+		spec.Set.Kind = string(api.KindCheckin)
+	}
 	r.kind = api.Kind(spec.Set.Kind)
 	allowed, ok := actions[r.kind]
 	if !ok {
@@ -349,7 +366,7 @@ func compile(spec ruleSpec) (*Rule, error) {
 		}
 		r.realert = d.Truncate(time.Second)
 	}
-	if (r.kind == api.KindIncident || r.kind == api.KindCheckin) && r.tmpl["key"] == "" {
+	if (r.kind == api.KindIncident || r.kind == api.KindCheckin) && r.tmpl["key"] == "" && !r.ping {
 		return nil, fmt.Errorf("set.key: kind %s needs a key", r.kind)
 	}
 	return r, nil
@@ -378,20 +395,50 @@ type Result struct {
 	Fields map[string]string
 	// Realert is the rule's re-alert interval; 0 means none.
 	Realert time.Duration
+	// Hold is set when the rule stores the event held.
+	Hold bool
 }
 
 // Match returns the result of the first rule that matches fields, the
-// sender's event. It does not check Eligible.
+// sender's event. It does not check Eligible, and skips ping rules.
 func (s *Set) Match(fields map[string]any) (Result, bool) {
+	return s.match(fields, false)
+}
+
+// MatchPing returns the result of the first ping rule that matches fields,
+// a check-in event the ping API made. Its Fields never hold kind.
+func (s *Set) MatchPing(fields map[string]any) (Result, bool) {
+	return s.match(fields, true)
+}
+
+func (s *Set) match(fields map[string]any, ping bool) (Result, bool) {
 	if s == nil {
 		return Result{}, false
 	}
 	for _, r := range s.Rules {
+		if r.ping != ping {
+			continue
+		}
 		if caps, ok := r.matches(fields); ok {
 			return r.result(caps), true
 		}
 	}
 	return Result{}, false
+}
+
+// Hold returns the stored hold the rule called name gives an event, or nil
+// when there is no such rule or it holds nothing: held and store-only, so
+// the event never pushes.
+func (s *Set) Hold(name string) map[string]any {
+	if s == nil || name == "" {
+		return nil
+	}
+	for _, r := range s.Rules {
+		if r.Name == name && r.hold {
+			return map[string]any{"state": "held", "reason": "rule " + name, "store_only": true}
+		}
+	}
+	return nil
 }
 
 func (r *Rule) matches(fields map[string]any) (map[string]string, bool) {
@@ -445,7 +492,10 @@ func tagsOf(fields map[string]any) []string {
 }
 
 func (r *Rule) result(caps map[string]string) Result {
-	res := Result{Rule: r.Name, Fields: map[string]string{"kind": string(r.kind)}, Realert: r.realert}
+	res := Result{Rule: r.Name, Fields: map[string]string{}, Realert: r.realert, Hold: r.hold}
+	if !r.ping {
+		res.Fields["kind"] = string(r.kind)
+	}
 	if r.action != "" {
 		res.Fields["action"] = string(r.action)
 	}
@@ -477,6 +527,21 @@ func Apply(s *Set, in *validate.Input, v *validate.Validator) (*validate.Input, 
 	if !ok {
 		return in, "", nil
 	}
+	return apply(in, res, v)
+}
+
+// ApplyPing runs the ping rules on a check-in event the ping API made. Like
+// Apply, it returns the input unchanged, and an empty rule name, when no
+// rule matches or the result is not a valid envelope.
+func ApplyPing(s *Set, in *validate.Input, v *validate.Validator) (*validate.Input, string, error) {
+	res, ok := s.MatchPing(in.Fields)
+	if !ok {
+		return in, "", nil
+	}
+	return apply(in, res, v)
+}
+
+func apply(in *validate.Input, res Result, v *validate.Validator) (*validate.Input, string, error) {
 	f := make(map[string]any, len(in.Fields)+4)
 	for k, x := range in.Fields {
 		f[k] = x

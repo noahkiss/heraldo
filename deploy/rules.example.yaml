@@ -3,7 +3,8 @@
 # the format. Try a change on a catalogue before you deploy it:
 #   heraldo-server replay-tee -rules rules.yaml <catalogue-dir>
 rules:
-  # A daily summary: stored and listed, never a push of its own.
+  # A daily summary: stored and listed, never a push of its own (a digest
+  # is passive, so inbox-only).
   - name: nightly-digest
     match: {title: '^Nightly report \d{4}-\d{2}-\d{2}'}
     set: {kind: digest, level: passive, thread: reports}
@@ -37,7 +38,16 @@ rules:
     match: {title: '^job (?P<job>[\w-]+) failed$'}
     set: {kind: checkin, action: fail, key: 'job:{job}'}
 
-  # Everything at the quiet rung stays a message, without a sound.
+  # A ping rule: it names kind in match, so it sees the check-in events of
+  # /ping and /p only. It keeps their kind, key and action. Here one check's
+  # failed runs are held for triage: stored, listed under ?hold=held, never
+  # pushed. The check still goes down.
+  - name: offsite-backup-triage
+    match: {kind: '^checkin$', key: '^offsite-backup$', action: '^fail$'}
+    set: {hold: true, thread: triage}
+
+  # Everything at the quiet rung stays a message in the inbox, with no
+  # notification.
   - name: quiet-message
     match: {tag: '^quiet$'}
     set: {kind: message, level: passive}

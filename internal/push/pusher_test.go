@@ -683,3 +683,46 @@ func TestIconInPayload(t *testing.T) {
 		}
 	}
 }
+
+// TestPingRuleHoldsFail: a ping rule that holds a check's failures stores
+// the failed run held and pushes nothing; a ping no rule matches pushes.
+func TestPingRuleHoldsFail(t *testing.T) {
+	r := newRigRules(t, 0, `rules:
+  - name: backup-triage
+    match: {kind: '^checkin$', key: '^backup$', action: '^fail$'}
+    set: {hold: true, thread: triage}
+`)
+	r.register(t, prodToken, "production")
+	ping := func(path string) {
+		t.Helper()
+		if rec := r.do(t, http.MethodGet, path, writeTok, ""); rec.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", path, rec.Code, rec.Body)
+		}
+		r.p.Wait()
+	}
+	ping("/ping/backup/1?create=1")
+	ping("/ping/other/1?create=1")
+	if n := len(r.prod.requests()); n != 1 {
+		t.Fatalf("%d pushes, want 1 (other)", n)
+	}
+	rec := r.do(t, http.MethodGet, "/v1/events?kind=checkin&key=backup", readTok, "")
+	var p struct{ Events []api.Event }
+	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Events) != 1 {
+		t.Fatalf("events %s", rec.Body)
+	}
+	ev := p.Events[0]
+	if ev.Hold == nil || (*ev.Hold)["state"] != "held" || (*ev.Hold)["store_only"] != true ||
+		ev.Thread == nil || *ev.Thread != "triage" || ev.Kind != api.KindCheckin || string(*ev.Action) != "fail" {
+		t.Fatalf("held run %s", rec.Body)
+	}
+	// The hold stops the push only: the check still went down.
+	rec = r.do(t, http.MethodGet, "/v1/checkins/backup", readTok, "")
+	var c api.Check
+	_ = json.Unmarshal(rec.Body.Bytes(), &c)
+	if c.State != api.CheckStateDown {
+		t.Fatalf("check %s", rec.Body)
+	}
+}
