@@ -267,6 +267,24 @@ func (e Create) Valid() bool {
 	}
 }
 
+// Defines values for ListEventsParamsOrder.
+const (
+	ListEventsParamsOrderAsc  ListEventsParamsOrder = "asc"
+	ListEventsParamsOrderDesc ListEventsParamsOrder = "desc"
+)
+
+// Valid indicates whether the value is a known member of the ListEventsParamsOrder enum.
+func (e ListEventsParamsOrder) Valid() bool {
+	switch e {
+	case ListEventsParamsOrderAsc:
+		return true
+	case ListEventsParamsOrderDesc:
+		return true
+	default:
+		return false
+	}
+}
+
 // Action A button on a notification, Live Activity or widget. type open: the device opens url. type http: the device calls url with method, so it can reach hosts only the device sees, such as the LAN. type server: heraldo handles it; id names the server action (ack, resolve or mute) and url is not used.
 type Action struct {
 	// Destructive Show the button as destructive.
@@ -331,6 +349,15 @@ type Checkin struct {
 
 // Color A hex color (#RRGGBB or #RRGGBBAA) or a system color name.
 type Color = string
+
+// Cursor defines model for Cursor.
+type Cursor struct {
+	// Cursor A list cursor, as next_cursor gives it.
+	Cursor string `json:"cursor"`
+
+	// Name The cursor's name. Set in answers.
+	Name *string `json:"name,omitempty"`
+}
 
 // Delivery The outcome of the push on one device.
 type Delivery struct {
@@ -741,7 +768,21 @@ type ListEventsParams struct {
 
 	// Q Full-text search over title, summary and body. Every word must match.
 	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// Before Opaque cursor. Keep only events that arrived before it.
+	Before *string `form:"before,omitempty" json:"before,omitempty"`
+
+	// Order asc lists oldest first; desc lists newest first, and next_cursor is then the
+	// cursor of the oldest event on the page: pass it as before for the next page.
+	// The answer's Heraldo-Order header names the order applied.
+	Order *ListEventsParamsOrder `form:"order,omitempty" json:"order,omitempty"`
+
+	// Hold Events whose hold.state is this value, such as held.
+	Hold *string `form:"hold,omitempty" json:"hold,omitempty"`
 }
+
+// ListEventsParamsOrder defines parameters for ListEvents.
+type ListEventsParamsOrder string
 
 // SendEventParams defines parameters for SendEvent.
 type SendEventParams struct {
@@ -788,6 +829,9 @@ type PingFailWithLogTextRequestBody = PingFailWithLogTextBody
 
 // PingLogTextRequestBody defines body for PingLog for text/plain ContentType.
 type PingLogTextRequestBody = PingLogTextBody
+
+// PutCursorJSONRequestBody defines body for PutCursor for application/json ContentType.
+type PutCursorJSONRequestBody = Cursor
 
 // PostEventJSONRequestBody defines body for PostEvent for application/json ContentType.
 type PostEventJSONRequestBody = EventInput

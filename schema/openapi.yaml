@@ -125,9 +125,35 @@ paths:
           description: Full-text search over title, summary and body. Every word must match.
           schema:
             type: string
+        - name: before
+          in: query
+          description: Opaque cursor. Keep only events that arrived before it.
+          schema:
+            type: string
+        - name: order
+          in: query
+          description: |
+            asc lists oldest first; desc lists newest first, and next_cursor is then the
+            cursor of the oldest event on the page: pass it as before for the next page.
+            The answer's Heraldo-Order header names the order applied.
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
+        - name: hold
+          in: query
+          description: Events whose hold.state is this value, such as held.
+          schema:
+            type: string
       responses:
         "200":
           description: One page of events.
+          headers:
+            Heraldo-Order:
+              description: The order applied, asc or desc.
+              schema:
+                type: string
+                enum: [asc, desc]
           content:
             application/json:
               schema:
@@ -224,8 +250,9 @@ paths:
       summary: Current state for the status view.
       description: |
         Flat arrays of the latest event per key: open incidents, running progress,
-        check-ins and status values. The shape is a stand-in until stage 12.
-      x-stage: 12
+        check-ins and status values. The shape is a stand-in until stage 12. An
+        incident's last event shows whether it is acked: its action is ack until a
+        later event.
       tags: [state]
       responses:
         "200":
@@ -235,6 +262,86 @@ paths:
               schema:
                 $ref: "#/components/schemas/State"
         "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/stream:
+    get:
+      operationId: streamEvents
+      summary: Server-sent events, one poke per stored event.
+      description: |
+        Each poke is an SSE event named poke whose data is {"cursor": "..."}, the
+        cursor of the newest event. The first poke comes on connect. A poke carries
+        no event: the client lists the events after its own cursor. Pokes coalesce, so
+        a slow client gets the newest cursor, not every one. A comment line every
+        25 seconds keeps the connection alive.
+      tags: [events]
+      responses:
+        "200":
+          description: The stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/cursors/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        description: The client's own name, such as its machine name. 1 to 64 of A-Z, a-z, 0-9, dot, underscore and dash.
+        schema:
+          type: string
+          pattern: "^[A-Za-z0-9._-]{1,64}$"
+    get:
+      operationId: getCursor
+      summary: This token's read cursor under name.
+      description: Cursors are per token, so a token reads and moves only its own.
+      tags: [events]
+      responses:
+        "200":
+          description: The cursor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Cursor"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    put:
+      operationId: putCursor
+      summary: Move this token's read cursor under name.
+      description: |
+        A cursor only moves forward. A cursor at or before the stored one changes
+        nothing. The answer is the stored cursor. A cursor past the newest event gets
+        400.
+      tags: [events]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Cursor"
+      responses:
+        "200":
+          description: The stored cursor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Cursor"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
   /ping/{slug}:
     parameters:
@@ -409,8 +516,9 @@ components:
       scheme: bearer
       description: |
         One token per sender for writes, one per client for reads. Each token has a
-        scope: write (POST /v1/events, GET /v1/send), read (GET /v1/events and
-        /v1/events/{id}), or admin (both). A missing or unknown token gets 401; a
+        scope: write (POST /v1/events, GET /v1/send), read (GET /v1/events,
+        /v1/events/{id}, /v1/state, /v1/stream, and the client's own read cursors), or
+        admin (both). A missing or unknown token gets 401; a
         token without the scope gets 403.
 
         A write token can carry the trusted-ingest capability, for a bridge such as
@@ -535,6 +643,16 @@ components:
           description: Status keys that are set.
           items:
             $ref: "#/components/schemas/Event"
+    Cursor:
+      type: object
+      required: [cursor]
+      properties:
+        name:
+          type: string
+          description: The cursor's name. Set in answers.
+        cursor:
+          type: string
+          description: A list cursor, as next_cursor gives it.
     AppriseNotify:
       type: object
       description: An Apprise API notify request. Fields heraldo does not use are accepted and ignored.

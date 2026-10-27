@@ -158,6 +158,7 @@ func serve(log *slog.Logger) error {
 		Addr: cfg.Addr,
 		Handler: server.New(server.Options{
 			Version: version.String(), Store: st, Tokens: tokens, Validator: v, Rules: rw, Logger: log,
+			Done: ctx.Done(),
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
