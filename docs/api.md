@@ -7,26 +7,49 @@ is a summary.
 ## Endpoints
 
 An endpoint with a stage number is planned for that stage and has no handler
-yet. The spec marks it `x-stage: <n>`.
+yet. The spec marks it `x-stage: <n>`. Stage 1 stores events and sends no
+push notifications.
 
 | Method and path | Does | Stage |
 |---|---|---|
-| `GET /healthz` | Liveness. No auth. | served |
-| `POST /v1/events` | Stores one `EventInput`. Returns the stored `Event` (201), or the first event for a repeated `dedup` (200). | 1 |
-| `GET /v1/events?after=&limit=&source=&kind=` | Lists events after a cursor, oldest first. | 1 |
-| `GET /v1/events/{id}` | Returns one event with its full body. | 1 |
-| `GET /v1/send?source=&kind=&...` | Same as `POST /v1/events` for GET-only clients. Scalar fields and `tags` only. | 1 |
+| `GET /healthz` | Liveness, with `db` and the event count. 503 when the database does not answer. No auth. | served |
+| `POST /v1/events` | Stores one `EventInput`. Returns the stored `Event` (201), or the first event for a repeated `dedup` (200). | served |
+| `GET /v1/events?after=&limit=&source=&kind=&host=&key=&tag=&q=` | Lists events after a cursor, in arrival order. `q` is full-text search over title, summary and body. | served |
+| `GET /v1/events/{id}` | Returns one event with its full body. | served |
+| `GET /v1/send?source=&kind=&...` | Same as `POST /v1/events` for GET-only clients. Scalar fields and `tags` (repeat the parameter) only. | served |
 | `GET /ping/{slug}`, `/start`, `/fail`, `/log`, `/{exit_code}` | Check-in pings in the healthchecks.io shape. `?rid=` pairs runs; `?create=1` creates an unknown check. | 6 |
 | `POST /notify/apprise`, `POST /notify/{key}` | Apprise-compatible ingest. Answers 200 with `Sent`. | 11 |
 | `GET /v1/state` | Flat arrays for the status view: open incidents, running progress, check-ins, set statuses. | 12 |
 
 Auth:
 
-- Every call except `/healthz` takes a bearer token: one per sender for writes,
-  one per client for reads.
+- Every call except `/healthz` takes a bearer token. Each token has a scope:
+  `write` (post and send), `read` (list and get), or `admin` (both).
+- A missing or unknown token gets 401. A token without the scope gets 403.
 - `GET /v1/send` also takes the token as a `token` query parameter. A token in
   the URL ends up in access logs, proxy logs and browser history. Use the header
-  when the client can set one.
+  when the client can set one. Other calls refuse the parameter.
+- The server stores each token's SHA-256 only. The README shows the token file.
+
+Limits and errors:
+
+- A `POST` body over 1 MiB gets 413. The `body` field may hold 256 KiB, counted
+  in bytes.
+- `content.steps.current` may not exceed `total`.
+- An input that fails the schema gets 400 with the failing fields in `error`.
+
+Paging:
+
+- `next_cursor` comes with every page that has events. Pass it as `after`.
+- An empty page means the client is up to date. Keep the last cursor and poll
+  with it again.
+- The order is arrival at this server. An event imported later still appears
+  after every cursor handed out before it.
+
+Dedup:
+
+- A `dedup` id seen in the last 24 hours, from any source, stores nothing. The
+  server answers 200 with the first event.
 
 ## Input and stored events
 
@@ -120,7 +143,7 @@ that, the check's config lives on the server.
 
 | Field | Meaning |
 |---|---|
-| `id` | Event id, sortable by arrival. |
+| `id` | Event id: a ULID (26 characters, sortable by time). Live events get the arrival time. |
 | `received_at` | When the server stored the event. |
 | `hold` | Triage state. |
 | `delivery` | Per-device outcome: `sent`, `failed` or `skipped`, with the level the push carried. |
@@ -145,3 +168,23 @@ that, the check's config lives on the server.
 - `go generate ./...` regenerates `api/types.gen.go`. oapi-codegen cannot follow
   `$defs` references, so `api/internal/bundle` inlines the JSON Schema into the
   OpenAPI document first.
+
+## Backfill from apprise-tee
+
+`heraldo-server import-tee <dir>` reads every `notifications-YYYY-MM.jsonl` file
+in `dir` and stores each line as a `message` event. It applies no rules.
+
+| Catalogue field | Event field |
+|---|---|
+| `id` | `details.tee.id`. The event id is a ULID made from `ts` and this id, so a rerun makes the same id. A catalogue id that is already a ULID is kept. |
+| `ts` | `ts` and `received_at` |
+| `source` | `source`, or `apprise-tee` when the entry has none |
+| `title`, `body` | `title`, `body`, cut to the envelope limits |
+| `tag` | `tags`, split on commas and spaces |
+| `url`, `image` | `url`, `image` |
+| `level` | `level` when it is an envelope level, else `details.tee.level` |
+| `hold`, `hold_id`, `hold_reason`, `hold_ids` | `hold` as `{state, id, reason, ids}` |
+| `client`, `path`, `status`, `delivered`, `ms`, `backends`, `time` | `details.tee` |
+
+A rerun stores nothing twice. A line that is not JSON, or that does not make a
+valid envelope, is logged and skipped.

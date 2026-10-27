@@ -1,12 +1,20 @@
 # Generic compose file for heraldo-server. Copy heraldo.example.env to
 # heraldo.env and edit it. Site-specific settings (hostnames, tokens, volumes)
 # belong in your own deployment config, not in this repo.
+#
+# Back up the database while it runs:
+#   docker compose exec heraldo /heraldo-server backup /data/backup-$(date +%F).db
 services:
   heraldo:
+    image: ghcr.io/noahkiss/heraldo:latest
     build:
       context: ..
-    image: heraldo-server:local
     restart: unless-stopped
     env_file: heraldo.env
     ports:
       - "${HERALDO_PORT:-7842}:7842"
+    volumes:
+      - heraldo-data:/data
+
+volumes:
+  heraldo-data:

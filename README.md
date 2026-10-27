@@ -8,7 +8,8 @@
 A self-hosted notification hub. Services post events to one server. The server
 stores every event and delivers it to an iPhone and Mac app you build yourself.
 
-Status: early scaffold. The server answers `/healthz` and nothing else yet.
+Status: stage 1, shadow mode. The server stores and serves every event. It
+sends no push notifications yet.
 
 ## What it will do
 
@@ -29,7 +30,7 @@ Status: early scaffold. The server answers `/healthz` and nothing else yet.
 | `api/` | Go types generated from `schema/` |
 | `cmd/heraldo-server` | The server |
 | `cmd/heraldo` | The CLI |
-| `internal/` | Server packages |
+| `internal/` | Server packages: store, validation, auth, the tee import |
 | `apple/` | Xcode project (XcodeGen): the Heraldo app for iOS and macOS, its extensions, HeraldoKit |
 | `deploy/` | A generic compose file and an example env file |
 | `docs/` | Design notes |
@@ -39,8 +40,8 @@ Status: early scaffold. The server answers `/healthz` and nothing else yet.
 Go 1.27 or later:
 
 ```sh
-go test ./...
-go run ./cmd/heraldo-server        # listens on :7842; set HERALDO_ADDR to change it
+go vet ./... && go test ./...
+go run ./cmd/heraldo-server        # listens on :7842, database heraldo.db
 go run ./cmd/heraldo version
 go generate ./...                  # regenerate api/types.gen.go after a schema change
 ```
@@ -51,12 +52,43 @@ Apple (Xcode 27, XcodeGen):
 apple/scripts/check.sh             # builds for the iOS Simulator and macOS, runs HeraldoKit tests
 ```
 
-Container:
+Container (the published image is `ghcr.io/noahkiss/heraldo`, linux/amd64):
 
 ```sh
-cp deploy/heraldo.example.env deploy/heraldo.env
+cp deploy/heraldo.example.env deploy/heraldo.env    # then add a token, below
 docker compose -f deploy/compose.yml up --build
 ```
+
+## Run
+
+1. Make a token for each sender and each reader, and hash it:
+
+   ```sh
+   openssl rand -hex 32 > sender.token
+   heraldo-server hash-token < sender.token
+   ```
+
+2. List the hashes in a token file, one `<name> <scope> <sha256>` per line:
+
+   ```text
+   # name    scope  sha256 of the token (64 hex characters)
+   backup    write  <sha256-of-sender.token>
+   phone     read   <sha256-of-phone.token>
+   ```
+
+   `write` may post events, `read` may list and fetch them, and `admin` may do
+   both. The server stores only the hashes.
+
+3. Start the server with `HERALDO_TOKENS_FILE` pointing at the file, and post an
+   event:
+
+   ```sh
+   curl -H "Authorization: Bearer $(cat sender.token)" \
+     -d '{"source":"backup","kind":"message","title":"Backup finished"}' \
+     http://localhost:7842/v1/events
+   ```
+
+[docs/api.md](docs/api.md) lists the endpoints.
 
 ## Configuration
 
@@ -65,6 +97,27 @@ The server reads its configuration from the environment.
 | Variable | Default | Meaning |
 |---|---|---|
 | `HERALDO_ADDR` | `:7842` | Listen address, `host:port` |
+| `HERALDO_DB` | `heraldo.db` (`/data/heraldo.db` in the image) | SQLite database path. The server runs it in WAL mode, so keep the `-wal` and `-shm` files beside it. |
+| `HERALDO_TOKENS_FILE` | none | Token file, one `<name> <scope> <sha256>` per line |
+| `HERALDO_TOKENS` | none | The same entries inline, separated by commas. Set this or the file, not both. |
+
+With no tokens, the server refuses every call except `/healthz`.
+
+## Operations
+
+| Command | Does |
+|---|---|
+| `heraldo-server` | Runs the server. SIGTERM or SIGINT shuts it down cleanly. |
+| `heraldo-server backup <path>` | Copies the database to a new file with SQLite's online backup. The server keeps running. |
+| `heraldo-server import-tee <dir>` | Backfills an apprise-tee catalogue (`notifications-YYYY-MM.jsonl`). A rerun stores nothing twice. |
+| `heraldo-server hash-token` | Prints the SHA-256 of a token read from stdin. |
+| `heraldo-server healthcheck` | Exits 0 when the local `/healthz` answers. The image's `HEALTHCHECK` runs it. |
+
+Logs are JSON lines on stderr. A request line never includes the query string,
+because `/v1/send` may carry a token there.
+
+To restore, stop the server and replace the database file with a backup. Delete
+any `-wal` and `-shm` files left beside the old database first.
 
 ## License
 

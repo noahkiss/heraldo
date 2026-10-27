@@ -11,7 +11,7 @@ The plan and its stages live in bm (project `heraldo`).
 | `schema/` | `envelope.v1.schema.json` and `openapi.yaml`. The one source of truth for the API. |
 | `api/` | Go types generated from `schema/` (`types.gen.go`; never edit it by hand). `internal/bundle` inlines the JSON Schema's `$defs` for oapi-codegen |
 | `cmd/heraldo-server`, `cmd/heraldo` | Server and CLI |
-| `internal/` | Server packages: `config` (env), `server` (handlers), `version` |
+| `internal/` | Server packages: `config` (env), `server` (handlers), `store` (SQLite, migrations in `store/migrations`), `validate` (envelope checks), `auth` (tokens), `ids` (ULIDs), `teeimport` (apprise-tee backfill), `version` |
 | `apple/` | XcodeGen project: multiplatform app `Heraldo`, `HeraldoNotificationService` (iOS), `HeraldoWidgets`, package `HeraldoKit` |
 | `deploy/` | Generic `compose.yml` and `heraldo.example.env` |
 | `design/icon/` | App and web icon and the wordmark. `heraldo.svg` is the source of truth; `build.py` derives the masters, layers, web set, logos, wordmarks, README banners and og-images, `apple/App/AppIcon.icon` and the logo assets in `apple/App/Shared/Assets.xcassets` |
@@ -23,14 +23,19 @@ The plan and its stages live in bm (project `heraldo`).
 |---|---|
 | Go tests | `go vet ./... && go test ./...` |
 | Regenerate Go types after a schema change | `go generate ./...`, then commit `api/types.gen.go` |
-| Run the server | `go run ./cmd/heraldo-server` (port 7842; `HERALDO_ADDR` changes it) |
+| Run the server | `go run ./cmd/heraldo-server` (port 7842, database `heraldo.db`; see the README for `HERALDO_*`) |
+| Hash a token for the token list | `go run ./cmd/heraldo-server hash-token < token.txt` |
+| Back up a running server's database | `heraldo-server backup <new-path>` |
+| Backfill an apprise-tee catalogue | `heraldo-server import-tee <dir>` |
+| Build the image | `docker build -t heraldo .` (CI pushes `ghcr.io/noahkiss/heraldo` on main and `v*` tags) |
 | Apple build (iOS Simulator + macOS) and HeraldoKit tests | `apple/scripts/check.sh` |
 | Regenerate the Xcode project | `apple/scripts/generate.sh` (the `.xcodeproj` is not committed) |
 | Rebuild the icon after editing `design/icon/heraldo.svg` | `uv run design/icon/build.py --apple` (see `design/icon/README.md`) |
 
 - A schema change adds or updates examples in `schema/examples/valid` and `invalid`
   (sender inputs) and `stored` (events as the read API returns them).
-- CI runs the Go checks only. Run `apple/scripts/check.sh` before pushing Apple changes.
+- CI runs the Go checks, then builds the image. Run `apple/scripts/check.sh` before
+  pushing Apple changes.
 - Names and bundle IDs live in `apple/Config/Names.xcconfig`. Signing lives in the
   untracked `apple/Config/Local.xcconfig`.
 
