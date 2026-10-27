@@ -3,9 +3,11 @@
 //
 // A token list has one entry per line (a file) or per comma (an env var):
 //
-//	<name> <scope> <sha256-hex>
+//	<name> <scope> <sha256-hex> [capability ...]
 //
-// scope is write, read or admin. admin covers write and read. Blank lines and
+// scope is write, read or admin. admin covers write and read. A capability
+// grants one extra power; the only one is trusted-ingest (see
+// CapTrustedIngest). Blank lines and
 // lines starting with # are ignored. `heraldo-server hash-token` prints the
 // hash of a token read from stdin.
 package auth
@@ -30,6 +32,11 @@ const (
 	ScopeAdmin Scope = "admin"
 )
 
+// CapTrustedIngest lets a write token pass server-owned triage state for a
+// bridged sender, such as an apprise-tee hold, and dedup against every
+// earlier event instead of the last 24 hours.
+const CapTrustedIngest = "trusted-ingest"
+
 // Allows reports whether a token with scope s may act with need.
 func (s Scope) Allows(need Scope) bool { return s == ScopeAdmin || s == need }
 
@@ -37,7 +44,18 @@ func (s Scope) Allows(need Scope) bool { return s == ScopeAdmin || s == need }
 type Token struct {
 	Name  string
 	Scope Scope
+	Caps  []string
 	hash  [sha256.Size]byte
+}
+
+// Has reports whether the token carries capability c.
+func (t Token) Has(c string) bool {
+	for _, x := range t.Caps {
+		if x == c {
+			return true
+		}
+	}
+	return false
 }
 
 // Set is the configured tokens.
@@ -71,10 +89,16 @@ func Parse(r io.Reader, sep byte) (*Set, error) {
 			continue
 		}
 		f := strings.Fields(line)
-		if len(f) != 3 {
-			return nil, fmt.Errorf("token entry %d: want <name> <scope> <sha256-hex>", n)
+		if len(f) < 3 {
+			return nil, fmt.Errorf("token entry %d: want <name> <scope> <sha256-hex> [capability ...]", n)
 		}
 		t := Token{Name: f[0], Scope: Scope(f[1])}
+		for _, c := range f[3:] {
+			if c != CapTrustedIngest {
+				return nil, fmt.Errorf("token %q: unknown capability %q", f[0], c)
+			}
+			t.Caps = append(t.Caps, c)
+		}
 		switch t.Scope {
 		case ScopeWrite, ScopeRead, ScopeAdmin:
 		default:

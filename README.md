@@ -79,6 +79,10 @@ docker compose -f deploy/compose.yml up --build
    `write` may post events, `read` may list and fetch them, and `admin` may do
    both. The server stores only the hashes.
 
+   A fourth field, `trusted-ingest`, marks a bridge such as apprise-tee. Its
+   `details.tee.hold` becomes the event's `hold`, and its `dedup` ids never
+   expire. [docs/api.md](docs/api.md) has the details.
+
 3. Start the server with `HERALDO_TOKENS_FILE` pointing at the file, and post an
    event:
 
@@ -98,7 +102,7 @@ The server reads its configuration from the environment.
 |---|---|---|
 | `HERALDO_ADDR` | `:7842` | Listen address, `host:port` |
 | `HERALDO_DB` | `heraldo.db` (`/data/heraldo.db` in the image) | SQLite database path. The server runs it in WAL mode, so keep the `-wal` and `-shm` files beside it. |
-| `HERALDO_TOKENS_FILE` | none | Token file, one `<name> <scope> <sha256>` per line |
+| `HERALDO_TOKENS_FILE` | none | Token file, one `<name> <scope> <sha256> [trusted-ingest]` per line |
 | `HERALDO_TOKENS` | none | The same entries inline, separated by commas. Set this or the file, not both. |
 
 With no tokens, the server refuses every call except `/healthz`.

@@ -121,6 +121,11 @@ type NewEvent struct {
 	// Typed is the sender's part, used for the indexed columns and the
 	// derived tables.
 	Typed api.EventInput
+	// DedupAnyAge matches the dedup id against every earlier event, not
+	// only the last DedupWindow. Bridged senders whose dedup id is a
+	// permanent record id use it, so a backfill and live traffic never
+	// store the same record twice.
+	DedupAnyAge bool
 }
 
 // Record is one stored event.
@@ -141,20 +146,8 @@ func (s *Store) Insert(ctx context.Context, ev NewEvent) (Record, bool, error) {
 		return Record{}, false, err
 	}
 	defer tx.Rollback()
-	if d := ev.Typed.Dedup; d != nil {
-		since := s.now().Add(-DedupWindow).UTC().Format(timeFormat)
-		var r Record
-		var raw string
-		err := tx.QueryRowContext(ctx,
-			`SELECT seq, id, event FROM events WHERE dedup = ? AND received_at > ? ORDER BY seq LIMIT 1`,
-			*d, since).Scan(&r.Seq, &r.ID, &raw)
-		if err == nil {
-			r.Event = json.RawMessage(raw)
-			return r, false, nil
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			return Record{}, false, err
-		}
+	if r, found, err := s.findDedup(ctx, tx, ev); err != nil || found {
+		return r, false, err
 	}
 	r, err := insert(ctx, tx, ev)
 	if err != nil {
@@ -166,8 +159,34 @@ func (s *Store) Insert(ctx context.Context, ev NewEvent) (Record, bool, error) {
 	return r, true, nil
 }
 
-// Import stores ev unless origin/originID was imported before. It reports
-// whether it stored the event. Dedup does not apply to imports.
+// findDedup returns the first event that claimed ev's dedup id.
+func (s *Store) findDedup(ctx context.Context, tx *sql.Tx, ev NewEvent) (Record, bool, error) {
+	d := ev.Typed.Dedup
+	if d == nil {
+		return Record{}, false, nil
+	}
+	since := ""
+	if !ev.DedupAnyAge {
+		since = s.now().Add(-DedupWindow).UTC().Format(timeFormat)
+	}
+	var r Record
+	var raw string
+	err := tx.QueryRowContext(ctx,
+		`SELECT seq, id, event FROM events WHERE dedup = ? AND received_at > ? ORDER BY seq LIMIT 1`,
+		*d, since).Scan(&r.Seq, &r.ID, &raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Record{}, false, nil
+	}
+	if err != nil {
+		return Record{}, false, err
+	}
+	r.Event = json.RawMessage(raw)
+	return r, true, nil
+}
+
+// Import stores ev unless origin/originID was imported before, or an earlier
+// event already claimed ev's dedup id (at any age, as with DedupAnyAge). It
+// reports whether it stored the event.
 func (s *Store) Import(ctx context.Context, origin, originID string, ev NewEvent) (bool, error) {
 	s.wmu.Lock()
 	defer s.wmu.Unlock()
@@ -183,6 +202,10 @@ func (s *Store) Import(ctx context.Context, origin, originID string, ev NewEvent
 		return false, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	ev.DedupAnyAge = true
+	if _, found, err := s.findDedup(ctx, tx, ev); err != nil || found {
 		return false, err
 	}
 	if _, err := insert(ctx, tx, ev); err != nil {

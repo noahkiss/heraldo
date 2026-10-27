@@ -53,7 +53,8 @@ paths:
         hold or delivery is rejected with 400.
 
         When the input carries a dedup id seen in the last 24 hours, the server stores
-        nothing and returns the first event with 200.
+        nothing and returns the first event with 200. For a trusted-ingest token the
+        window has no end.
       tags: [events]
       requestBody:
         required: true
@@ -411,6 +412,10 @@ components:
         scope: write (POST /v1/events, GET /v1/send), read (GET /v1/events and
         /v1/events/{id}), or admin (both). A missing or unknown token gets 401; a
         token without the scope gets 403.
+
+        A write token can carry the trusted-ingest capability, for a bridge such as
+        apprise-tee. The server copies its details.tee.hold object into hold, marked
+        store_only, and matches its dedup ids at any age instead of the last 24 hours.
     tokenQuery:
       type: apiKey
       in: query

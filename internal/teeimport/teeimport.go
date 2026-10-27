@@ -6,14 +6,14 @@
 // classification rules; those come in a later stage.
 //
 //	tee field              event field
-//	id                     details.tee.id; the event id is derived from ts and id
+//	id                     details.tee.id and dedup; the event id is derived from ts and id
 //	ts (epoch seconds)     ts and received_at
 //	source                 source ("apprise-tee" when the entry has none)
 //	title, body            title, body (cut to the envelope limits)
 //	tag                    tags (split on commas and spaces)
 //	url, image             url, image (when they are valid URIs)
 //	level                  level when it is an envelope level, else details.tee.level
-//	hold, hold_id, ...     hold {state, id, reason, ids}
+//	hold, hold_id, ...     hold {state, id, reason, ids, store_only: true}
 //	client, path, status,  details.tee
 //	delivered, ms, backends
 package teeimport
@@ -158,6 +158,9 @@ func Map(line []byte, v *validate.Validator) (store.NewEvent, string, error) {
 		"kind":   "message",
 		"source": DefaultSource,
 		"ts":     at.Format(time.RFC3339Nano),
+		// The tee forwards live events with dedup = its catalogue id, so
+		// a record stored live and then backfilled is stored once.
+		"dedup": cut(e.ID, 128),
 	}
 	if e.Source != nil && *e.Source != "" {
 		in["source"] = cut(*e.Source, 128)
@@ -211,7 +214,8 @@ func Map(line []byte, v *validate.Validator) (store.NewEvent, string, error) {
 	fields["id"] = id
 	fields["received_at"] = at.Format(time.RFC3339Nano)
 	if e.Hold != nil && *e.Hold != "" && *e.Hold != "none" {
-		hold := map[string]any{"state": *e.Hold}
+		// Imported events are history: never pushed, like a live held one.
+		hold := map[string]any{"state": *e.Hold, "store_only": true}
 		if e.HoldID != nil {
 			hold["id"] = *e.HoldID
 		}

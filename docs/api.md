@@ -30,6 +30,12 @@ Auth:
   the URL ends up in access logs, proxy logs and browser history. Use the header
   when the client can set one. Other calls refuse the parameter.
 - The server stores each token's SHA-256 only. The README shows the token file.
+- A write token with the `trusted-ingest` capability is a bridge, such as
+  apprise-tee. Its events get two extras:
+  - `details.tee.hold`, an object, is copied into `hold` with
+    `store_only: true`. A store-only event is never pushed.
+  - Its `dedup` id matches every earlier event, not only the last 24 hours.
+    The tee sends its catalogue id as `dedup`.
 
 Limits and errors:
 
@@ -50,6 +56,7 @@ Dedup:
 
 - A `dedup` id seen in the last 24 hours, from any source, stores nothing. The
   server answers 200 with the first event.
+- For a `trusted-ingest` token and for `import-tee`, the window has no end.
 
 ## Input and stored events
 
@@ -176,15 +183,17 @@ in `dir` and stores each line as a `message` event. It applies no rules.
 
 | Catalogue field | Event field |
 |---|---|
-| `id` | `details.tee.id`. The event id is a ULID made from `ts` and this id, so a rerun makes the same id. A catalogue id that is already a ULID is kept. |
+| `id` | `details.tee.id` and `dedup`. The event id is a ULID made from `ts` and this id, so a rerun makes the same id. A catalogue id that is already a ULID is kept. |
 | `ts` | `ts` and `received_at` |
 | `source` | `source`, or `apprise-tee` when the entry has none |
 | `title`, `body` | `title`, `body`, cut to the envelope limits |
 | `tag` | `tags`, split on commas and spaces |
 | `url`, `image` | `url`, `image` |
 | `level` | `level` when it is an envelope level, else `details.tee.level` |
-| `hold`, `hold_id`, `hold_reason`, `hold_ids` | `hold` as `{state, id, reason, ids}` |
+| `hold`, `hold_id`, `hold_reason`, `hold_ids` | `hold` as `{state, id, reason, ids, store_only: true}` |
 | `client`, `path`, `status`, `delivered`, `ms`, `backends`, `time` | `details.tee` |
 
-A rerun stores nothing twice. A line that is not JSON, or that does not make a
+A rerun stores nothing twice. An entry whose id an earlier live event already
+used as `dedup` is skipped, so live forwarding and the backfill store each
+record once. A line that is not JSON, or that does not make a
 valid envelope, is logged and skipped.

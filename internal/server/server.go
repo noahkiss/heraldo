@@ -75,6 +75,14 @@ func writeError(w http.ResponseWriter, status int, format string, a ...any) {
 
 type ctxKey struct{}
 
+type tokenKey struct{}
+
+// tokenFrom returns the token that authenticated r.
+func tokenFrom(r *http.Request) auth.Token {
+	t, _ := r.Context().Value(tokenKey{}).(auth.Token)
+	return t
+}
+
 type statusWriter struct {
 	http.ResponseWriter
 	status int
@@ -137,7 +145,7 @@ func (s *server) auth(need auth.Scope, queryToken bool, h http.HandlerFunc) http
 			writeError(w, http.StatusForbidden, "token %q has scope %s; this call needs %s", t.Name, t.Scope, need)
 			return
 		}
-		h(w, r)
+		h(w, r.WithContext(context.WithValue(r.Context(), tokenKey{}, t)))
 	}
 }
 
@@ -252,8 +260,14 @@ func (s *server) store(w http.ResponseWriter, r *http.Request, in *validate.Inpu
 	if _, ok := f["ts"]; !ok {
 		f["ts"] = now.Format(time.RFC3339Nano)
 	}
+	trusted := tokenFrom(r).Has(auth.CapTrustedIngest)
+	if trusted {
+		if h := bridgedHold(f); h != nil {
+			f["hold"] = h
+		}
+	}
 	rec, created, err := s.Store.Insert(r.Context(), store.NewEvent{
-		ID: id, ReceivedAt: now, Fields: f, Typed: in.Typed,
+		ID: id, ReceivedAt: now, Fields: f, Typed: in.Typed, DedupAnyAge: trusted,
 	})
 	if err != nil {
 		s.Logger.Error("store", "err", err)
@@ -267,6 +281,24 @@ func (s *server) store(w http.ResponseWriter, r *http.Request, in *validate.Inpu
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_, _ = w.Write(append(rec.Event, '\n'))
+}
+
+// bridgedHold returns the stored hold for a bridged sender's triage state,
+// details.tee.hold, or nil when there is none. Only a trusted-ingest token
+// gets here. The event is marked store_only: later stages never push it.
+func bridgedHold(f map[string]any) map[string]any {
+	details, _ := f["details"].(map[string]any)
+	tee, _ := details["tee"].(map[string]any)
+	src, ok := tee["hold"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	h := make(map[string]any, len(src)+1)
+	for k, v := range src {
+		h[k] = v
+	}
+	h["store_only"] = true
+	return h
 }
 
 func (s *server) getEvent(w http.ResponseWriter, r *http.Request) {

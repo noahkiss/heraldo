@@ -44,6 +44,7 @@ func TestParseErrors(t *testing.T) {
 		"a write abc",
 		"a write " + Hash("1") + "\na read " + Hash("2"),
 		"a write " + Hash("1") + " extra",
+		"a write " + Hash("1") + " trusted-ingest bogus",
 	} {
 		if _, err := Parse(strings.NewReader(bad), '\n'); err == nil {
 			t.Errorf("accepted %q", bad)
@@ -57,5 +58,17 @@ func TestScopes(t *testing.T) {
 	}
 	if ScopeWrite.Allows(ScopeRead) || ScopeRead.Allows(ScopeWrite) {
 		t.Fatal("write and read must stay apart")
+	}
+}
+
+func TestCapabilities(t *testing.T) {
+	s, err := Parse(strings.NewReader("bridge write "+Hash("b")+" trusted-ingest, plain write "+Hash("p")), ',')
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := s.Lookup("b")
+	p, _ := s.Lookup("p")
+	if !b.Has(CapTrustedIngest) || p.Has(CapTrustedIngest) {
+		t.Fatalf("caps: bridge %v, plain %v", b.Caps, p.Caps)
 	}
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/noahkiss/heraldo/internal/auth"
 	"github.com/noahkiss/heraldo/internal/ids"
 	"github.com/noahkiss/heraldo/internal/store"
+	"github.com/noahkiss/heraldo/internal/teeimport"
 	"github.com/noahkiss/heraldo/internal/validate"
 )
 
@@ -30,6 +31,8 @@ const (
 	writeTok = "write-token-for-tests"
 	readTok  = "read-token-for-tests"
 	adminTok = "admin-token-for-tests"
+	// bridgeTok carries the trusted-ingest capability.
+	bridgeTok = "bridge-token-for-tests"
 )
 
 type clock struct {
@@ -55,8 +58,8 @@ func newEnv(t *testing.T) *env {
 	t.Cleanup(func() { st.Close() })
 	c := &clock{t: time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)}
 	st.SetClock(c.now)
-	list := fmt.Sprintf("sender write %s\nphone read %s\nops admin %s\n",
-		auth.Hash(writeTok), auth.Hash(readTok), auth.Hash(adminTok))
+	list := fmt.Sprintf("sender write %s\nphone read %s\nops admin %s\nbridge write %s trusted-ingest\n",
+		auth.Hash(writeTok), auth.Hash(readTok), auth.Hash(adminTok), auth.Hash(bridgeTok))
 	tokens, err := auth.Parse(strings.NewReader(list), '\n')
 	if err != nil {
 		t.Fatal(err)
@@ -573,5 +576,79 @@ func TestDerivedState(t *testing.T) {
 	post(`{"source":"s","kind":"status","key":"ups","action":"clear"}`)
 	if _, err := e.st.Row(ctx, "status", "ups"); err != store.ErrNotFound {
 		t.Fatalf("clear left a row: %v", err)
+	}
+}
+
+func TestTrustedIngestHold(t *testing.T) {
+	e := newEnv(t)
+	body := []byte(`{"source":"diskwatch","kind":"message","tags":["alert"],"dedup":"n-1",
+		"details":{"tee":{"hold":{"id":"h-1","state":"held","forwarded":false,"store_only":true}}}}`)
+	rec := e.do(t, http.MethodPost, "/v1/events", bridgeTok, body)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body)
+	}
+	checkStored(t, storedSchema(t), rec.Body.Bytes())
+	ev := decode[api.Event](t, rec)
+	if ev.Hold == nil || (*ev.Hold)["state"] != "held" || (*ev.Hold)["id"] != "h-1" || (*ev.Hold)["store_only"] != true {
+		t.Fatalf("hold = %v", ev.Hold)
+	}
+	// The same input from a token without the capability keeps no hold.
+	plain := bytes.Replace(body, []byte(`"n-1"`), []byte(`"n-2"`), 1)
+	if ev := decode[api.Event](t, e.do(t, http.MethodPost, "/v1/events", writeTok, plain)); ev.Hold != nil {
+		t.Fatalf("untrusted token set hold: %v", ev.Hold)
+	}
+	// A trusted event without details.tee.hold has no hold.
+	if ev := decode[api.Event](t, e.do(t, http.MethodPost, "/v1/events", bridgeTok,
+		[]byte(`{"source":"s","kind":"message","dedup":"n-3"}`))); ev.Hold != nil {
+		t.Fatalf("hold without details.tee.hold: %v", ev.Hold)
+	}
+}
+
+func TestTrustedIngestDedupHasNoWindow(t *testing.T) {
+	e := newEnv(t)
+	b := []byte(`{"source":"s","kind":"message","dedup":"n-20261027-120000-abcdef"}`)
+	first := e.do(t, http.MethodPost, "/v1/events", bridgeTok, b)
+	e.clock.add(30 * 24 * time.Hour)
+	again := e.do(t, http.MethodPost, "/v1/events", bridgeTok, b)
+	if again.Code != http.StatusOK || decode[api.Event](t, again).Id != decode[api.Event](t, first).Id {
+		t.Fatalf("trusted repeat after 30 days: %d", again.Code)
+	}
+	// A plain token still gets the 24 h window.
+	if rec := e.do(t, http.MethodPost, "/v1/events", writeTok, b); rec.Code != http.StatusCreated {
+		t.Fatalf("plain token after 30 days: %d, want 201", rec.Code)
+	}
+}
+
+// Live forwarding and the backfill share the tee id as dedup, so the same
+// record is stored once whichever comes first.
+func TestBackfillAndLiveStoreOnce(t *testing.T) {
+	ctx := context.Background()
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	v, _ := validate.New()
+
+	// Live first, then the backfill.
+	e := newEnv(t)
+	live := e.do(t, http.MethodPost, "/v1/events", bridgeTok,
+		[]byte(`{"source":"backup","kind":"message","dedup":"n-20260901-080000-a1b2c3"}`))
+	if live.Code != http.StatusCreated {
+		t.Fatalf("live: %d", live.Code)
+	}
+	s, err := teeimport.Run(ctx, "../teeimport/testdata/catalogue", e.st, v, quiet)
+	if err != nil || s.Imported != 2 || s.Skipped != 1 {
+		t.Fatalf("import after live: %+v, %v", s, err)
+	}
+
+	// Backfill first, then live.
+	e = newEnv(t)
+	if _, err := teeimport.Run(ctx, "../teeimport/testdata/catalogue", e.st, v, quiet); err != nil {
+		t.Fatal(err)
+	}
+	rec := e.do(t, http.MethodPost, "/v1/events", bridgeTok,
+		[]byte(`{"source":"backup","kind":"message","dedup":"n-20260901-090500-d4e5f6"}`))
+	if rec.Code != http.StatusOK || decode[api.Event](t, rec).Title == nil {
+		t.Fatalf("live after import: %d %s, want the imported event", rec.Code, rec.Body)
+	}
+	if n, _ := e.st.Count(ctx); n != 3 {
+		t.Fatalf("count = %d, want 3", n)
 	}
 }

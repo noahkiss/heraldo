@@ -86,7 +86,7 @@ func TestImportFixture(t *testing.T) {
 		routed["ts"] != "2026-09-01T08:00:00.125Z" || routed["received_at"] != routed["ts"] {
 		t.Errorf("routed: %v", routed)
 	}
-	if tee(routed)["id"] != "n-20260901-080000-a1b2c3" || tee(routed)["level"] != "quiet" {
+	if routed["dedup"] != "n-20260901-080000-a1b2c3" || tee(routed)["id"] != "n-20260901-080000-a1b2c3" || tee(routed)["level"] != "quiet" {
 		t.Errorf("routed tee details: %v", tee(routed))
 	}
 	if _, has := routed["level"]; has {
@@ -100,7 +100,7 @@ func TestImportFixture(t *testing.T) {
 	}
 
 	hold, ok := held["hold"].(map[string]any)
-	if !ok || hold["state"] != "held" || hold["id"] != "h-20260901-090500-0a0b0c" {
+	if !ok || hold["state"] != "held" || hold["id"] != "h-20260901-090500-0a0b0c" || hold["store_only"] != true {
 		t.Errorf("held: hold = %v", held["hold"])
 	}
 
