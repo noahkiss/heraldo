@@ -17,6 +17,7 @@ import (
 	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/auth"
 	"github.com/noahkiss/heraldo/internal/ids"
+	"github.com/noahkiss/heraldo/internal/rules"
 	"github.com/noahkiss/heraldo/internal/store"
 	"github.com/noahkiss/heraldo/internal/validate"
 )
@@ -31,7 +32,9 @@ type Options struct {
 	Store     *store.Store
 	Tokens    *auth.Set
 	Validator *validate.Validator
-	Logger    *slog.Logger
+	// Rules classifies untyped messages at ingest; nil means no rules.
+	Rules  *rules.Watcher
+	Logger *slog.Logger
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 }
@@ -252,6 +255,12 @@ func (s *server) badInput(w http.ResponseWriter, err error) {
 }
 
 func (s *server) store(w http.ResponseWriter, r *http.Request, in *validate.Input) {
+	in, _, err := rules.Apply(s.Rules.Rules(), in, s.Validator)
+	if err != nil {
+		// The sender's event is valid; a rule that cannot type it must not
+		// lose it.
+		s.Logger.Warn("rules: matched, but the typed event is not valid; stored as sent", "err", err)
+	}
 	now := s.Now().UTC()
 	id := ids.New(now)
 	f := in.Fields

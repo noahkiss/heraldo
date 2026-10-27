@@ -11,9 +11,9 @@ The plan and its stages live in bm (project `heraldo`).
 | `schema/` | `envelope.v1.schema.json` and `openapi.yaml`. The one source of truth for the API. |
 | `api/` | Go types generated from `schema/` (`types.gen.go`; never edit it by hand). `internal/bundle` inlines the JSON Schema's `$defs` for oapi-codegen |
 | `cmd/heraldo-server`, `cmd/heraldo` | Server and CLI |
-| `internal/` | Server packages: `config` (env), `server` (handlers), `store` (SQLite, migrations in `store/migrations`), `validate` (envelope checks), `auth` (tokens), `ids` (ULIDs), `teeimport` (apprise-tee backfill), `version` |
+| `internal/` | Server packages: `config` (env), `server` (handlers), `store` (SQLite, migrations in `store/migrations`), `validate` (envelope checks), `auth` (tokens), `ids` (ULIDs), `teeimport` (apprise-tee backfill), `rules` (ingest rules, `HERALDO_RULES`), `replay` (rules against a catalogue, in memory), `version` |
 | `apple/` | XcodeGen project: multiplatform app `Heraldo`, `HeraldoNotificationService` (iOS), `HeraldoWidgets`, package `HeraldoKit` |
-| `deploy/` | Generic `compose.yml` and `heraldo.example.env` |
+| `deploy/` | Generic `compose.yml`, `heraldo.example.env` and `rules.example.yaml` |
 | `design/icon/` | App and web icon and the wordmark. `heraldo.svg` is the source of truth; `build.py` derives the masters, layers, web set, logos, wordmarks, README banners and og-images, `apple/App/AppIcon.icon` and the logo assets in `apple/App/Shared/Assets.xcassets` |
 | `docs/` | API summary, Apple notes |
 
@@ -27,6 +27,7 @@ The plan and its stages live in bm (project `heraldo`).
 | Hash a token for the token list | `go run ./cmd/heraldo-server hash-token < token.txt` |
 | Back up a running server's database | `heraldo-server backup <new-path>` |
 | Backfill an apprise-tee catalogue | `heraldo-server import-tee <dir>` |
+| Check a rules file against a catalogue | `heraldo-server replay-tee -rules <file> <dir>` |
 | Build the image | `docker build -t heraldo .` (CI pushes `ghcr.io/noahkiss/heraldo` on main and `v*` tags) |
 | Apple build (iOS Simulator + macOS) and HeraldoKit tests | `apple/scripts/check.sh` |
 | Regenerate the Xcode project | `apple/scripts/generate.sh` (the `.xcodeproj` is not committed) |

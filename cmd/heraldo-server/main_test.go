@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -74,5 +75,32 @@ func TestHealthcheck(t *testing.T) {
 	status = http.StatusServiceUnavailable
 	if err := run([]string{"healthcheck"}, nil, io.Discard, quiet); err == nil {
 		t.Fatal("want an error on 503")
+	}
+}
+
+func TestReplayTee(t *testing.T) {
+	t.Setenv("HERALDO_DB", filepath.Join(t.TempDir(), "never-opened.db"))
+	var out bytes.Buffer
+	args := []string{"replay-tee", "-rules", "../../internal/rules/testdata/rules.yaml", "../../internal/replay/testdata/catalogue"}
+	if err := run(args, nil, &out, quiet); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "recoveries paired: 1 / 3") {
+		t.Fatalf("report:\n%s", out.String())
+	}
+	if _, err := os.Stat(os.Getenv("HERALDO_DB")); !os.IsNotExist(err) {
+		t.Fatal("replay-tee created a database")
+	}
+	t.Setenv("HERALDO_RULES", "../../internal/rules/testdata/rules.yaml")
+	out.Reset()
+	if err := run([]string{"replay-tee", "../../internal/replay/testdata/catalogue"}, nil, &out, quiet); err != nil ||
+		!strings.Contains(out.String(), "rule hits:") {
+		t.Fatalf("rules from HERALDO_RULES: %v\n%s", err, out.String())
+	}
+	if err := run([]string{"replay-tee"}, nil, io.Discard, quiet); err == nil {
+		t.Fatal("no directory: want a usage error")
+	}
+	if err := run([]string{"replay-tee", "-rules", "missing.yaml", "x"}, nil, io.Discard, quiet); err == nil {
+		t.Fatal("missing rules file: want an error")
 	}
 }

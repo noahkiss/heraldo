@@ -1,0 +1,9 @@
+{"id": "n-20260105-100000-aa0001", "ts": 1767607200, "tag": "alert", "title": "alpha: 1 unit(s) failed", "body": "system/example-sync.service\n\nRestart counter grew."}
+{"id": "n-20260105-101500-aa0002", "ts": 1767608100, "tag": "quiet", "title": "alpha: 1 unit(s) recovered", "body": "system/example-sync.service (inactive/dead)"}
+{"id": "n-20260105-110000-aa0003", "ts": 1767610800, "tag": "alert", "title": "beta: 2 unit(s) failed", "body": "system/one.service, system/two.service"}
+{"id": "n-20260105-111500-aa0004", "ts": 1767611700, "tag": "quiet", "title": "beta: 1 unit(s) recovered", "body": "system/two.service (active/running)"}
+{"id": "n-20260105-120000-aa0005", "ts": 1767614400, "tag": "quiet", "title": "Nightly report 2026-01-05", "body": "3 ok, 0 failed."}
+{"id": "n-20260105-130000-aa0006", "ts": 1767618000, "tag": "quiet", "title": "Something minor", "body": "A quiet note."}
+{"id": "n-20260105-140000-aa0007", "ts": 1767621600, "tag": "general", "title": "Hello", "body": "No rule matches this."}
+{"id": "n-20260105-150000-aa0008", "ts": 1767625200, "source": "jobs", "tag": "general", "title": "cleanup ok", "body": "Done."}
+{"id": "n-20260105-160000-aa0009", "ts": 1767628800, "title": "Untagged", "body": "No tag and no rule."}

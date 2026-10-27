@@ -27,6 +27,9 @@ type Config struct {
 	TokensFile string
 	// Tokens is a token list, entries separated by commas. HERALDO_TOKENS.
 	Tokens string
+	// RulesFile is the ingest rules file; empty means no rules.
+	// HERALDO_RULES.
+	RulesFile string
 }
 
 // FromEnv builds a Config from getenv, normally os.Getenv.
@@ -36,6 +39,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		DB:         DefaultDB,
 		TokensFile: getenv("HERALDO_TOKENS_FILE"),
 		Tokens:     getenv("HERALDO_TOKENS"),
+		RulesFile:  getenv("HERALDO_RULES"),
 	}
 	if v := getenv("HERALDO_ADDR"); v != "" {
 		c.Addr = v

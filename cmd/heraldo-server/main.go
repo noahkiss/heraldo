@@ -6,11 +6,14 @@
 //	HERALDO_DB           SQLite database path (default heraldo.db)
 //	HERALDO_TOKENS_FILE  token list file, one "<name> <scope> <sha256>" per line
 //	HERALDO_TOKENS       the same list inline, entries separated by commas
+//	HERALDO_RULES        ingest rules file, reloaded when it changes (default: no rules)
 //
 // Subcommands:
 //
 //	heraldo-server                    serve (the default)
 //	heraldo-server import-tee <dir>   backfill an apprise-tee catalogue
+//	heraldo-server replay-tee [-rules <file>] <dir>
+//	                                  run a catalogue through the rules, in memory
 //	heraldo-server backup <path>      online backup of the database to path
 //	heraldo-server hash-token         print the SHA-256 of a token read from stdin
 //	heraldo-server healthcheck        exit 0 when the local /healthz answers ok
@@ -21,6 +24,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -34,6 +38,8 @@ import (
 
 	"github.com/noahkiss/heraldo/internal/auth"
 	"github.com/noahkiss/heraldo/internal/config"
+	"github.com/noahkiss/heraldo/internal/replay"
+	"github.com/noahkiss/heraldo/internal/rules"
 	"github.com/noahkiss/heraldo/internal/server"
 	"github.com/noahkiss/heraldo/internal/store"
 	"github.com/noahkiss/heraldo/internal/teeimport"
@@ -46,6 +52,9 @@ const usage = `usage: heraldo-server [command]
 commands:
   serve              run the server (the default)
   import-tee <dir>   backfill an apprise-tee catalogue directory
+  replay-tee [-rules <file>] <dir>
+                     run a catalogue through the rules file (default
+                     $HERALDO_RULES) in memory and report what they classified
   backup <path>      copy the database to path with SQLite's online backup
   hash-token         print the SHA-256 of a token read from stdin
   healthcheck        exit 0 when this server's /healthz answers ok (for Docker)
@@ -74,6 +83,8 @@ func run(args []string, stdin io.Reader, stdout io.Writer, log *slog.Logger) err
 			return errors.New("usage: heraldo-server import-tee <dir>")
 		}
 		return importTee(args[0], log)
+	case "replay-tee":
+		return replayTee(args, stdout)
 	case "backup":
 		if len(args) != 1 {
 			return errors.New("usage: heraldo-server backup <path>")
@@ -135,10 +146,18 @@ func serve(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	var rw *rules.Watcher
+	if cfg.RulesFile != "" {
+		rw, err = rules.NewWatcher(cfg.RulesFile, log)
+		if err != nil {
+			return fmt.Errorf("HERALDO_RULES: %w", err)
+		}
+		go rw.Watch(ctx, rules.DefaultInterval)
+	}
 	srv := &http.Server{
 		Addr: cfg.Addr,
 		Handler: server.New(server.Options{
-			Version: version.String(), Store: st, Tokens: tokens, Validator: v, Logger: log,
+			Version: version.String(), Store: st, Tokens: tokens, Validator: v, Rules: rw, Logger: log,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -148,7 +167,8 @@ func serve(log *slog.Logger) error {
 
 	errc := make(chan error, 1)
 	go func() {
-		log.Info("listening", "addr", cfg.Addr, "db", cfg.DB, "tokens", tokens.Len(), "version", version.String())
+		log.Info("listening", "addr", cfg.Addr, "db", cfg.DB, "tokens", tokens.Len(),
+			"rules", rw.Rules().Len(), "version", version.String())
 		errc <- srv.ListenAndServe()
 	}()
 	select {
@@ -170,7 +190,7 @@ func serve(log *slog.Logger) error {
 
 func importTee(dir string, log *slog.Logger) error {
 	ctx := context.Background()
-	_, st, err := open(ctx)
+	cfg, st, err := open(ctx)
 	if err != nil {
 		return err
 	}
@@ -179,10 +199,43 @@ func importTee(dir string, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	s, err := teeimport.Run(ctx, dir, st, v, log)
+	var rs *rules.Set
+	if cfg.RulesFile != "" {
+		if rs, err = rules.Load(cfg.RulesFile); err != nil {
+			return fmt.Errorf("HERALDO_RULES: %w", err)
+		}
+	}
+	s, err := teeimport.Run(ctx, dir, st, v, rs, log)
 	log.Info("tee import", "files", s.Files, "lines", s.Lines, "imported", s.Imported,
-		"already_imported", s.Skipped, "bad", s.Bad, "legacy_ids", s.LegacyIDs)
+		"already_imported", s.Skipped, "bad", s.Bad, "legacy_ids", s.LegacyIDs, "typed", s.Typed)
 	return err
+}
+
+// replayTee runs a catalogue through a rules file without a database.
+func replayTee(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("replay-tee", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("rules", os.Getenv("HERALDO_RULES"), "rules file")
+	if err := fs.Parse(args); err != nil || fs.NArg() != 1 {
+		return errors.New("usage: heraldo-server replay-tee [-rules <file>] <dir>")
+	}
+	var rs *rules.Set
+	if *path != "" {
+		var err error
+		if rs, err = rules.Load(*path); err != nil {
+			return err
+		}
+	}
+	v, err := validate.New()
+	if err != nil {
+		return err
+	}
+	r, err := replay.Run(fs.Arg(0), rs, v)
+	if err != nil {
+		return err
+	}
+	r.Write(stdout)
+	return nil
 }
 
 func backup(dst string, log *slog.Logger) error {

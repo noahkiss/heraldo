@@ -16,6 +16,7 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
 	"github.com/noahkiss/heraldo/internal/ids"
+	"github.com/noahkiss/heraldo/internal/rules"
 	"github.com/noahkiss/heraldo/internal/store"
 	"github.com/noahkiss/heraldo/internal/validate"
 )
@@ -41,14 +42,14 @@ var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
 func TestImportFixture(t *testing.T) {
 	ctx := context.Background()
 	st, v := setup(t)
-	s, err := Run(ctx, fixture, st, v, quiet)
+	s, err := Run(ctx, fixture, st, v, nil, quiet)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if s != (Stats{Files: 1, Lines: 4, Imported: 3, Bad: 1}) {
 		t.Fatalf("first run: %+v", s)
 	}
-	s, err = Run(ctx, fixture, st, v, quiet)
+	s, err = Run(ctx, fixture, st, v, nil, quiet)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +170,7 @@ func TestMapCutsLongFields(t *testing.T) {
 
 func TestRunEmptyDir(t *testing.T) {
 	st, v := setup(t)
-	if _, err := Run(context.Background(), t.TempDir(), st, v, quiet); err == nil {
+	if _, err := Run(context.Background(), t.TempDir(), st, v, nil, quiet); err == nil {
 		t.Fatal("want an error for a directory without catalogue files")
 	}
 }
@@ -179,7 +180,7 @@ const mixed = "testdata/mixed"
 func TestImportMixedIDs(t *testing.T) {
 	ctx := context.Background()
 	st, v := setup(t)
-	s, err := Run(ctx, mixed, st, v, quiet)
+	s, err := Run(ctx, mixed, st, v, nil, quiet)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +197,7 @@ func TestImportMixedIDs(t *testing.T) {
 	}
 
 	// A rerun over the same files makes the same legacy ids and stores nothing.
-	s, err = Run(ctx, mixed, st, v, quiet)
+	s, err = Run(ctx, mixed, st, v, nil, quiet)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,5 +268,23 @@ func TestLegacyID(t *testing.T) {
 	// A line with an id keeps it.
 	if _, got, _ := Map([]byte(`{"id":"n-1","ts":1787212800}`), v); got != "n-1" {
 		t.Errorf("tee id %s, want n-1", got)
+	}
+}
+
+// The backfill types entries with the same rules as live ingest.
+func TestRunWithRules(t *testing.T) {
+	ctx := context.Background()
+	st, v := setup(t)
+	rs, err := rules.Parse([]byte(`rules: [{name: quiet, match: {tag: '^quiet$'}, set: {kind: digest, level: passive}}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := Run(ctx, fixture, st, v, rs, quiet)
+	if err != nil || s.Typed != 1 {
+		t.Fatalf("%+v, %v; want one typed entry", s, err)
+	}
+	recs, err := st.List(ctx, store.Filter{Limit: 10, Kind: "digest"})
+	if err != nil || len(recs) != 1 {
+		t.Fatalf("digests: %d, %v", len(recs), err)
 	}
 }

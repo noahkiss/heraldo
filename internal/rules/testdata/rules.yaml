@@ -1,0 +1,21 @@
+# Hand-written rules for the tests. Every name, host and unit is made up.
+rules:
+  - name: nightly-digest
+    match: {title: '^Nightly report \d{4}-\d{2}-\d{2}'}
+    set: {kind: digest, level: passive, thread: reports}
+  - name: unit-failed
+    match:
+      title: '^(?P<host>[\w.-]+): \d+ unit\(s\) failed'
+      body: '^(?P<unit>[^\s,]+)'
+    set: {kind: incident, action: open, key: 'unit:{host}:{unit}', host: '{host}', thread: units}
+  - name: unit-recovered
+    match:
+      title: '^(?P<host>[\w.-]+): \d+ unit\(s\) recovered'
+      body: '^(?P<unit>[^\s,]+)'
+    set: {kind: incident, action: resolve, key: 'unit:{host}:{unit}', host: '{host}', level: passive, thread: units}
+  - name: job-ok
+    match: {source: '^jobs$', title: '^(?P<job>[\w-]+) ok$'}
+    set: {kind: checkin, action: success, key: 'job:{job}'}
+  - name: quiet-message
+    match: {tag: '^quiet$'}
+    set: {kind: message, level: passive}

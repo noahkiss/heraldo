@@ -179,7 +179,10 @@ that, the check's config lives on the server.
 ## Backfill from apprise-tee
 
 `heraldo-server import-tee <dir>` reads every `notifications-YYYY-MM.jsonl` file
-in `dir` and stores each line as a `message` event. It applies no rules.
+in `dir` and stores each line as a `message` event. When `HERALDO_RULES` is set,
+the rules then type each event as they would a live post. The summary counts
+those as `typed`. A rerun skips lines it already stored, so it never retypes
+them.
 
 | Catalogue field | Event field |
 |---|---|
@@ -203,3 +206,63 @@ legacy id `legacy-` plus the first 20 hex characters of the SHA-256 of the
 line, without its line ending. A rerun over the same files makes the same
 legacy ids, so it stores nothing twice. The tee's own ids start with `n-`, so a
 legacy id never matches one. The summary counts these lines as `legacy_ids`.
+
+## Ingest rules
+
+Most legacy senders post a title, a body and a rung tag, nothing more.
+Ingest rules turn such a post into a typed event: an incident that opens or
+resolves, a digest, a check-in, or a message with another level.
+`HERALDO_RULES` names the rules file; without it the server types nothing.
+
+The rules apply to an input that is kind `message` with no `key` and no
+`action`, on `POST /v1/events`, `GET /v1/send` and `import-tee`. The schema
+requires `kind`, so an untyped sender sends `message`. A sender that sets a
+`key`, an `action` or another kind is never retyped.
+
+```yaml
+rules:
+  - name: unit-failed
+    match:
+      title: '^(?P<host>[\w.-]+): \d+ unit\(s\) failed'
+      body: '^(?P<unit>[^\s,]+)'
+    set: {kind: incident, action: open, key: 'unit:{host}:{unit}', host: '{host}'}
+  - name: unit-recovered
+    match:
+      title: '^(?P<host>[\w.-]+): \d+ unit\(s\) recovered'
+      body: '^(?P<unit>[^\s,]+)'
+    set: {kind: incident, action: resolve, key: 'unit:{host}:{unit}', level: passive}
+```
+
+- Rules run in file order. The first rule that matches wins; the rest are
+  not tried.
+- `match` takes Go RE2 regular expressions on `source`, `host`, `tag`,
+  `title` and `body`. Every field a rule names must match. `tag` matches when
+  any one tag does, and `^$` matches an untagged event. A missing field reads
+  as the empty string. A rule with no `match` matches everything.
+- Named groups, `(?P<name>...)`, are captures. `{name}` in `key`, `host` or
+  `thread` is replaced with the captured text. A placeholder that names no
+  capture is an error when the file loads.
+- `set` takes `kind` (required: `message`, `digest`, `incident` or
+  `checkin`), `key`, `action`, `level`, `thread` and `host`. `incident` and
+  `checkin` need a `key`. A field the rule leaves out keeps the sender's
+  value. A value longer than the envelope allows is cut.
+- The stored event records the rule in `details.heraldo.rule`.
+- When a rule's result is not a valid envelope (a capture came out empty, so
+  an incident has no key), the server logs a warning and stores the event as
+  the sender sent it.
+- The server checks the file every 5 seconds and reloads it when its content
+  changed. A file that does not parse, or is gone, keeps the rules in force
+  and logs an error. A file that does not parse at startup stops the server.
+
+An incident's recovery pairs with its failure only when both rules build the
+same key. One event carries one key, so a post that lists several items
+(units, containers) can key on one of them only.
+
+`heraldo-server replay-tee -rules <file> <dir>` runs a catalogue through a
+rules file in memory, with no database, and prints:
+
+- the recoveries (incident resolves) that paired with an open incident under
+  their key, out of all recoveries, and each unpaired one;
+- the incidents still open at the end;
+- the hits per rule;
+- every source and first tag that no rule matched, with a count and a title.

@@ -2,8 +2,8 @@
 // directory of monthly JSON Lines files, notifications-YYYY-MM.jsonl, one
 // notification per line.
 //
-// Each entry becomes a kind message event. The mapping applies no
-// classification rules; those come in a later stage.
+// Each entry becomes a kind message event, then the ingest rules, when
+// given, classify it as they would a live post (package rules).
 //
 //	tee field              event field
 //	id                     details.tee.id and dedup; the event id is derived from ts and id.
@@ -39,6 +39,7 @@ import (
 
 	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/ids"
+	"github.com/noahkiss/heraldo/internal/rules"
 	"github.com/noahkiss/heraldo/internal/store"
 	"github.com/noahkiss/heraldo/internal/validate"
 )
@@ -66,6 +67,7 @@ type Stats struct {
 	Skipped   int // imported by an earlier run
 	Bad       int // not JSON, no ts, or not a valid envelope
 	LegacyIDs int // mapped lines that had no id and got a legacy id
+	Typed     int // mapped lines a rule classified
 }
 
 // LegacyID is the tee id of a catalogue line that has none: the tee wrote
@@ -77,27 +79,65 @@ func LegacyID(line []byte) string {
 	return LegacyPrefix + hex.EncodeToString(h[:])[:20]
 }
 
-// Run imports every catalogue file in dir.
-func Run(ctx context.Context, dir string, st *store.Store, v *validate.Validator, log *slog.Logger) (Stats, error) {
+// Run imports every catalogue file in dir, classifying each entry with rs
+// (nil: no rules).
+func Run(ctx context.Context, dir string, st *store.Store, v *validate.Validator, rs *rules.Set, log *slog.Logger) (Stats, error) {
 	var s Stats
-	files, err := filepath.Glob(filepath.Join(dir, "notifications-*.jsonl"))
-	if err != nil {
-		return s, err
-	}
-	if len(files) == 0 {
-		return s, fmt.Errorf("no notifications-*.jsonl files in %s", dir)
-	}
-	sort.Strings(files)
-	for _, path := range files {
-		s.Files++
-		if err := importFile(ctx, path, st, v, log, &s); err != nil {
-			return s, fmt.Errorf("%s: %w", filepath.Base(path), err)
+	files, err := Each(dir, func(file string, n int, line []byte) error {
+		s.Lines++
+		m, err := Classify(line, v, rs)
+		if err != nil {
+			s.Bad++
+			log.Warn("tee import: skipped a line", "file", file, "line", n, "err", err)
+			return nil
 		}
-	}
-	return s, nil
+		if m.RuleErr != nil {
+			log.Warn("tee import: a rule matched but its event is not valid; stored as a message",
+				"file", file, "line", n, "err", m.RuleErr)
+		}
+		if m.Rule != "" {
+			s.Typed++
+		}
+		if strings.HasPrefix(m.TeeID, LegacyPrefix) {
+			s.LegacyIDs++
+		}
+		created, err := st.Import(ctx, Origin, m.TeeID, m.Event)
+		if err != nil {
+			return fmt.Errorf("line %d: %w", n, err)
+		}
+		if created {
+			s.Imported++
+		} else {
+			s.Skipped++
+		}
+		return nil
+	})
+	s.Files = files
+	return s, err
 }
 
-func importFile(ctx context.Context, path string, st *store.Store, v *validate.Validator, log *slog.Logger, s *Stats) error {
+// Each calls fn for every non-blank line of every catalogue file in dir,
+// files in name order (oldest month first). file is the base name and n the
+// line number. An error from fn stops the walk. It returns the number of
+// files read.
+func Each(dir string, fn func(file string, n int, line []byte) error) (int, error) {
+	files, err := filepath.Glob(filepath.Join(dir, "notifications-*.jsonl"))
+	if err != nil {
+		return 0, err
+	}
+	if len(files) == 0 {
+		return 0, fmt.Errorf("no notifications-*.jsonl files in %s", dir)
+	}
+	sort.Strings(files)
+	for i, path := range files {
+		if err := eachLine(path, fn); err != nil {
+			return i + 1, fmt.Errorf("%s: %w", filepath.Base(path), err)
+		}
+	}
+	return len(files), nil
+}
+
+func eachLine(path string, fn func(file string, n int, line []byte) error) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -112,24 +152,8 @@ func importFile(ctx context.Context, path string, st *store.Store, v *validate.V
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
-		s.Lines++
-		ev, teeID, err := Map(line, v)
-		if err != nil {
-			s.Bad++
-			log.Warn("tee import: skipped a line", "file", filepath.Base(path), "line", n, "err", err)
-			continue
-		}
-		if strings.HasPrefix(teeID, LegacyPrefix) {
-			s.LegacyIDs++
-		}
-		created, err := st.Import(ctx, Origin, teeID, ev)
-		if err != nil {
-			return fmt.Errorf("line %d: %w", n, err)
-		}
-		if created {
-			s.Imported++
-		} else {
-			s.Skipped++
+		if err := fn(filepath.Base(path), n, line); err != nil {
+			return err
 		}
 	}
 	return sc.Err()
@@ -160,17 +184,37 @@ type entry struct {
 }
 
 // Map turns one catalogue line into an event ready to store, and returns the
-// tee id it came from: the line's id, or its LegacyID when it has none.
+// tee id it came from: the line's id, or its LegacyID when it has none. It
+// applies no rules.
 func Map(line []byte, v *validate.Validator) (store.NewEvent, string, error) {
+	m, err := Classify(line, v, nil)
+	return m.Event, m.TeeID, err
+}
+
+// Mapped is one catalogue line as an event.
+type Mapped struct {
+	Event store.NewEvent
+	// TeeID is the line's id, or its LegacyID when it has none.
+	TeeID string
+	// Rule names the rule that classified the event, or is empty.
+	Rule string
+	// RuleErr is set when a rule matched but the event it made was not a
+	// valid envelope; the event is then the plain message.
+	RuleErr error
+}
+
+// Classify maps one catalogue line as Map does, then classifies it with rs
+// (nil: no rules).
+func Classify(line []byte, v *validate.Validator, rs *rules.Set) (Mapped, error) {
 	var e entry
 	if err := json.Unmarshal(line, &e); err != nil {
-		return store.NewEvent{}, "", fmt.Errorf("not a JSON object: %w", err)
+		return Mapped{}, fmt.Errorf("not a JSON object: %w", err)
 	}
 	if e.ID == "" {
 		e.ID = LegacyID(line)
 	}
 	if e.Ts == nil || math.IsNaN(*e.Ts) || *e.Ts <= 0 {
-		return store.NewEvent{}, "", fmt.Errorf("%s: no ts", e.ID)
+		return Mapped{}, fmt.Errorf("%s: no ts", e.ID)
 	}
 	sec, frac := math.Modf(*e.Ts)
 	at := time.Unix(int64(sec), int64(math.Round(frac*1000))*int64(time.Millisecond)).UTC()
@@ -221,12 +265,14 @@ func Map(line []byte, v *validate.Validator) (store.NewEvent, string, error) {
 
 	raw, err := json.Marshal(in)
 	if err != nil {
-		return store.NewEvent{}, "", err
+		return Mapped{}, err
 	}
 	checked, err := v.Input(raw)
 	if err != nil {
-		return store.NewEvent{}, "", fmt.Errorf("%s: %w", e.ID, err)
+		return Mapped{}, fmt.Errorf("%s: %w", e.ID, err)
 	}
+	m := Mapped{TeeID: e.ID}
+	checked, m.Rule, m.RuleErr = rules.Apply(rs, checked, v)
 	id := e.ID
 	if !ids.Valid(id) {
 		id = ids.Derived(at, Origin, e.ID)
@@ -248,7 +294,8 @@ func Map(line []byte, v *validate.Validator) (store.NewEvent, string, error) {
 		}
 		fields["hold"] = hold
 	}
-	return store.NewEvent{ID: id, ReceivedAt: at, Fields: fields, Typed: checked.Typed}, e.ID, nil
+	m.Event = store.NewEvent{ID: id, ReceivedAt: at, Fields: fields, Typed: checked.Typed}
+	return m, nil
 }
 
 func empty(x any) bool {

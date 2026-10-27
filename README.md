@@ -30,9 +30,9 @@ sends no push notifications yet.
 | `api/` | Go types generated from `schema/` |
 | `cmd/heraldo-server` | The server |
 | `cmd/heraldo` | The CLI |
-| `internal/` | Server packages: store, validation, auth, the tee import |
+| `internal/` | Server packages: store, validation, auth, ingest rules, the tee import and replay |
 | `apple/` | Xcode project (XcodeGen): the Heraldo app for iOS and macOS, its extensions, HeraldoKit |
-| `deploy/` | A generic compose file and an example env file |
+| `deploy/` | A generic compose file, an example env file and an example rules file |
 | `docs/` | Design notes |
 
 ## Build
@@ -104,6 +104,7 @@ The server reads its configuration from the environment.
 | `HERALDO_DB` | `heraldo.db` (`/data/heraldo.db` in the image) | SQLite database path. The server runs it in WAL mode, so keep the `-wal` and `-shm` files beside it. |
 | `HERALDO_TOKENS_FILE` | none | Token file, one `<name> <scope> <sha256> [trusted-ingest]` per line |
 | `HERALDO_TOKENS` | none | The same entries inline, separated by commas. Set this or the file, not both. |
+| `HERALDO_RULES` | none | Ingest rules file (YAML) that types untyped messages. The server reloads it within 5 s of a change; a file that does not parse keeps the rules in force and logs an error. A broken file at startup stops the server. Format: [docs/api.md](docs/api.md#ingest-rules), example: `deploy/rules.example.yaml`. |
 
 With no tokens, the server refuses every call except `/healthz`.
 
@@ -113,7 +114,8 @@ With no tokens, the server refuses every call except `/healthz`.
 |---|---|
 | `heraldo-server` | Runs the server. SIGTERM or SIGINT shuts it down cleanly. |
 | `heraldo-server backup <path>` | Copies the database to a new file with SQLite's online backup. The server keeps running. The copy is one file in rollback-journal mode, with no `-wal` or `-shm` beside it. |
-| `heraldo-server import-tee <dir>` | Backfills an apprise-tee catalogue (`notifications-YYYY-MM.jsonl`). A rerun stores nothing twice. |
+| `heraldo-server import-tee <dir>` | Backfills an apprise-tee catalogue (`notifications-YYYY-MM.jsonl`), typed by `HERALDO_RULES` when set. A rerun stores nothing twice. |
+| `heraldo-server replay-tee [-rules <file>] <dir>` | Runs a catalogue through a rules file (default `HERALDO_RULES`) in memory and reports how many recoveries paired with their failure, the unpaired ones, the hits per rule and every source and tag no rule matched. It opens no database. |
 | `heraldo-server hash-token` | Prints the SHA-256 of a token read from stdin. |
 | `heraldo-server healthcheck` | Exits 0 when the local `/healthz` answers. The image's `HEALTHCHECK` runs it. |
 

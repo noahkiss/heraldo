@@ -72,3 +72,13 @@ func TestLoadTokensFile(t *testing.T) {
 		t.Fatal("want an error for a missing file")
 	}
 }
+
+func TestFromEnvRules(t *testing.T) {
+	c, err := FromEnv(env(map[string]string{"HERALDO_RULES": "/config/rules.yaml"}))
+	if err != nil || c.RulesFile != "/config/rules.yaml" {
+		t.Fatalf("RulesFile = %q, %v", c.RulesFile, err)
+	}
+	if c, _ := FromEnv(env(nil)); c.RulesFile != "" {
+		t.Fatalf("default RulesFile = %q, want none", c.RulesFile)
+	}
+}

@@ -22,6 +22,7 @@ import (
 	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/auth"
 	"github.com/noahkiss/heraldo/internal/ids"
+	"github.com/noahkiss/heraldo/internal/rules"
 	"github.com/noahkiss/heraldo/internal/store"
 	"github.com/noahkiss/heraldo/internal/teeimport"
 	"github.com/noahkiss/heraldo/internal/validate"
@@ -51,6 +52,12 @@ type env struct {
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
+	return newEnvRules(t, nil)
+}
+
+// newEnvRules is newEnv with ingest rules.
+func newEnvRules(t *testing.T, rw *rules.Watcher) *env {
+	t.Helper()
 	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +76,7 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	h := New(Options{
-		Version: "v-test", Store: st, Tokens: tokens, Validator: v, Now: c.now,
+		Version: "v-test", Store: st, Tokens: tokens, Validator: v, Now: c.now, Rules: rw,
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	return &env{h: h, st: st, clock: c}
@@ -633,14 +640,14 @@ func TestBackfillAndLiveStoreOnce(t *testing.T) {
 	if live.Code != http.StatusCreated {
 		t.Fatalf("live: %d", live.Code)
 	}
-	s, err := teeimport.Run(ctx, "../teeimport/testdata/catalogue", e.st, v, quiet)
+	s, err := teeimport.Run(ctx, "../teeimport/testdata/catalogue", e.st, v, nil, quiet)
 	if err != nil || s.Imported != 2 || s.Skipped != 1 {
 		t.Fatalf("import after live: %+v, %v", s, err)
 	}
 
 	// Backfill first, then live.
 	e = newEnv(t)
-	if _, err := teeimport.Run(ctx, "../teeimport/testdata/catalogue", e.st, v, quiet); err != nil {
+	if _, err := teeimport.Run(ctx, "../teeimport/testdata/catalogue", e.st, v, nil, quiet); err != nil {
 		t.Fatal(err)
 	}
 	rec := e.do(t, http.MethodPost, "/v1/events", bridgeTok,
@@ -650,5 +657,48 @@ func TestBackfillAndLiveStoreOnce(t *testing.T) {
 	}
 	if n, _ := e.st.Count(ctx); n != 3 {
 		t.Fatalf("count = %d, want 3", n)
+	}
+}
+
+// Rules type an untyped message at ingest, on both POST and /v1/send, and
+// leave a typed event alone.
+func TestRulesAtIngest(t *testing.T) {
+	rw, err := rules.NewWatcher("../rules/testdata/rules.yaml", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := newEnvRules(t, rw)
+	ctx := context.Background()
+
+	rec := e.do(t, http.MethodPost, "/v1/events", bridgeTok, []byte(`{"source":"apprise-tee","kind":"message",
+		"tags":["alert"],"level":"time-sensitive","title":"alpha: 1 unit(s) failed","body":"system/x.service"}`))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("post: %d %s", rec.Code, rec.Body)
+	}
+	ev := decode[api.Event](t, rec)
+	if ev.Kind != api.KindIncident || *ev.Key != "unit:alpha:system/x.service" || *ev.Host != "alpha" {
+		t.Fatalf("stored %s", rec.Body)
+	}
+	if r, err := e.st.Row(ctx, "incidents", "unit:alpha:system/x.service"); err != nil || r["state"] != "open" {
+		t.Fatalf("incident: %v %v", r, err)
+	}
+	checkStored(t, storedSchema(t), rec.Body.Bytes())
+
+	q := url.Values{"source": {"apprise-tee"}, "kind": {"message"}, "tags": {"quiet"},
+		"title": {"alpha: 1 unit(s) recovered"}, "body": {"system/x.service (inactive/dead)"}}
+	rec = e.do(t, http.MethodGet, "/v1/send?"+q.Encode(), writeTok, nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("send: %d %s", rec.Code, rec.Body)
+	}
+	if ev := decode[api.Event](t, rec); string(*ev.Action) != "resolve" || string(*ev.Level) != "passive" {
+		t.Fatalf("stored %s", rec.Body)
+	}
+	if r, _ := e.st.Row(ctx, "incidents", "unit:alpha:system/x.service"); r["state"] != "resolved" {
+		t.Fatalf("incident after recovery: %v", r)
+	}
+
+	rec = e.post(t, `{"source":"x","kind":"message","key":"mine","title":"alpha: 1 unit(s) failed","body":"a"}`)
+	if ev := decode[api.Event](t, rec); ev.Kind != api.KindMessage || *ev.Key != "mine" {
+		t.Fatalf("a sender's key was reclassified: %s", rec.Body)
 	}
 }

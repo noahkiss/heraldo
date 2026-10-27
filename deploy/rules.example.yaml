@@ -1,0 +1,35 @@
+# Example heraldo ingest rules. Set HERALDO_RULES to the file's path; the
+# server reloads it within 5 s of a change. docs/api.md, "Ingest rules", has
+# the format. Try a change on a catalogue before you deploy it:
+#   heraldo-server replay-tee -rules rules.yaml <catalogue-dir>
+rules:
+  # A daily summary: stored and listed, never a push of its own.
+  - name: nightly-digest
+    match: {title: '^Nightly report \d{4}-\d{2}-\d{2}'}
+    set: {kind: digest, level: passive, thread: reports}
+
+  # A watchdog's failure opens an incident; its recovery resolves the same
+  # key. Both rules must build the key the same way.
+  - name: unit-failed
+    match:
+      title: '^(?P<host>[\w.-]+): \d+ unit\(s\) failed'
+      body: '^(?P<unit>[^\s,]+)'
+    set: {kind: incident, action: open, key: 'unit:{host}:{unit}', host: '{host}', thread: units}
+  - name: unit-recovered
+    match:
+      title: '^(?P<host>[\w.-]+): \d+ unit\(s\) recovered'
+      body: '^(?P<unit>[^\s,]+)'
+    set: {kind: incident, action: resolve, key: 'unit:{host}:{unit}', host: '{host}', level: passive, thread: units}
+
+  # A scheduled job's reports as check-ins.
+  - name: job-ok
+    match: {title: '^job (?P<job>[\w-]+) ok$'}
+    set: {kind: checkin, action: success, key: 'job:{job}', level: passive}
+  - name: job-failed
+    match: {title: '^job (?P<job>[\w-]+) failed$'}
+    set: {kind: checkin, action: fail, key: 'job:{job}'}
+
+  # Everything at the quiet rung stays a message, without a sound.
+  - name: quiet-message
+    match: {tag: '^quiet$'}
+    set: {kind: message, level: passive}
