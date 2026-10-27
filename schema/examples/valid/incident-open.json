@@ -1,17 +1,29 @@
 {
-  "id": "01JBA6Y8Q2K9M3T4V5W6X7Y8Z9",
   "ts": "2026-10-26T12:00:00Z",
   "source": "uptime",
+  "host": "web-1",
   "kind": "incident",
-  "key": "web-down",
+  "key": "unit:web-1:nginx.service",
   "action": "open",
   "title": "Web is down",
-  "body": "Health check failed 3 times.",
+  "summary": "Health check failed 3 times",
+  "body": "Health check failed 3 times.\n\nLast error: `connection refused`.",
   "level": "time-sensitive",
   "thread": "uptime",
+  "tags": ["web", "prod"],
+  "dedup": "uptime-web-down-20261026T1200",
   "actions": [
-    { "id": "ack", "title": "Acknowledge" },
-    { "id": "open", "title": "Open dashboard", "url": "https://example.com/status" }
+    { "id": "ack", "title": "Acknowledge", "type": "server" },
+    { "id": "dashboard", "title": "Open dashboard", "type": "open", "url": "https://example.com/status" },
+    {
+      "id": "restart",
+      "title": "Restart",
+      "type": "http",
+      "url": "http://192.0.2.10:8080/restart",
+      "method": "POST",
+      "foreground": false,
+      "destructive": true
+    }
   ],
   "details": { "uptime": { "failures": 3 } }
 }

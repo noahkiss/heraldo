@@ -1,0 +1,18 @@
+{
+  "source": "ups",
+  "host": "rack",
+  "kind": "status",
+  "key": "ups:battery",
+  "action": "set",
+  "content": {
+    "title": "UPS",
+    "symbol": "battery.75percent",
+    "tint": "green",
+    "status": "On line",
+    "progress": 0.98,
+    "metrics": [
+      { "label": "Load", "value": "31", "unit": "%" },
+      { "label": "Runtime", "value": "42", "unit": "min" }
+    ]
+  }
+}

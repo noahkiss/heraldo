@@ -1,0 +1,13 @@
+{
+  "source": "printer",
+  "kind": "progress",
+  "key": "print-42",
+  "action": "end",
+  "content": {
+    "progress": 1,
+    "status": "Done",
+    "tint": "green",
+    "ends_at": null,
+    "keep_for": 600
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "source": "cron",
+  "host": "db-1",
+  "kind": "checkin",
+  "key": "db-dump",
+  "action": "start",
+  "checkin": {
+    "rid": "5f2b8c1e-8d3a-4b7e-9c61-0a2f4d6e8b10",
+    "schedule": { "cron": "0 3 * * *", "tz": "Europe/Madrid", "grace_s": 600, "max_runtime_s": 3600 }
+  }
+}

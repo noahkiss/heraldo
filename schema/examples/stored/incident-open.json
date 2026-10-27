@@ -1,0 +1,19 @@
+{
+  "id": "01JBA6Y8Q2K9M3T4V5W6X7Y8Z9",
+  "received_at": "2026-10-26T12:00:01Z",
+  "ts": "2026-10-26T12:00:00Z",
+  "source": "uptime",
+  "kind": "incident",
+  "key": "unit:web-1:nginx.service",
+  "action": "open",
+  "title": "Web is down",
+  "level": "critical",
+  "actions": [
+    { "id": "ack", "title": "Acknowledge", "type": "server" }
+  ],
+  "hold": { "state": "open" },
+  "delivery": [
+    { "device": "dev_01", "outcome": "sent", "level": "time-sensitive", "at": "2026-10-26T12:00:02Z" },
+    { "device": "dev_02", "outcome": "failed", "at": "2026-10-26T12:00:02Z", "error": "BadDeviceToken" }
+  ]
+}

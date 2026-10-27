@@ -1,48 +1,410 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/noahkiss/heraldo/schema/envelope.v1.schema.json",
-  "title": "Envelope",
-  "description": "One heraldo event, envelope v1. The kind field picks the meaning of key and action. A sender may leave out id and ts; the server assigns them.",
+  "title": "EventInput",
+  "description": "One heraldo event as a sender posts it, envelope v1. The kind field picks the meaning of key and action. The server owns id, received_at, hold and delivery: an input that sets any of them is rejected. The stored form, with those fields, is $defs/Event.",
   "type": "object",
   "required": [
     "source",
     "kind"
   ],
-  "properties": {
-    "id": {
-      "type": "string",
-      "description": "Server-assigned event id. Sortable by arrival.",
-      "minLength": 1,
-      "maxLength": 64
+  "allOf": [
+    {
+      "$ref": "#/$defs/EventFields"
     },
-    "ts": {
-      "type": "string",
-      "format": "date-time",
-      "description": "When the event happened, RFC 3339. The server uses the arrival time when it is missing."
+    {
+      "$ref": "#/$defs/KindRules"
+    }
+  ],
+  "unevaluatedProperties": false,
+  "$defs": {
+    "Event": {
+      "title": "Event",
+      "description": "One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold and delivery.",
+      "type": "object",
+      "required": [
+        "id",
+        "received_at",
+        "ts",
+        "source",
+        "kind"
+      ],
+      "allOf": [
+        {
+          "$ref": "#/$defs/EventFields"
+        },
+        {
+          "$ref": "#/$defs/KindRules"
+        }
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "readOnly": true,
+          "x-go-type-skip-optional-pointer": true,
+          "description": "Server-assigned event id. Sortable by arrival.",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "received_at": {
+          "type": "string",
+          "format": "date-time",
+          "readOnly": true,
+          "x-go-type-skip-optional-pointer": true,
+          "description": "When the server stored the event, RFC 3339."
+        },
+        "hold": {
+          "type": "object",
+          "readOnly": true,
+          "description": "Triage state the server keeps for the event.",
+          "additionalProperties": true
+        },
+        "delivery": {
+          "type": "array",
+          "readOnly": true,
+          "description": "What happened to the push on each device.",
+          "items": {
+            "$ref": "#/$defs/Delivery"
+          }
+        }
+      },
+      "unevaluatedProperties": false
     },
-    "source": {
-      "type": "string",
-      "description": "The sender, such as a service or job name. One thread and icon per source by default.",
-      "minLength": 1,
-      "maxLength": 128
+    "EventFields": {
+      "description": "The fields a sender sets. Shared by EventInput and Event; it does not close the object, so it is not used alone.",
+      "type": "object",
+      "properties": {
+        "ts": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the event happened, RFC 3339. The server uses the arrival time when it is missing."
+        },
+        "source": {
+          "type": "string",
+          "description": "The sender, such as a service or job name. One thread and icon per source by default.",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "host": {
+          "type": "string",
+          "description": "The machine the event is about. It can differ from the sender: a monitor on one machine reports about another. Status views group by host.",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "kind": {
+          "$ref": "#/$defs/Kind"
+        },
+        "key": {
+          "type": "string",
+          "description": "Groups related events: the incident, progress, check-in or status key. incident, progress, checkin and status need one. The server derives apns-collapse-id from a hash of the key, so the key may be longer than APNs allows.",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "action": {
+          "$ref": "#/$defs/EventAction"
+        },
+        "title": {
+          "type": "string",
+          "description": "Notification title.",
+          "maxLength": 256
+        },
+        "summary": {
+          "type": "string",
+          "description": "The one-line push text. A digest pushes the summary only. Without a summary, the push carries a truncated body.",
+          "maxLength": 178
+        },
+        "body": {
+          "type": "string",
+          "description": "Markdown. The server stores the full text; a push carries the summary or a truncated copy. The limit is 256 KiB; the server counts bytes, this schema counts characters.",
+          "maxLength": 262144
+        },
+        "level": {
+          "$ref": "#/$defs/Level"
+        },
+        "thread": {
+          "type": "string",
+          "description": "Notification thread. Maps to thread-id. Defaults to the source.",
+          "maxLength": 128
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Opened when the notification is tapped."
+        },
+        "image": {
+          "type": "string",
+          "format": "uri",
+          "description": "Image attached to the notification."
+        },
+        "icon": {
+          "type": "string",
+          "description": "Icon for the source: a URL or a symbol name.",
+          "maxLength": 512
+        },
+        "sound": {
+          "type": "string",
+          "description": "Push sound: \"default\", \"none\", or the name of a sound bundled with the app. Leave it out for the default.",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "tags": {
+          "type": "array",
+          "description": "Free-form labels for rule matching, such as legacy Apprise tags.",
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "dedup": {
+          "type": "string",
+          "description": "Idempotency id chosen by the sender. The server drops a repeat with the same dedup within 24 hours and returns the first event. Set it when a sender may retry the same event.",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The event is stale after this time, RFC 3339. Maps to apns-expiration; views hide the event after it."
+        },
+        "relevance": {
+          "type": "number",
+          "description": "How relevant the event is next to others from the same app, 0 to 1. Maps to relevance-score.",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "actions": {
+          "type": "array",
+          "description": "Buttons on the notification.",
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/Action"
+          }
+        },
+        "content": {
+          "$ref": "#/$defs/LiveContent"
+        },
+        "checkin": {
+          "$ref": "#/$defs/Checkin"
+        },
+        "details": {
+          "type": "object",
+          "description": "Namespaced extras, such as {\"backup\": {\"bytes\": 1024}}.",
+          "additionalProperties": true
+        }
+      }
     },
-    "kind": {
+    "KindRules": {
+      "description": "What each kind requires and allows.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "incident"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "key"
+            ],
+            "properties": {
+              "action": {
+                "enum": [
+                  "open",
+                  "update",
+                  "ack",
+                  "resolve"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "progress"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "key"
+            ],
+            "properties": {
+              "action": {
+                "enum": [
+                  "start",
+                  "update",
+                  "end"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "checkin"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "key"
+            ],
+            "properties": {
+              "action": {
+                "enum": [
+                  "start",
+                  "success",
+                  "fail",
+                  "log"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "status"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "key",
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "enum": [
+                  "set",
+                  "clear"
+                ]
+              }
+            },
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "set"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            },
+            "then": {
+              "required": [
+                "content"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "message",
+                  "digest"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "action"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "message",
+                  "digest",
+                  "incident",
+                  "checkin"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "content"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "message",
+                  "digest",
+                  "incident",
+                  "progress",
+                  "status"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "checkin"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "Kind": {
       "type": "string",
       "enum": [
         "message",
         "incident",
         "digest",
         "progress",
-        "checkin"
+        "checkin",
+        "status"
       ],
-      "description": "What the event is. incident, progress and checkin need a key."
+      "description": "What the event is. message: a one-off notice. incident: a problem with a lifecycle. digest: a batch summary. progress: a Live Activity. checkin: a job run, as with healthchecks.io. status: a named live value for widgets and the status view; it never sends an alert push, only a widget push. incident, progress, checkin and status need a key."
     },
-    "key": {
-      "type": "string",
-      "description": "Groups related events: the incident, progress or check-in key. Maps to apns-collapse-id.",
-      "maxLength": 64
-    },
-    "action": {
+    "EventAction": {
       "type": "string",
       "enum": [
         "open",
@@ -53,19 +415,13 @@
         "end",
         "success",
         "fail",
-        "log"
+        "log",
+        "set",
+        "clear"
       ],
-      "description": "Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. message and digest take none."
+      "description": "Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none."
     },
-    "title": {
-      "type": "string",
-      "maxLength": 256
-    },
-    "body": {
-      "type": "string",
-      "description": "Markdown. The server stores the full text; a push carries a truncated copy."
-    },
-    "level": {
+    "Level": {
       "type": "string",
       "enum": [
         "passive",
@@ -74,181 +430,430 @@
         "critical"
       ],
       "default": "active",
-      "description": "Interruption level. Maps to the APNs interruption-level."
+      "description": "Interruption level. Maps to the APNs interruption-level. Without the critical-alerts entitlement, the server sends critical as time-sensitive and records the downgrade in delivery."
     },
-    "thread": {
+    "Color": {
       "type": "string",
-      "description": "Notification thread. Maps to thread-id. Defaults to the source.",
-      "maxLength": 128
+      "description": "A hex color (#RRGGBB or #RRGGBBAA) or a system color name.",
+      "pattern": "^(#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?|red|orange|yellow|green|mint|teal|cyan|blue|indigo|purple|pink|brown|gray|primary|secondary)$"
     },
-    "url": {
-      "type": "string",
-      "format": "uri",
-      "description": "Opened when the notification is tapped."
-    },
-    "image": {
-      "type": "string",
-      "format": "uri",
-      "description": "Image attached to the notification."
-    },
-    "icon": {
-      "type": "string",
-      "description": "Icon for the source: a URL or a symbol name.",
-      "maxLength": 512
-    },
-    "actions": {
-      "type": "array",
-      "maxItems": 4,
-      "items": {
-        "type": "object",
-        "required": [
-          "id",
-          "title"
-        ],
-        "properties": {
-          "id": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 64
-          },
-          "title": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 64
-          },
-          "url": {
-            "type": "string",
-            "format": "uri",
-            "description": "Opened or called when the button is tapped."
-          },
-          "destructive": {
-            "type": "boolean",
-            "default": false
-          }
+    "Action": {
+      "title": "Action",
+      "description": "A button on a notification, Live Activity or widget. type open: the device opens url. type http: the device calls url with method, so it can reach hosts only the device sees, such as the LAN. type server: heraldo handles it; id names the server action (ack, resolve or mute) and url is not used.",
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "type"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Action id, unique within the event. For type server, the server action.",
+          "minLength": 1,
+          "maxLength": 64
         },
-        "additionalProperties": false,
-        "x-go-type-name": "ActionButton"
-      }
-    },
-    "content": {
-      "type": "object",
-      "description": "Live Activity fields for kind progress.",
-      "additionalProperties": true
-    },
-    "details": {
-      "type": "object",
-      "description": "Namespaced extras, such as {\"backup\": {\"bytes\": 1024}}.",
-      "additionalProperties": true
-    },
-    "hold": {
-      "type": "object",
-      "description": "Triage state the server keeps for the event.",
-      "additionalProperties": true
-    }
-  },
-  "additionalProperties": false,
-  "allOf": [
-    {
-      "if": {
-        "properties": {
-          "kind": {
-            "const": "incident"
-          }
+        "title": {
+          "type": "string",
+          "description": "Button label.",
+          "minLength": 1,
+          "maxLength": 64
         },
-        "required": [
-          "kind"
-        ]
+        "type": {
+          "type": "string",
+          "enum": [
+            "open",
+            "http",
+            "server"
+          ],
+          "description": "Who handles the tap: open and http run on the device, server runs on heraldo."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "open: the page to open. http: the URL to call. Required for both; not allowed for server."
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "GET",
+            "POST"
+          ],
+          "default": "POST",
+          "description": "HTTP method for type http. Not allowed for other types."
+        },
+        "foreground": {
+          "type": "boolean",
+          "default": false,
+          "description": "Bring the app to the foreground when tapped."
+        },
+        "destructive": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the button as destructive."
+        }
       },
-      "then": {
-        "required": [
-          "key"
-        ],
-        "properties": {
-          "action": {
-            "enum": [
-              "open",
-              "update",
-              "ack",
-              "resolve"
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "open",
+                  "http"
+                ]
+              }
+            },
+            "required": [
+              "type"
             ]
+          },
+          "then": {
+            "required": [
+              "url"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "open",
+                  "server"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "method"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "server"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "id": {
+                "enum": [
+                  "ack",
+                  "resolve",
+                  "mute"
+                ]
+              }
+            },
+            "not": {
+              "required": [
+                "url"
+              ]
+            }
           }
         }
-      }
+      ]
     },
-    {
-      "if": {
-        "properties": {
-          "kind": {
-            "const": "progress"
+    "LiveContent": {
+      "title": "LiveContent",
+      "description": "What a Live Activity (kind progress) or widget (kind status) shows. On an update, a field left out keeps its value and a field set to null clears it.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 120
+        },
+        "symbol": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "SF Symbol name, such as printer.fill.",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "tint": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Accent color: a hex color (#RRGGBB or #RRGGBBAA) or a system color name.",
+          "pattern": "^(#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?|red|orange|yellow|green|mint|teal|cyan|blue|indigo|purple|pink|brown|gray|primary|secondary)$"
+        },
+        "body": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Plain text below the title.",
+          "maxLength": 300
+        },
+        "progress": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Fraction done, 0 to 1.",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "steps": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "Step counter, such as layer 3 of 120. current should not exceed total; the server checks that.",
+          "required": [
+            "total",
+            "current"
+          ],
+          "properties": {
+            "total": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "current": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false,
+          "x-go-type-name": "Steps"
+        },
+        "ends_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "When the work is expected to end, RFC 3339. Absolute, so a late push does not shift it."
+        },
+        "trailing": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Short text on the trailing edge, such as an ETA.",
+          "maxLength": 40
+        },
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Short state text, such as Printing or Paused.",
+          "maxLength": 40
+        },
+        "metrics": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "description": "Up to 6 labelled values.",
+          "maxItems": 6,
+          "items": {
+            "$ref": "#/$defs/Metric"
           }
         },
-        "required": [
-          "kind"
+        "button": {
+          "description": "One button on the activity or widget. Same shape as a notification action.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Action"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stale_after": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Seconds after this update when the content counts as stale.",
+          "minimum": 1
+        },
+        "keep_for": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "On end: seconds the ended activity stays on screen.",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "Metric": {
+      "title": "Metric",
+      "description": "One labelled value, such as Nozzle 215 °C.",
+      "type": "object",
+      "required": [
+        "label",
+        "value"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "value": {
+          "type": "string",
+          "description": "The value as display text, such as 215 or 1.2k.",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "unit": {
+          "type": "string",
+          "maxLength": 16
+        },
+        "color": {
+          "$ref": "#/$defs/Color"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Checkin": {
+      "title": "Checkin",
+      "description": "Run details for kind checkin, in the shape of a healthchecks.io ping.",
+      "type": "object",
+      "properties": {
+        "rid": {
+          "type": "string",
+          "description": "Run id. Pairs a start with its success or fail, so the server can measure the run.",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "exit_code": {
+          "type": "integer",
+          "description": "The job's exit code. 0 counts as success, anything else as fail.",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "duration_ms": {
+          "type": "integer",
+          "description": "How long the run took, in milliseconds, when the sender measured it.",
+          "minimum": 0
+        },
+        "schedule": {
+          "$ref": "#/$defs/Schedule"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Schedule": {
+      "title": "Schedule",
+      "description": "When the check expects a ping. The server uses it only to create a check it does not know yet, as healthchecks.io does with ?create=1; after that the check's config lives on the server. Set period_s, or cron with an optional tz, not both.",
+      "type": "object",
+      "properties": {
+        "period_s": {
+          "type": "integer",
+          "description": "Expected seconds between pings.",
+          "minimum": 1
+        },
+        "cron": {
+          "type": "string",
+          "description": "Cron expression for the expected pings.",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "tz": {
+          "type": "string",
+          "description": "IANA time zone for cron, such as Europe/Madrid. Defaults to UTC.",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "grace_s": {
+          "type": "integer",
+          "description": "Seconds a ping may be late before the check fails.",
+          "minimum": 0
+        },
+        "max_runtime_s": {
+          "type": "integer",
+          "description": "Seconds a started run may take before the check fails.",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false,
+      "dependentRequired": {
+        "tz": [
+          "cron"
         ]
       },
-      "then": {
-        "required": [
-          "key"
-        ],
-        "properties": {
-          "action": {
-            "enum": [
-              "start",
-              "update",
-              "end"
-            ]
-          }
-        }
-      }
-    },
-    {
       "if": {
-        "properties": {
-          "kind": {
-            "const": "checkin"
-          }
-        },
         "required": [
-          "kind"
-        ]
-      },
-      "then": {
-        "required": [
-          "key"
-        ],
-        "properties": {
-          "action": {
-            "enum": [
-              "start",
-              "success",
-              "fail",
-              "log"
-            ]
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "kind": {
-            "enum": [
-              "message",
-              "digest"
-            ]
-          }
-        },
-        "required": [
-          "kind"
+          "cron"
         ]
       },
       "then": {
         "not": {
           "required": [
-            "action"
+            "period_s"
           ]
         }
+      },
+      "else": {
+        "required": [
+          "period_s"
+        ]
       }
+    },
+    "Delivery": {
+      "title": "Delivery",
+      "description": "The outcome of the push on one device.",
+      "type": "object",
+      "readOnly": true,
+      "required": [
+        "device",
+        "outcome",
+        "at"
+      ],
+      "properties": {
+        "device": {
+          "type": "string",
+          "description": "Server id of the device."
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "sent",
+            "failed",
+            "skipped"
+          ],
+          "description": "sent: APNs accepted the push. failed: APNs refused it; see error. skipped: a rule or device setting held it back."
+        },
+        "level": {
+          "$ref": "#/$defs/Level"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the server got the outcome, RFC 3339."
+        },
+        "error": {
+          "type": "string",
+          "description": "Why the push failed or was skipped."
+        }
+      },
+      "additionalProperties": false
     }
-  ]
+  }
 }

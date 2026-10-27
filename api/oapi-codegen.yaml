@@ -5,5 +5,9 @@ generate:
   models: true
 output-options:
   skip-prune: true
+  # Fragments the envelope schema composes; they are not types on their own.
+  exclude-schemas: [EventFields, KindRules]
+  # LiveContent updates tell a cleared field (null) from a kept one (absent).
+  nullable-type: true
 compatibility:
   always-prefix-enum-values: true

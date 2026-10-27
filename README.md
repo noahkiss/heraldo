@@ -13,7 +13,7 @@ Status: early scaffold. The server answers `/healthz` and nothing else yet.
 ## What it will do
 
 - One event shape, [envelope v1](schema/envelope.v1.schema.json), for messages,
-  incidents, digests, progress and check-ins.
+  incidents, digests, progress, check-ins and status values.
 - Levels from passive to time-sensitive, threads per source, action buttons,
   images and links.
 - Incidents that go from failure to recovery in one thread.

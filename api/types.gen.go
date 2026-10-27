@@ -5,92 +5,154 @@ package api
 
 import (
 	"time"
+
+	"github.com/oapi-codegen/nullable"
 )
 
-// Defines values for EnvelopeAction.
+// Defines values for ActionMethod.
 const (
-	EnvelopeActionAck     EnvelopeAction = "ack"
-	EnvelopeActionEnd     EnvelopeAction = "end"
-	EnvelopeActionFail    EnvelopeAction = "fail"
-	EnvelopeActionLog     EnvelopeAction = "log"
-	EnvelopeActionOpen    EnvelopeAction = "open"
-	EnvelopeActionResolve EnvelopeAction = "resolve"
-	EnvelopeActionStart   EnvelopeAction = "start"
-	EnvelopeActionSuccess EnvelopeAction = "success"
-	EnvelopeActionUpdate  EnvelopeAction = "update"
+	ActionMethodGET  ActionMethod = "GET"
+	ActionMethodPOST ActionMethod = "POST"
 )
 
-// Valid indicates whether the value is a known member of the EnvelopeAction enum.
-func (e EnvelopeAction) Valid() bool {
+// Valid indicates whether the value is a known member of the ActionMethod enum.
+func (e ActionMethod) Valid() bool {
 	switch e {
-	case EnvelopeActionAck:
+	case ActionMethodGET:
 		return true
-	case EnvelopeActionEnd:
-		return true
-	case EnvelopeActionFail:
-		return true
-	case EnvelopeActionLog:
-		return true
-	case EnvelopeActionOpen:
-		return true
-	case EnvelopeActionResolve:
-		return true
-	case EnvelopeActionStart:
-		return true
-	case EnvelopeActionSuccess:
-		return true
-	case EnvelopeActionUpdate:
+	case ActionMethodPOST:
 		return true
 	default:
 		return false
 	}
 }
 
-// Defines values for EnvelopeKind.
+// Defines values for ActionType.
 const (
-	EnvelopeKindCheckin  EnvelopeKind = "checkin"
-	EnvelopeKindDigest   EnvelopeKind = "digest"
-	EnvelopeKindIncident EnvelopeKind = "incident"
-	EnvelopeKindMessage  EnvelopeKind = "message"
-	EnvelopeKindProgress EnvelopeKind = "progress"
+	ActionTypeHttp   ActionType = "http"
+	ActionTypeOpen   ActionType = "open"
+	ActionTypeServer ActionType = "server"
 )
 
-// Valid indicates whether the value is a known member of the EnvelopeKind enum.
-func (e EnvelopeKind) Valid() bool {
+// Valid indicates whether the value is a known member of the ActionType enum.
+func (e ActionType) Valid() bool {
 	switch e {
-	case EnvelopeKindCheckin:
+	case ActionTypeHttp:
 		return true
-	case EnvelopeKindDigest:
+	case ActionTypeOpen:
 		return true
-	case EnvelopeKindIncident:
-		return true
-	case EnvelopeKindMessage:
-		return true
-	case EnvelopeKindProgress:
+	case ActionTypeServer:
 		return true
 	default:
 		return false
 	}
 }
 
-// Defines values for EnvelopeLevel.
+// Defines values for AppriseNotifyFormat.
 const (
-	EnvelopeLevelActive        EnvelopeLevel = "active"
-	EnvelopeLevelCritical      EnvelopeLevel = "critical"
-	EnvelopeLevelPassive       EnvelopeLevel = "passive"
-	EnvelopeLevelTimeSensitive EnvelopeLevel = "time-sensitive"
+	AppriseNotifyFormatHtml     AppriseNotifyFormat = "html"
+	AppriseNotifyFormatMarkdown AppriseNotifyFormat = "markdown"
+	AppriseNotifyFormatText     AppriseNotifyFormat = "text"
 )
 
-// Valid indicates whether the value is a known member of the EnvelopeLevel enum.
-func (e EnvelopeLevel) Valid() bool {
+// Valid indicates whether the value is a known member of the AppriseNotifyFormat enum.
+func (e AppriseNotifyFormat) Valid() bool {
 	switch e {
-	case EnvelopeLevelActive:
+	case AppriseNotifyFormatHtml:
 		return true
-	case EnvelopeLevelCritical:
+	case AppriseNotifyFormatMarkdown:
 		return true
-	case EnvelopeLevelPassive:
+	case AppriseNotifyFormatText:
 		return true
-	case EnvelopeLevelTimeSensitive:
+	default:
+		return false
+	}
+}
+
+// Defines values for AppriseNotifyType.
+const (
+	AppriseNotifyTypeFailure AppriseNotifyType = "failure"
+	AppriseNotifyTypeInfo    AppriseNotifyType = "info"
+	AppriseNotifyTypeSuccess AppriseNotifyType = "success"
+	AppriseNotifyTypeWarning AppriseNotifyType = "warning"
+)
+
+// Valid indicates whether the value is a known member of the AppriseNotifyType enum.
+func (e AppriseNotifyType) Valid() bool {
+	switch e {
+	case AppriseNotifyTypeFailure:
+		return true
+	case AppriseNotifyTypeInfo:
+		return true
+	case AppriseNotifyTypeSuccess:
+		return true
+	case AppriseNotifyTypeWarning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeliveryOutcome.
+const (
+	DeliveryOutcomeFailed  DeliveryOutcome = "failed"
+	DeliveryOutcomeSent    DeliveryOutcome = "sent"
+	DeliveryOutcomeSkipped DeliveryOutcome = "skipped"
+)
+
+// Valid indicates whether the value is a known member of the DeliveryOutcome enum.
+func (e DeliveryOutcome) Valid() bool {
+	switch e {
+	case DeliveryOutcomeFailed:
+		return true
+	case DeliveryOutcomeSent:
+		return true
+	case DeliveryOutcomeSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EventAction.
+const (
+	EventActionAck     EventAction = "ack"
+	EventActionClear   EventAction = "clear"
+	EventActionEnd     EventAction = "end"
+	EventActionFail    EventAction = "fail"
+	EventActionLog     EventAction = "log"
+	EventActionOpen    EventAction = "open"
+	EventActionResolve EventAction = "resolve"
+	EventActionSet     EventAction = "set"
+	EventActionStart   EventAction = "start"
+	EventActionSuccess EventAction = "success"
+	EventActionUpdate  EventAction = "update"
+)
+
+// Valid indicates whether the value is a known member of the EventAction enum.
+func (e EventAction) Valid() bool {
+	switch e {
+	case EventActionAck:
+		return true
+	case EventActionClear:
+		return true
+	case EventActionEnd:
+		return true
+	case EventActionFail:
+		return true
+	case EventActionLog:
+		return true
+	case EventActionOpen:
+		return true
+	case EventActionResolve:
+		return true
+	case EventActionSet:
+		return true
+	case EventActionStart:
+		return true
+	case EventActionSuccess:
+		return true
+	case EventActionUpdate:
 		return true
 	default:
 		return false
@@ -112,75 +174,321 @@ func (e HealthStatus) Valid() bool {
 	}
 }
 
-// Defines values for ListEventsParamsKind.
+// Defines values for Kind.
 const (
-	ListEventsParamsKindCheckin  ListEventsParamsKind = "checkin"
-	ListEventsParamsKindDigest   ListEventsParamsKind = "digest"
-	ListEventsParamsKindIncident ListEventsParamsKind = "incident"
-	ListEventsParamsKindMessage  ListEventsParamsKind = "message"
-	ListEventsParamsKindProgress ListEventsParamsKind = "progress"
+	KindCheckin  Kind = "checkin"
+	KindDigest   Kind = "digest"
+	KindIncident Kind = "incident"
+	KindMessage  Kind = "message"
+	KindProgress Kind = "progress"
+	KindStatus   Kind = "status"
 )
 
-// Valid indicates whether the value is a known member of the ListEventsParamsKind enum.
-func (e ListEventsParamsKind) Valid() bool {
+// Valid indicates whether the value is a known member of the Kind enum.
+func (e Kind) Valid() bool {
 	switch e {
-	case ListEventsParamsKindCheckin:
+	case KindCheckin:
 		return true
-	case ListEventsParamsKindDigest:
+	case KindDigest:
 		return true
-	case ListEventsParamsKindIncident:
+	case KindIncident:
 		return true
-	case ListEventsParamsKindMessage:
+	case KindMessage:
 		return true
-	case ListEventsParamsKindProgress:
+	case KindProgress:
+		return true
+	case KindStatus:
 		return true
 	default:
 		return false
 	}
 }
 
-// Envelope One heraldo event, envelope v1. The kind field picks the meaning of key and action. A sender may leave out id and ts; the server assigns them.
-type Envelope struct {
-	// Action Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. message and digest take none.
-	Action  *EnvelopeAction `json:"action,omitempty"`
-	Actions *[]ActionButton `json:"actions,omitempty"`
+// Defines values for Level.
+const (
+	LevelActive        Level = "active"
+	LevelCritical      Level = "critical"
+	LevelPassive       Level = "passive"
+	LevelTimeSensitive Level = "time-sensitive"
+)
 
-	// Body Markdown. The server stores the full text; a push carries a truncated copy.
+// Valid indicates whether the value is a known member of the Level enum.
+func (e Level) Valid() bool {
+	switch e {
+	case LevelActive:
+		return true
+	case LevelCritical:
+		return true
+	case LevelPassive:
+		return true
+	case LevelTimeSensitive:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Create.
+const (
+	CreateN0 Create = 0
+	CreateN1 Create = 1
+)
+
+// Valid indicates whether the value is a known member of the Create enum.
+func (e Create) Valid() bool {
+	switch e {
+	case CreateN0:
+		return true
+	case CreateN1:
+		return true
+	default:
+		return false
+	}
+}
+
+// Action A button on a notification, Live Activity or widget. type open: the device opens url. type http: the device calls url with method, so it can reach hosts only the device sees, such as the LAN. type server: heraldo handles it; id names the server action (ack, resolve or mute) and url is not used.
+type Action struct {
+	// Destructive Show the button as destructive.
+	Destructive *bool `json:"destructive,omitempty"`
+
+	// Foreground Bring the app to the foreground when tapped.
+	Foreground *bool `json:"foreground,omitempty"`
+
+	// Id Action id, unique within the event. For type server, the server action.
+	Id string `json:"id"`
+
+	// Method HTTP method for type http. Not allowed for other types.
+	Method *ActionMethod `json:"method,omitempty"`
+
+	// Title Button label.
+	Title string `json:"title"`
+
+	// Type Who handles the tap: open and http run on the device, server runs on heraldo.
+	Type ActionType `json:"type"`
+
+	// Url open: the page to open. http: the URL to call. Required for both; not allowed for server.
+	Url *string `json:"url,omitempty"`
+}
+
+// ActionMethod HTTP method for type http. Not allowed for other types.
+type ActionMethod string
+
+// ActionType Who handles the tap: open and http run on the device, server runs on heraldo.
+type ActionType string
+
+// AppriseNotify An Apprise API notify request. Fields heraldo does not use are accepted and ignored.
+type AppriseNotify struct {
+	Body   string               `json:"body"`
+	Format *AppriseNotifyFormat `json:"format,omitempty"`
+
+	// Tag Apprise tags, comma or space separated. Stored as tags.
+	Tag   *string            `json:"tag,omitempty"`
+	Title *string            `json:"title,omitempty"`
+	Type  *AppriseNotifyType `json:"type,omitempty"`
+}
+
+// AppriseNotifyFormat defines model for AppriseNotify.Format.
+type AppriseNotifyFormat string
+
+// AppriseNotifyType defines model for AppriseNotify.Type.
+type AppriseNotifyType string
+
+// Checkin Run details for kind checkin, in the shape of a healthchecks.io ping.
+type Checkin struct {
+	// DurationMs How long the run took, in milliseconds, when the sender measured it.
+	DurationMs *int `json:"duration_ms,omitempty"`
+
+	// ExitCode The job's exit code. 0 counts as success, anything else as fail.
+	ExitCode *int `json:"exit_code,omitempty"`
+
+	// Rid Run id. Pairs a start with its success or fail, so the server can measure the run.
+	Rid *string `json:"rid,omitempty"`
+
+	// Schedule When the check expects a ping. The server uses it only to create a check it does not know yet, as healthchecks.io does with ?create=1; after that the check's config lives on the server. Set period_s, or cron with an optional tz, not both.
+	Schedule *Schedule `json:"schedule,omitempty"`
+}
+
+// Color A hex color (#RRGGBB or #RRGGBBAA) or a system color name.
+type Color = string
+
+// Delivery The outcome of the push on one device.
+type Delivery struct {
+	// At When the server got the outcome, RFC 3339.
+	At time.Time `json:"at"`
+
+	// Device Server id of the device.
+	Device string `json:"device"`
+
+	// Error Why the push failed or was skipped.
+	Error *string `json:"error,omitempty"`
+
+	// Level Interruption level. Maps to the APNs interruption-level. Without the critical-alerts entitlement, the server sends critical as time-sensitive and records the downgrade in delivery.
+	Level *Level `json:"level,omitempty"`
+
+	// Outcome sent: APNs accepted the push. failed: APNs refused it; see error. skipped: a rule or device setting held it back.
+	Outcome DeliveryOutcome `json:"outcome"`
+}
+
+// DeliveryOutcome sent: APNs accepted the push. failed: APNs refused it; see error. skipped: a rule or device setting held it back.
+type DeliveryOutcome string
+
+// Error defines model for Error.
+type Error struct {
+	// Error What went wrong, for a person to read.
+	Error string `json:"error"`
+}
+
+// Event One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold and delivery.
+type Event struct {
+	// Action Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none.
+	Action *EventAction `json:"action,omitempty"`
+
+	// Actions Buttons on the notification.
+	Actions *[]Action `json:"actions,omitempty"`
+
+	// Body Markdown. The server stores the full text; a push carries the summary or a truncated copy. The limit is 256 KiB; the server counts bytes, this schema counts characters.
 	Body *string `json:"body,omitempty"`
 
-	// Content Live Activity fields for kind progress.
-	Content *map[string]interface{} `json:"content,omitempty"`
+	// Checkin Run details for kind checkin, in the shape of a healthchecks.io ping.
+	Checkin *Checkin `json:"checkin,omitempty"`
+
+	// Content What a Live Activity (kind progress) or widget (kind status) shows. On an update, a field left out keeps its value and a field set to null clears it.
+	Content *LiveContent `json:"content,omitempty"`
+
+	// Dedup Idempotency id chosen by the sender. The server drops a repeat with the same dedup within 24 hours and returns the first event. Set it when a sender may retry the same event.
+	Dedup *string `json:"dedup,omitempty"`
+
+	// Delivery What happened to the push on each device.
+	Delivery *[]Delivery `json:"delivery,omitempty"`
 
 	// Details Namespaced extras, such as {"backup": {"bytes": 1024}}.
 	Details *map[string]interface{} `json:"details,omitempty"`
 
+	// ExpiresAt The event is stale after this time, RFC 3339. Maps to apns-expiration; views hide the event after it.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+
 	// Hold Triage state the server keeps for the event.
 	Hold *map[string]interface{} `json:"hold,omitempty"`
+
+	// Host The machine the event is about. It can differ from the sender: a monitor on one machine reports about another. Status views group by host.
+	Host *string `json:"host,omitempty"`
 
 	// Icon Icon for the source: a URL or a symbol name.
 	Icon *string `json:"icon,omitempty"`
 
 	// Id Server-assigned event id. Sortable by arrival.
-	Id *string `json:"id,omitempty"`
+	Id string `json:"id,omitempty"`
 
 	// Image Image attached to the notification.
 	Image *string `json:"image,omitempty"`
 
-	// Key Groups related events: the incident, progress or check-in key. Maps to apns-collapse-id.
+	// Key Groups related events: the incident, progress, check-in or status key. incident, progress, checkin and status need one. The server derives apns-collapse-id from a hash of the key, so the key may be longer than APNs allows.
 	Key *string `json:"key,omitempty"`
 
-	// Kind What the event is. incident, progress and checkin need a key.
-	Kind EnvelopeKind `json:"kind"`
+	// Kind What the event is. message: a one-off notice. incident: a problem with a lifecycle. digest: a batch summary. progress: a Live Activity. checkin: a job run, as with healthchecks.io. status: a named live value for widgets and the status view; it never sends an alert push, only a widget push. incident, progress, checkin and status need a key.
+	Kind Kind `json:"kind"`
 
-	// Level Interruption level. Maps to the APNs interruption-level.
-	Level *EnvelopeLevel `json:"level,omitempty"`
+	// Level Interruption level. Maps to the APNs interruption-level. Without the critical-alerts entitlement, the server sends critical as time-sensitive and records the downgrade in delivery.
+	Level *Level `json:"level,omitempty"`
+
+	// ReceivedAt When the server stored the event, RFC 3339.
+	ReceivedAt time.Time `json:"received_at,omitempty"`
+
+	// Relevance How relevant the event is next to others from the same app, 0 to 1. Maps to relevance-score.
+	Relevance *float32 `json:"relevance,omitempty"`
+
+	// Sound Push sound: "default", "none", or the name of a sound bundled with the app. Leave it out for the default.
+	Sound *string `json:"sound,omitempty"`
 
 	// Source The sender, such as a service or job name. One thread and icon per source by default.
 	Source string `json:"source"`
 
+	// Summary The one-line push text. A digest pushes the summary only. Without a summary, the push carries a truncated body.
+	Summary *string `json:"summary,omitempty"`
+
+	// Tags Free-form labels for rule matching, such as legacy Apprise tags.
+	Tags *[]string `json:"tags,omitempty"`
+
 	// Thread Notification thread. Maps to thread-id. Defaults to the source.
 	Thread *string `json:"thread,omitempty"`
-	Title  *string `json:"title,omitempty"`
+
+	// Title Notification title.
+	Title *string `json:"title,omitempty"`
+
+	// Ts When the event happened, RFC 3339. The server uses the arrival time when it is missing.
+	Ts time.Time `json:"ts"`
+
+	// Url Opened when the notification is tapped.
+	Url *string `json:"url,omitempty"`
+}
+
+// EventAction Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none.
+type EventAction string
+
+// EventInput One heraldo event as a sender posts it, envelope v1. The kind field picks the meaning of key and action. The server owns id, received_at, hold and delivery: an input that sets any of them is rejected. The stored form, with those fields, is $defs/Event.
+type EventInput struct {
+	// Action Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none.
+	Action *EventAction `json:"action,omitempty"`
+
+	// Actions Buttons on the notification.
+	Actions *[]Action `json:"actions,omitempty"`
+
+	// Body Markdown. The server stores the full text; a push carries the summary or a truncated copy. The limit is 256 KiB; the server counts bytes, this schema counts characters.
+	Body *string `json:"body,omitempty"`
+
+	// Checkin Run details for kind checkin, in the shape of a healthchecks.io ping.
+	Checkin *Checkin `json:"checkin,omitempty"`
+
+	// Content What a Live Activity (kind progress) or widget (kind status) shows. On an update, a field left out keeps its value and a field set to null clears it.
+	Content *LiveContent `json:"content,omitempty"`
+
+	// Dedup Idempotency id chosen by the sender. The server drops a repeat with the same dedup within 24 hours and returns the first event. Set it when a sender may retry the same event.
+	Dedup *string `json:"dedup,omitempty"`
+
+	// Details Namespaced extras, such as {"backup": {"bytes": 1024}}.
+	Details *map[string]interface{} `json:"details,omitempty"`
+
+	// ExpiresAt The event is stale after this time, RFC 3339. Maps to apns-expiration; views hide the event after it.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+
+	// Host The machine the event is about. It can differ from the sender: a monitor on one machine reports about another. Status views group by host.
+	Host *string `json:"host,omitempty"`
+
+	// Icon Icon for the source: a URL or a symbol name.
+	Icon *string `json:"icon,omitempty"`
+
+	// Image Image attached to the notification.
+	Image *string `json:"image,omitempty"`
+
+	// Key Groups related events: the incident, progress, check-in or status key. incident, progress, checkin and status need one. The server derives apns-collapse-id from a hash of the key, so the key may be longer than APNs allows.
+	Key *string `json:"key,omitempty"`
+
+	// Kind What the event is. message: a one-off notice. incident: a problem with a lifecycle. digest: a batch summary. progress: a Live Activity. checkin: a job run, as with healthchecks.io. status: a named live value for widgets and the status view; it never sends an alert push, only a widget push. incident, progress, checkin and status need a key.
+	Kind Kind `json:"kind"`
+
+	// Level Interruption level. Maps to the APNs interruption-level. Without the critical-alerts entitlement, the server sends critical as time-sensitive and records the downgrade in delivery.
+	Level *Level `json:"level,omitempty"`
+
+	// Relevance How relevant the event is next to others from the same app, 0 to 1. Maps to relevance-score.
+	Relevance *float32 `json:"relevance,omitempty"`
+
+	// Sound Push sound: "default", "none", or the name of a sound bundled with the app. Leave it out for the default.
+	Sound *string `json:"sound,omitempty"`
+
+	// Source The sender, such as a service or job name. One thread and icon per source by default.
+	Source string `json:"source"`
+
+	// Summary The one-line push text. A digest pushes the summary only. Without a summary, the push carries a truncated body.
+	Summary *string `json:"summary,omitempty"`
+
+	// Tags Free-form labels for rule matching, such as legacy Apprise tags.
+	Tags *[]string `json:"tags,omitempty"`
+
+	// Thread Notification thread. Maps to thread-id. Defaults to the source.
+	Thread *string `json:"thread,omitempty"`
+
+	// Title Notification title.
+	Title *string `json:"title,omitempty"`
 
 	// Ts When the event happened, RFC 3339. The server uses the arrival time when it is missing.
 	Ts *time.Time `json:"ts,omitempty"`
@@ -189,34 +497,9 @@ type Envelope struct {
 	Url *string `json:"url,omitempty"`
 }
 
-// EnvelopeAction Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. message and digest take none.
-type EnvelopeAction string
-
-// ActionButton defines model for Envelope.actions.
-type ActionButton struct {
-	Destructive *bool  `json:"destructive,omitempty"`
-	Id          string `json:"id"`
-	Title       string `json:"title"`
-
-	// Url Opened or called when the button is tapped.
-	Url *string `json:"url,omitempty"`
-}
-
-// EnvelopeKind What the event is. incident, progress and checkin need a key.
-type EnvelopeKind string
-
-// EnvelopeLevel Interruption level. Maps to the APNs interruption-level.
-type EnvelopeLevel string
-
-// Error defines model for Error.
-type Error struct {
-	// Error What went wrong, for a person to read.
-	Error string `json:"error"`
-}
-
 // EventPage defines model for EventPage.
 type EventPage struct {
-	Events []Envelope `json:"events"`
+	Events []Event `json:"events"`
 
 	// NextCursor Pass as after to get the next page. Missing when the page is the last one.
 	NextCursor *string `json:"next_cursor,omitempty"`
@@ -231,19 +514,243 @@ type Health struct {
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
 
+// Kind What the event is. message: a one-off notice. incident: a problem with a lifecycle. digest: a batch summary. progress: a Live Activity. checkin: a job run, as with healthchecks.io. status: a named live value for widgets and the status view; it never sends an alert push, only a widget push. incident, progress, checkin and status need a key.
+type Kind string
+
+// Level Interruption level. Maps to the APNs interruption-level. Without the critical-alerts entitlement, the server sends critical as time-sensitive and records the downgrade in delivery.
+type Level string
+
+// LiveContent What a Live Activity (kind progress) or widget (kind status) shows. On an update, a field left out keeps its value and a field set to null clears it.
+type LiveContent struct {
+	// Body Plain text below the title.
+	Body nullable.Nullable[string] `json:"body,omitempty"`
+
+	// Button One button on the activity or widget. Same shape as a notification action.
+	Button nullable.Nullable[Action] `json:"button,omitempty"`
+
+	// EndsAt When the work is expected to end, RFC 3339. Absolute, so a late push does not shift it.
+	EndsAt nullable.Nullable[time.Time] `json:"ends_at,omitempty"`
+
+	// KeepFor On end: seconds the ended activity stays on screen.
+	KeepFor nullable.Nullable[int] `json:"keep_for,omitempty"`
+
+	// Metrics Up to 6 labelled values.
+	Metrics nullable.Nullable[[]Metric] `json:"metrics,omitempty"`
+
+	// Progress Fraction done, 0 to 1.
+	Progress nullable.Nullable[float32] `json:"progress,omitempty"`
+
+	// StaleAfter Seconds after this update when the content counts as stale.
+	StaleAfter nullable.Nullable[int] `json:"stale_after,omitempty"`
+
+	// Status Short state text, such as Printing or Paused.
+	Status nullable.Nullable[string] `json:"status,omitempty"`
+
+	// Steps Step counter, such as layer 3 of 120. current should not exceed total; the server checks that.
+	Steps nullable.Nullable[Steps] `json:"steps,omitempty"`
+
+	// Symbol SF Symbol name, such as printer.fill.
+	Symbol nullable.Nullable[string] `json:"symbol,omitempty"`
+
+	// Tint Accent color: a hex color (#RRGGBB or #RRGGBBAA) or a system color name.
+	Tint  nullable.Nullable[string] `json:"tint,omitempty"`
+	Title nullable.Nullable[string] `json:"title,omitempty"`
+
+	// Trailing Short text on the trailing edge, such as an ETA.
+	Trailing nullable.Nullable[string] `json:"trailing,omitempty"`
+}
+
+// Steps Step counter, such as layer 3 of 120. current should not exceed total; the server checks that.
+type Steps struct {
+	Current int `json:"current"`
+	Total   int `json:"total"`
+}
+
+// Metric One labelled value, such as Nozzle 215 °C.
+type Metric struct {
+	// Color A hex color (#RRGGBB or #RRGGBBAA) or a system color name.
+	Color *Color  `json:"color,omitempty"`
+	Label string  `json:"label"`
+	Unit  *string `json:"unit,omitempty"`
+
+	// Value The value as display text, such as 215 or 1.2k.
+	Value string `json:"value"`
+}
+
+// Schedule When the check expects a ping. The server uses it only to create a check it does not know yet, as healthchecks.io does with ?create=1; after that the check's config lives on the server. Set period_s, or cron with an optional tz, not both.
+type Schedule struct {
+	// Cron Cron expression for the expected pings.
+	Cron *string `json:"cron,omitempty"`
+
+	// GraceS Seconds a ping may be late before the check fails.
+	GraceS *int `json:"grace_s,omitempty"`
+
+	// MaxRuntimeS Seconds a started run may take before the check fails.
+	MaxRuntimeS *int `json:"max_runtime_s,omitempty"`
+
+	// PeriodS Expected seconds between pings.
+	PeriodS *int `json:"period_s,omitempty"`
+
+	// Tz IANA time zone for cron, such as Europe/Madrid. Defaults to UTC.
+	Tz *string `json:"tz,omitempty"`
+}
+
+// State The latest event per key, by kind. A stand-in until stage 12.
+type State struct {
+	// Checkins The last check-in of every known check.
+	Checkins []Event `json:"checkins"`
+
+	// Incidents Incidents that are not resolved.
+	Incidents []Event `json:"incidents"`
+
+	// Progress Progress keys that have not ended.
+	Progress []Event `json:"progress"`
+
+	// Statuses Status keys that are set.
+	Statuses []Event `json:"statuses"`
+}
+
+// Create defines model for Create.
+type Create int
+
+// Rid defines model for Rid.
+type Rid = string
+
+// Slug defines model for Slug.
+type Slug = string
+
+// Repeat One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold and delivery.
+type Repeat = Event
+
+// Stored One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold and delivery.
+type Stored = Event
+
+// PingSuccessParams defines parameters for PingSuccess.
+type PingSuccessParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Create Set to 1 to create the check when the server does not know the slug.
+	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+}
+
+// PingSuccessWithLogTextBody defines parameters for PingSuccessWithLog.
+type PingSuccessWithLogTextBody = string
+
+// PingSuccessWithLogParams defines parameters for PingSuccessWithLog.
+type PingSuccessWithLogParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Create Set to 1 to create the check when the server does not know the slug.
+	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+}
+
+// PingFailParams defines parameters for PingFail.
+type PingFailParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Create Set to 1 to create the check when the server does not know the slug.
+	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+}
+
+// PingFailWithLogTextBody defines parameters for PingFailWithLog.
+type PingFailWithLogTextBody = string
+
+// PingFailWithLogParams defines parameters for PingFailWithLog.
+type PingFailWithLogParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Create Set to 1 to create the check when the server does not know the slug.
+	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+}
+
+// PingLogTextBody defines parameters for PingLog.
+type PingLogTextBody = string
+
+// PingLogParams defines parameters for PingLog.
+type PingLogParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Create Set to 1 to create the check when the server does not know the slug.
+	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+}
+
+// PingStartParams defines parameters for PingStart.
+type PingStartParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Create Set to 1 to create the check when the server does not know the slug.
+	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+}
+
+// PingExitCodeParams defines parameters for PingExitCode.
+type PingExitCodeParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Create Set to 1 to create the check when the server does not know the slug.
+	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+}
+
 // ListEventsParams defines parameters for ListEvents.
 type ListEventsParams struct {
 	// After Opaque cursor from a previous page. Leave it out to start at the oldest event.
 	After  *string `form:"after,omitempty" json:"after,omitempty"`
 	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
 	Source *string `form:"source,omitempty" json:"source,omitempty"`
-
-	// Kind One of the envelope kinds.
-	Kind *ListEventsParamsKind `form:"kind,omitempty" json:"kind,omitempty"`
+	Kind   *Kind   `form:"kind,omitempty" json:"kind,omitempty"`
 }
 
-// ListEventsParamsKind defines parameters for ListEvents.
-type ListEventsParamsKind string
+// SendEventParams defines parameters for SendEvent.
+type SendEventParams struct {
+	Source  string       `form:"source" json:"source"`
+	Kind    Kind         `form:"kind" json:"kind"`
+	Key     *string      `form:"key,omitempty" json:"key,omitempty"`
+	Action  *EventAction `form:"action,omitempty" json:"action,omitempty"`
+	Ts      *time.Time   `form:"ts,omitempty" json:"ts,omitempty"`
+	Host    *string      `form:"host,omitempty" json:"host,omitempty"`
+	Title   *string      `form:"title,omitempty" json:"title,omitempty"`
+	Summary *string      `form:"summary,omitempty" json:"summary,omitempty"`
+	Body    *string      `form:"body,omitempty" json:"body,omitempty"`
+	Level   *Level       `form:"level,omitempty" json:"level,omitempty"`
+	Thread  *string      `form:"thread,omitempty" json:"thread,omitempty"`
+	Url     *string      `form:"url,omitempty" json:"url,omitempty"`
+	Image   *string      `form:"image,omitempty" json:"image,omitempty"`
+	Icon    *string      `form:"icon,omitempty" json:"icon,omitempty"`
+	Sound   *string      `form:"sound,omitempty" json:"sound,omitempty"`
+
+	// Tags Repeat the parameter for each tag.
+	Tags      *[]string  `form:"tags,omitempty" json:"tags,omitempty"`
+	Dedup     *string    `form:"dedup,omitempty" json:"dedup,omitempty"`
+	ExpiresAt *time.Time `form:"expires_at,omitempty" json:"expires_at,omitempty"`
+	Relevance *float32   `form:"relevance,omitempty" json:"relevance,omitempty"`
+}
+
+// NotifyAppriseJSONRequestBody defines body for NotifyApprise for application/json ContentType.
+type NotifyAppriseJSONRequestBody = AppriseNotify
+
+// NotifyAppriseFormdataRequestBody defines body for NotifyApprise for application/x-www-form-urlencoded ContentType.
+type NotifyAppriseFormdataRequestBody = AppriseNotify
+
+// NotifyAppriseKeyJSONRequestBody defines body for NotifyAppriseKey for application/json ContentType.
+type NotifyAppriseKeyJSONRequestBody = AppriseNotify
+
+// NotifyAppriseKeyFormdataRequestBody defines body for NotifyAppriseKey for application/x-www-form-urlencoded ContentType.
+type NotifyAppriseKeyFormdataRequestBody = AppriseNotify
+
+// PingSuccessWithLogTextRequestBody defines body for PingSuccessWithLog for text/plain ContentType.
+type PingSuccessWithLogTextRequestBody = PingSuccessWithLogTextBody
+
+// PingFailWithLogTextRequestBody defines body for PingFailWithLog for text/plain ContentType.
+type PingFailWithLogTextRequestBody = PingFailWithLogTextBody
+
+// PingLogTextRequestBody defines body for PingLog for text/plain ContentType.
+type PingLogTextRequestBody = PingLogTextBody
 
 // PostEventJSONRequestBody defines body for PostEvent for application/json ContentType.
-type PostEventJSONRequestBody = Envelope
+type PostEventJSONRequestBody = EventInput

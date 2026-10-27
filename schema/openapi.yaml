@@ -4,7 +4,11 @@ info:
   version: 0.1.0
   description: |
     Notification hub API. Senders post events; the apps and the CLI read them back
-    by cursor. The event shape is envelope v1, defined in envelope.v1.schema.json.
+    by cursor. The event shape is envelope v1, defined in envelope.v1.schema.json:
+    EventInput is what a sender posts, Event is what the read API returns.
+
+    An operation marked `x-stage: <n>` is planned for that stage of the plan and has
+    no handler yet.
   license:
     name: MIT
     identifier: MIT
@@ -15,6 +19,9 @@ security:
   - bearerAuth: []
 tags:
   - name: events
+  - name: state
+  - name: compat
+    description: Ingest shapes that existing senders already speak.
   - name: health
 paths:
   /healthz:
@@ -34,21 +41,26 @@ paths:
     post:
       operationId: postEvent
       summary: Store one event.
-      description: The server assigns id and, when missing, ts. It returns the stored event.
+      description: |
+        The server assigns id and received_at, and sets ts to the arrival time when it
+        is missing. It returns the stored event. An input that sets id, received_at,
+        hold or delivery is rejected with 400.
+
+        When the input carries a dedup id seen in the last 24 hours, the server stores
+        nothing and returns the first event with 200.
+      x-stage: 1
       tags: [events]
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/Envelope"
+              $ref: "#/components/schemas/EventInput"
       responses:
         "201":
-          description: The event was stored.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Envelope"
+          $ref: "#/components/responses/Stored"
+        "200":
+          $ref: "#/components/responses/Repeat"
         "400":
           $ref: "#/components/responses/Error"
         "401":
@@ -59,6 +71,7 @@ paths:
       description: |
         Clients sync history with this call. Pass the next_cursor from the last page as
         after. An empty page means the client is up to date.
+      x-stage: 1
       tags: [events]
       parameters:
         - name: after
@@ -79,10 +92,8 @@ paths:
             type: string
         - name: kind
           in: query
-          description: One of the envelope kinds.
           schema:
-            type: string
-            enum: [message, incident, digest, progress, checkin]
+            $ref: "#/components/schemas/Kind"
       responses:
         "200":
           description: One page of events.
@@ -99,6 +110,7 @@ paths:
       operationId: getEvent
       summary: Fetch one event with its full body.
       description: The notification service extension calls this to fetch a body that did not fit in the push.
+      x-stage: 1
       tags: [events]
       parameters:
         - name: id
@@ -112,10 +124,247 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                $ref: "#/components/schemas/Event"
         "401":
           $ref: "#/components/responses/Error"
         "404":
+          $ref: "#/components/responses/Error"
+  /v1/send:
+    get:
+      operationId: sendEvent
+      summary: Store one event from query parameters.
+      description: |
+        The same as POST /v1/events for clients that can only make a GET request,
+        such as a URL-only webhook. The query parameters carry the scalar envelope
+        fields and tags; actions, content, checkin and details need POST.
+
+        The token may come in the Authorization header or in the token parameter.
+        A token in the URL ends up in access logs, proxy logs and browser history;
+        use the header when the client can set one.
+      x-stage: 1
+      tags: [events]
+      security:
+        - bearerAuth: []
+        - tokenQuery: []
+      parameters:
+        - { name: source, in: query, required: true, schema: { type: string } }
+        - { name: kind, in: query, required: true, schema: { $ref: "#/components/schemas/Kind" } }
+        - { name: key, in: query, schema: { type: string } }
+        - { name: action, in: query, schema: { $ref: "#/components/schemas/EventAction" } }
+        - { name: ts, in: query, schema: { type: string, format: date-time } }
+        - { name: host, in: query, schema: { type: string } }
+        - { name: title, in: query, schema: { type: string } }
+        - { name: summary, in: query, schema: { type: string } }
+        - { name: body, in: query, schema: { type: string } }
+        - { name: level, in: query, schema: { $ref: "#/components/schemas/Level" } }
+        - { name: thread, in: query, schema: { type: string } }
+        - { name: url, in: query, schema: { type: string, format: uri } }
+        - { name: image, in: query, schema: { type: string, format: uri } }
+        - { name: icon, in: query, schema: { type: string } }
+        - { name: sound, in: query, schema: { type: string } }
+        - name: tags
+          in: query
+          description: Repeat the parameter for each tag.
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+        - { name: dedup, in: query, schema: { type: string } }
+        - { name: expires_at, in: query, schema: { type: string, format: date-time } }
+        - { name: relevance, in: query, schema: { type: number, minimum: 0, maximum: 1 } }
+      responses:
+        "201":
+          $ref: "#/components/responses/Stored"
+        "200":
+          $ref: "#/components/responses/Repeat"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/state:
+    get:
+      operationId: getState
+      summary: Current state for the status view.
+      description: |
+        Flat arrays of the latest event per key: open incidents, running progress,
+        check-ins and status values. The shape is a stand-in until stage 12.
+      x-stage: 12
+      tags: [state]
+      responses:
+        "200":
+          description: The current state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/State"
+        "401":
+          $ref: "#/components/responses/Error"
+  /ping/{slug}:
+    parameters:
+      - $ref: "#/components/parameters/Slug"
+      - $ref: "#/components/parameters/Rid"
+      - $ref: "#/components/parameters/Create"
+    get:
+      operationId: pingSuccess
+      summary: Record a successful run (healthchecks.io shape).
+      x-stage: 6
+      tags: [compat]
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: pingSuccessWithLog
+      summary: Record a successful run with a log in the body.
+      x-stage: 6
+      tags: [compat]
+      requestBody:
+        $ref: "#/components/requestBodies/PingLog"
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /ping/{slug}/start:
+    parameters:
+      - $ref: "#/components/parameters/Slug"
+      - $ref: "#/components/parameters/Rid"
+      - $ref: "#/components/parameters/Create"
+    get:
+      operationId: pingStart
+      summary: Record the start of a run.
+      x-stage: 6
+      tags: [compat]
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /ping/{slug}/fail:
+    parameters:
+      - $ref: "#/components/parameters/Slug"
+      - $ref: "#/components/parameters/Rid"
+      - $ref: "#/components/parameters/Create"
+    get:
+      operationId: pingFail
+      summary: Record a failed run.
+      x-stage: 6
+      tags: [compat]
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: pingFailWithLog
+      summary: Record a failed run with a log in the body.
+      x-stage: 6
+      tags: [compat]
+      requestBody:
+        $ref: "#/components/requestBodies/PingLog"
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /ping/{slug}/log:
+    parameters:
+      - $ref: "#/components/parameters/Slug"
+      - $ref: "#/components/parameters/Rid"
+      - $ref: "#/components/parameters/Create"
+    post:
+      operationId: pingLog
+      summary: Attach a log line without changing the check's state.
+      x-stage: 6
+      tags: [compat]
+      requestBody:
+        $ref: "#/components/requestBodies/PingLog"
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /ping/{slug}/{exit_code}:
+    parameters:
+      - $ref: "#/components/parameters/Slug"
+      - name: exit_code
+        in: path
+        required: true
+        description: The job's exit code. 0 records success, anything else records a failure.
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 255
+      - $ref: "#/components/parameters/Rid"
+      - $ref: "#/components/parameters/Create"
+    get:
+      operationId: pingExitCode
+      summary: Record a run by its exit code.
+      x-stage: 6
+      tags: [compat]
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /notify/apprise:
+    post:
+      operationId: notifyApprise
+      summary: Apprise-compatible ingest, stateless form.
+      description: |
+        Takes an Apprise API notify request and stores it as a message. Answers 200
+        with the body "Sent", as the Apprise front door does today.
+      x-stage: 11
+      tags: [compat]
+      requestBody:
+        $ref: "#/components/requestBodies/AppriseNotify"
+      responses:
+        "200":
+          $ref: "#/components/responses/AppriseSent"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /notify/{key}:
+    post:
+      operationId: notifyAppriseKey
+      summary: Apprise-compatible ingest for a configuration key.
+      description: |
+        Takes an Apprise API notify request for a stored configuration key. The key
+        selects the sender rules. Answers 200 with the body "Sent".
+      x-stage: 11
+      tags: [compat]
+      parameters:
+        - name: key
+          in: path
+          required: true
+          description: The Apprise configuration key.
+          schema:
+            type: string
+      requestBody:
+        $ref: "#/components/requestBodies/AppriseNotify"
+      responses:
+        "200":
+          $ref: "#/components/responses/AppriseSent"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
           $ref: "#/components/responses/Error"
 components:
   securitySchemes:
@@ -123,6 +372,51 @@ components:
       type: http
       scheme: bearer
       description: One token per sender for writes, one per client for reads.
+    tokenQuery:
+      type: apiKey
+      in: query
+      name: token
+      description: |
+        The same token as bearerAuth, in the URL, for GET-only clients. The URL ends up
+        in access logs, proxy logs and browser history, so the token does too. Use the
+        Authorization header when the client can set one.
+  parameters:
+    Slug:
+      name: slug
+      in: path
+      required: true
+      description: The check's name, the same as the checkin key.
+      schema:
+        type: string
+    Rid:
+      name: rid
+      in: query
+      description: Run id. Pairs a start with its end.
+      schema:
+        type: string
+    Create:
+      name: create
+      in: query
+      description: Set to 1 to create the check when the server does not know the slug.
+      schema:
+        type: integer
+        enum: [0, 1]
+  requestBodies:
+    PingLog:
+      description: Log text for the run.
+      content:
+        text/plain:
+          schema:
+            type: string
+    AppriseNotify:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AppriseNotify"
+        application/x-www-form-urlencoded:
+          schema:
+            $ref: "#/components/schemas/AppriseNotify"
   responses:
     Error:
       description: The request failed.
@@ -130,9 +424,37 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    Stored:
+      description: The event was stored.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Event"
+    Repeat:
+      description: The dedup id was seen in the last 24 hours. Nothing was stored; this is the first event.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Event"
+    PingOK:
+      description: The ping was recorded.
+      content:
+        text/plain:
+          schema:
+            type: string
+            const: OK
+    AppriseSent:
+      description: The notification was accepted.
+      content:
+        text/plain:
+          schema:
+            type: string
+            const: Sent
   schemas:
-    Envelope:
+    EventInput:
       $ref: "envelope.v1.schema.json"
+    Event:
+      $ref: "envelope.v1.schema.json#/$defs/Event"
     EventPage:
       type: object
       required: [events]
@@ -140,10 +462,54 @@ components:
         events:
           type: array
           items:
-            $ref: "#/components/schemas/Envelope"
+            $ref: "#/components/schemas/Event"
         next_cursor:
           type: string
           description: Pass as after to get the next page. Missing when the page is the last one.
+    State:
+      type: object
+      description: The latest event per key, by kind. A stand-in until stage 12.
+      required: [incidents, progress, checkins, statuses]
+      properties:
+        incidents:
+          type: array
+          description: Incidents that are not resolved.
+          items:
+            $ref: "#/components/schemas/Event"
+        progress:
+          type: array
+          description: Progress keys that have not ended.
+          items:
+            $ref: "#/components/schemas/Event"
+        checkins:
+          type: array
+          description: The last check-in of every known check.
+          items:
+            $ref: "#/components/schemas/Event"
+        statuses:
+          type: array
+          description: Status keys that are set.
+          items:
+            $ref: "#/components/schemas/Event"
+    AppriseNotify:
+      type: object
+      description: An Apprise API notify request. Fields heraldo does not use are accepted and ignored.
+      required: [body]
+      properties:
+        title:
+          type: string
+        body:
+          type: string
+        type:
+          type: string
+          enum: [info, success, warning, failure]
+          default: info
+        tag:
+          type: string
+          description: Apprise tags, comma or space separated. Stored as tags.
+        format:
+          type: string
+          enum: [text, markdown, html]
     Health:
       type: object
       required: [status, version]

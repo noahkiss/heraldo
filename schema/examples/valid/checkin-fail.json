@@ -1,0 +1,12 @@
+{
+  "source": "cron",
+  "kind": "checkin",
+  "key": "db-dump",
+  "action": "fail",
+  "body": "pg_dump: error: connection to server failed",
+  "checkin": {
+    "rid": "5f2b8c1e-8d3a-4b7e-9c61-0a2f4d6e8b10",
+    "exit_code": 1,
+    "duration_ms": 1520
+  }
+}

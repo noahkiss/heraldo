@@ -1,0 +1,6 @@
+{
+  "source": "ups",
+  "kind": "status",
+  "key": "ups:battery",
+  "action": "clear"
+}

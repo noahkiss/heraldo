@@ -1,0 +1,8 @@
+{
+  "id": "01JBA6Z0000000000000000000",
+  "received_at": "2026-10-26T12:05:00Z",
+  "ts": "2026-10-26T12:05:00Z",
+  "source": "backup",
+  "kind": "message",
+  "title": "Nightly backup finished"
+}

@@ -1,0 +1,11 @@
+{
+  "source": "uptime",
+  "kind": "incident",
+  "key": "unit:web-1:nginx.service",
+  "action": "resolve",
+  "title": "Web is back",
+  "level": "passive",
+  "actions": [
+    { "id": "mute", "title": "Mute for a day", "type": "server" }
+  ]
+}

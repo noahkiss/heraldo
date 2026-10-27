@@ -4,5 +4,21 @@
   "key": "print-42",
   "action": "start",
   "title": "Printing bracket.3mf",
-  "content": { "percent": 0, "eta_minutes": 95 }
+  "content": {
+    "title": "bracket.3mf",
+    "symbol": "printer.fill",
+    "tint": "#1E88E5",
+    "body": "PLA, 0.2 mm layers",
+    "progress": 0,
+    "steps": { "total": 120, "current": 0 },
+    "ends_at": "2026-10-26T13:35:00Z",
+    "trailing": "1h 35m",
+    "status": "Printing",
+    "metrics": [
+      { "label": "Nozzle", "value": "215", "unit": "°C", "color": "orange" },
+      { "label": "Bed", "value": "60", "unit": "°C" }
+    ],
+    "button": { "id": "pause", "title": "Pause", "type": "http", "url": "http://192.0.2.20/pause" },
+    "stale_after": 900
+  }
 }

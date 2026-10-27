@@ -9,7 +9,7 @@ The plan and its stages live in bm (project `heraldo`).
 | Path | Contents |
 |---|---|
 | `schema/` | `envelope.v1.schema.json` and `openapi.yaml`. The one source of truth for the API. |
-| `api/` | Go types generated from `schema/` (`types.gen.go`; never edit it by hand) |
+| `api/` | Go types generated from `schema/` (`types.gen.go`; never edit it by hand). `internal/bundle` inlines the JSON Schema's `$defs` for oapi-codegen |
 | `cmd/heraldo-server`, `cmd/heraldo` | Server and CLI |
 | `internal/` | Server packages: `config` (env), `server` (handlers), `version` |
 | `apple/` | XcodeGen project: multiplatform app `Heraldo`, `HeraldoNotificationService` (iOS), `HeraldoWidgets`, package `HeraldoKit` |
@@ -28,7 +28,8 @@ The plan and its stages live in bm (project `heraldo`).
 | Regenerate the Xcode project | `apple/scripts/generate.sh` (the `.xcodeproj` is not committed) |
 | Rebuild the icon after editing `design/icon/heraldo.svg` | `uv run design/icon/build.py --apple` (see `design/icon/README.md`) |
 
-- A schema change adds or updates examples in `schema/examples/valid` and `invalid`.
+- A schema change adds or updates examples in `schema/examples/valid` and `invalid`
+  (sender inputs) and `stored` (events as the read API returns them).
 - CI runs the Go checks only. Run `apple/scripts/check.sh` before pushing Apple changes.
 - Names and bundle IDs live in `apple/Config/Names.xcconfig`. Signing lives in the
   untracked `apple/Config/Local.xcconfig`.

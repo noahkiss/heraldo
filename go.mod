@@ -4,7 +4,11 @@ go 1.27.2
 
 tool github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
 
-require github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
+require (
+	github.com/oapi-codegen/nullable v1.2.0
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
+	gopkg.in/yaml.v3 v3.0.1
+)
 
 require (
 	github.com/dprotaso/go-yit v0.0.0-20220510233725-9ba8df137936 // indirect
@@ -22,5 +26,4 @@ require (
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/tools v0.48.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

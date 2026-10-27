@@ -1,0 +1,12 @@
+{
+  "source": "printer",
+  "kind": "progress",
+  "key": "print-42",
+  "action": "update",
+  "content": {
+    "progress": 0.42,
+    "steps": { "total": 120, "current": 50 },
+    "trailing": null,
+    "button": null
+  }
+}
