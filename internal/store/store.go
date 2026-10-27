@@ -495,8 +495,23 @@ func (s *Store) Row(ctx context.Context, table, key string) (map[string]any, err
 }
 
 // Backup copies the database to dst with SQLite's online backup API. The
-// server can keep writing meanwhile. dst must not exist.
+// server can keep writing meanwhile. dst must not exist. The copy is one
+// self-contained file in rollback-journal mode, so opening it later leaves no
+// -wal or -shm file beside it.
 func (s *Store) Backup(ctx context.Context, dst string) error {
+	if err := s.backup(ctx, dst); err != nil {
+		return err
+	}
+	db, err := sql.Open("sqlite", "file:"+dst)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	_, err = db.ExecContext(ctx, `PRAGMA journal_mode=DELETE`)
+	return err
+}
+
+func (s *Store) backup(ctx context.Context, dst string) error {
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return err

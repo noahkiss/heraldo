@@ -112,7 +112,7 @@ With no tokens, the server refuses every call except `/healthz`.
 | Command | Does |
 |---|---|
 | `heraldo-server` | Runs the server. SIGTERM or SIGINT shuts it down cleanly. |
-| `heraldo-server backup <path>` | Copies the database to a new file with SQLite's online backup. The server keeps running. |
+| `heraldo-server backup <path>` | Copies the database to a new file with SQLite's online backup. The server keeps running. The copy is one file in rollback-journal mode, with no `-wal` or `-shm` beside it. |
 | `heraldo-server import-tee <dir>` | Backfills an apprise-tee catalogue (`notifications-YYYY-MM.jsonl`). A rerun stores nothing twice. |
 | `heraldo-server hash-token` | Prints the SHA-256 of a token read from stdin. |
 | `heraldo-server healthcheck` | Exits 0 when the local `/healthz` answers. The image's `HEALTHCHECK` runs it. |

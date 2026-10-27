@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"io"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -95,6 +97,21 @@ func TestBackup(t *testing.T) {
 	dst := filepath.Join(dir, "backup.db")
 	if err := s.Backup(ctx, dst); err != nil {
 		t.Fatal(err)
+	}
+	for _, sfx := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(dst + sfx); !os.IsNotExist(err) {
+			t.Fatalf("%s beside the backup: %v", sfx, err)
+		}
+	}
+	hdr := make([]byte, 20)
+	f, err := os.Open(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = io.ReadFull(f, hdr)
+	f.Close()
+	if err != nil || hdr[18] != 1 || hdr[19] != 1 {
+		t.Fatalf("backup header read/write versions = %d/%d, %v; want rollback mode", hdr[18], hdr[19], err)
 	}
 	b := open(t, dst)
 	defer b.Close()
