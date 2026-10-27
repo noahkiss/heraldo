@@ -181,7 +181,7 @@ func importTee(dir string, log *slog.Logger) error {
 	}
 	s, err := teeimport.Run(ctx, dir, st, v, log)
 	log.Info("tee import", "files", s.Files, "lines", s.Lines, "imported", s.Imported,
-		"already_imported", s.Skipped, "bad", s.Bad)
+		"already_imported", s.Skipped, "bad", s.Bad, "legacy_ids", s.LegacyIDs)
 	return err
 }
 

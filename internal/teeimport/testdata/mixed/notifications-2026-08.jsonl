@@ -1,0 +1,4 @@
+{"ts": 1787212800.25, "time": "2026-08-20 08:00:00 UTC", "client": "192.0.2.20", "path": "/notify/apprise", "tag": "general", "title": "Certificate renewed", "body": "The certificate for example.org was renewed.", "status": 200, "delivered": true, "ms": 120, "response": "Sent"}
+{"id": "n-20260820-090000-c0ffee", "ts": 1787216400.0, "time": "2026-08-20 09:00:00 UTC", "client": "192.0.2.21", "path": "/notify/apprise", "tag": "ops", "title": "Job done", "body": "The sample job finished.", "status": 200, "delivered": true, "ms": 80, "response": "Sent", "source": "jobs"}
+{"ts": 1787220000.5, "time": "2026-08-20 10:00:00 UTC", "client": "192.0.2.22", "path": "/notify/legacy", "tag": "alert", "body": "Body only, held, and no id.", "status": 200, "delivered": false, "ms": 0, "response": "{}", "hold": "held", "hold_id": "h-20260820-100000-abcdef"}
+{"title": "No ts and no id: a bad line"}

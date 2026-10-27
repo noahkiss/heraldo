@@ -6,7 +6,8 @@
 // classification rules; those come in a later stage.
 //
 //	tee field              event field
-//	id                     details.tee.id and dedup; the event id is derived from ts and id
+//	id                     details.tee.id and dedup; the event id is derived from ts and id.
+//	                       A line without one gets a legacy id (see LegacyID).
 //	ts (epoch seconds)     ts and received_at
 //	source                 source ("apprise-tee" when the entry has none)
 //	title, body            title, body (cut to the envelope limits)
@@ -20,7 +21,10 @@ package teeimport
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -46,17 +50,31 @@ const Origin = "tee"
 // before the tee learned sources.
 const DefaultSource = "apprise-tee"
 
+// LegacyPrefix starts every legacy id. The tee's own ids start with "n-",
+// so the two never collide.
+const LegacyPrefix = "legacy-"
+
 // maxLine is the longest catalogue line read. The tee caps request bodies at
 // 1 MiB; JSON escaping can grow that.
 const maxLine = 8 << 20
 
 // Stats counts what an import did.
 type Stats struct {
-	Files    int
-	Lines    int
-	Imported int
-	Skipped  int // imported by an earlier run
-	Bad      int // not JSON, no id, or not a valid envelope
+	Files     int
+	Lines     int
+	Imported  int
+	Skipped   int // imported by an earlier run
+	Bad       int // not JSON, no ts, or not a valid envelope
+	LegacyIDs int // mapped lines that had no id and got a legacy id
+}
+
+// LegacyID is the tee id of a catalogue line that has none: the tee wrote
+// lines without ids before it learned them. It is LegacyPrefix and the first
+// 20 hex characters of the SHA-256 of the line, without its line ending, so a
+// rerun over the same files makes the same id.
+func LegacyID(line []byte) string {
+	h := sha256.Sum256(bytes.TrimRight(line, "\r\n"))
+	return LegacyPrefix + hex.EncodeToString(h[:])[:20]
 }
 
 // Run imports every catalogue file in dir.
@@ -90,16 +108,19 @@ func importFile(ctx context.Context, path string, st *store.Store, v *validate.V
 	n := 0
 	for sc.Scan() {
 		n++
-		line := strings.TrimSpace(sc.Text())
-		if line == "" {
+		line := sc.Bytes()
+		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
 		s.Lines++
-		ev, teeID, err := Map([]byte(line), v)
+		ev, teeID, err := Map(line, v)
 		if err != nil {
 			s.Bad++
 			log.Warn("tee import: skipped a line", "file", filepath.Base(path), "line", n, "err", err)
 			continue
+		}
+		if strings.HasPrefix(teeID, LegacyPrefix) {
+			s.LegacyIDs++
 		}
 		created, err := st.Import(ctx, Origin, teeID, ev)
 		if err != nil {
@@ -139,14 +160,14 @@ type entry struct {
 }
 
 // Map turns one catalogue line into an event ready to store, and returns the
-// tee id it came from.
+// tee id it came from: the line's id, or its LegacyID when it has none.
 func Map(line []byte, v *validate.Validator) (store.NewEvent, string, error) {
 	var e entry
 	if err := json.Unmarshal(line, &e); err != nil {
 		return store.NewEvent{}, "", fmt.Errorf("not a JSON object: %w", err)
 	}
 	if e.ID == "" {
-		return store.NewEvent{}, "", fmt.Errorf("no id")
+		e.ID = LegacyID(line)
 	}
 	if e.Ts == nil || math.IsNaN(*e.Ts) || *e.Ts <= 0 {
 		return store.NewEvent{}, "", fmt.Errorf("%s: no ts", e.ID)

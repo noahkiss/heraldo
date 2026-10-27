@@ -183,7 +183,7 @@ in `dir` and stores each line as a `message` event. It applies no rules.
 
 | Catalogue field | Event field |
 |---|---|
-| `id` | `details.tee.id` and `dedup`. The event id is a ULID made from `ts` and this id, so a rerun makes the same id. A catalogue id that is already a ULID is kept. |
+| `id` | `details.tee.id` and `dedup`. The event id is a ULID made from `ts` and this id, so a rerun makes the same id. A catalogue id that is already a ULID is kept. A line without an `id` gets a legacy id, and the import uses it in the same places. |
 | `ts` | `ts` and `received_at` |
 | `source` | `source`, or `apprise-tee` when the entry has none |
 | `title`, `body` | `title`, `body`, cut to the envelope limits |
@@ -195,5 +195,11 @@ in `dir` and stores each line as a `message` event. It applies no rules.
 
 A rerun stores nothing twice. An entry whose id an earlier live event already
 used as `dedup` is skipped, so live forwarding and the backfill store each
-record once. A line that is not JSON, or that does not make a
-valid envelope, is logged and skipped.
+record once. A line that is not JSON, has no `ts`, or does not make a
+valid envelope, is logged and skipped, and counts as `bad` in the summary.
+
+The tee wrote lines without an `id` until it learned ids. Such a line gets the
+legacy id `legacy-` plus the first 20 hex characters of the SHA-256 of the
+line, without its line ending. A rerun over the same files makes the same
+legacy ids, so it stores nothing twice. The tee's own ids start with `n-`, so a
+legacy id never matches one. The summary counts these lines as `legacy_ids`.

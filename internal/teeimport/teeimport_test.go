@@ -3,11 +3,15 @@ package teeimport
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
@@ -140,7 +144,7 @@ func TestDerivedIDIsStable(t *testing.T) {
 
 func TestMapRejects(t *testing.T) {
 	_, v := setup(t)
-	for _, bad := range []string{`not json`, `{"ts":1}`, `{"id":"n-1"}`, `{"id":"n-1","ts":-5}`} {
+	for _, bad := range []string{`not json`, `{"title":"x"}`, `{"id":"n-1"}`, `{"id":"n-1","ts":-5}`} {
 		if _, _, err := Map([]byte(bad), v); err == nil {
 			t.Errorf("mapped %s", bad)
 		}
@@ -167,5 +171,101 @@ func TestRunEmptyDir(t *testing.T) {
 	st, v := setup(t)
 	if _, err := Run(context.Background(), t.TempDir(), st, v, quiet); err == nil {
 		t.Fatal("want an error for a directory without catalogue files")
+	}
+}
+
+const mixed = "testdata/mixed"
+
+func TestImportMixedIDs(t *testing.T) {
+	ctx := context.Background()
+	st, v := setup(t)
+	s, err := Run(ctx, mixed, st, v, quiet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s != (Stats{Files: 1, Lines: 4, Imported: 3, Bad: 1, LegacyIDs: 2}) {
+		t.Fatalf("first run: %+v", s)
+	}
+	recs, err := st.List(ctx, store.Filter{Limit: 10})
+	if err != nil || len(recs) != 3 {
+		t.Fatalf("list: %d, %v", len(recs), err)
+	}
+	first := map[string]bool{}
+	for _, r := range recs {
+		first[r.ID] = true
+	}
+
+	// A rerun over the same files makes the same legacy ids and stores nothing.
+	s, err = Run(ctx, mixed, st, v, quiet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s != (Stats{Files: 1, Lines: 4, Skipped: 3, Bad: 1, LegacyIDs: 2}) {
+		t.Fatalf("rerun: %+v", s)
+	}
+	recs, err = st.List(ctx, store.Filter{Limit: 10})
+	if err != nil || len(recs) != 3 {
+		t.Fatalf("list after rerun: %d, %v", len(recs), err)
+	}
+	for _, r := range recs {
+		if !first[r.ID] {
+			t.Fatalf("rerun made a new event %s", r.ID)
+		}
+	}
+
+	var legacy, real int
+	for _, r := range recs {
+		var ev map[string]any
+		if err := json.Unmarshal(r.Event, &ev); err != nil {
+			t.Fatal(err)
+		}
+		teeID := ev["details"].(map[string]any)["tee"].(map[string]any)["id"].(string)
+		if ev["dedup"] != teeID {
+			t.Errorf("dedup %v != tee id %s", ev["dedup"], teeID)
+		}
+		at, err := time.Parse(time.RFC3339Nano, ev["ts"].(string))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.ID != ids.Derived(at, Origin, teeID) {
+			t.Errorf("event id %s is not derived from ts and tee id %s", r.ID, teeID)
+		}
+		switch {
+		case strings.HasPrefix(teeID, LegacyPrefix):
+			legacy++
+			if len(teeID) != len(LegacyPrefix)+20 {
+				t.Errorf("legacy id %q has the wrong length", teeID)
+			}
+		case strings.HasPrefix(teeID, "n-"):
+			real++
+		default:
+			t.Errorf("unexpected tee id %q", teeID)
+		}
+	}
+	if legacy != 2 || real != 1 {
+		t.Errorf("legacy %d, real %d", legacy, real)
+	}
+}
+
+func TestLegacyID(t *testing.T) {
+	_, v := setup(t)
+	line := []byte(`{"ts":1787212800,"title":"no id here"}`)
+	ev, teeID, err := Map(line, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(line)
+	if want := "legacy-" + hex.EncodeToString(sum[:])[:20]; teeID != want {
+		t.Fatalf("tee id %s, want %s", teeID, want)
+	}
+	if ev.Fields["dedup"] != teeID || ev.Fields["details"].(map[string]any)["tee"].(map[string]any)["id"] != teeID {
+		t.Errorf("legacy id not used for dedup and details.tee.id: %v", ev.Fields)
+	}
+	if LegacyID(append(line, '\r', '\n')) != teeID {
+		t.Error("a line ending changed the legacy id")
+	}
+	// A line with an id keeps it.
+	if _, got, _ := Map([]byte(`{"id":"n-1","ts":1787212800}`), v); got != "n-1" {
+		t.Errorf("tee id %s, want n-1", got)
 	}
 }
