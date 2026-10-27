@@ -217,6 +217,8 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(incident.flatMap(PushCategory.muteInput), MuteInput(key: "web", for: "1h"))
         let event = PushInfo(userInfo: ["heraldo": ["id": "y", "kind": "message", "source": "backup", "key": "k"]])
         XCTAssertEqual(event.flatMap(PushCategory.muteInput), MuteInput(source: "backup", for: "1h"))
+        let run = PushInfo(userInfo: ["heraldo": ["id": "z", "kind": "checkin", "source": "checkin", "key": "nightly"]])
+        XCTAssertEqual(run.flatMap(PushCategory.muteInput), MuteInput(key: "checkin:nightly", for: "1h"))
     }
 
     func testCacheHoldStatesAndResolved() {

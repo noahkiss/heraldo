@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -190,16 +191,37 @@ func (s *server) logRequests(next http.Handler) http.Handler {
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		var who string
 		r = r.WithContext(context.WithValue(r.Context(), ctxKey{}, &who))
+		clean := cleanPath(r.URL.Path)
+		if strings.HasPrefix(clean, "/p/") && clean != r.URL.Path {
+			// ServeMux would answer a redirect, which a cron line's curl does
+			// not follow: serve the clean ping path instead.
+			u := *r.URL
+			u.Path, u.RawPath = clean, ""
+			r.URL = &u
+		}
 		next.ServeHTTP(sw, r)
 		if r.URL.Path == "/healthz" && sw.status == http.StatusOK {
 			return
 		}
-		s.Logger.Info("request", "method", r.Method, "path", redactPath(r.URL.Path), "status", sw.status,
+		// The clean path, so no spelling of /p/<key> reaches the log.
+		s.Logger.Info("request", "method", r.Method, "path", redactPath(clean), "status", sw.status,
 			"ms", time.Since(start).Milliseconds(), "token", who)
 	})
 }
 
-// redactPath hides the ping key in a /p/<key>[/op] path.
+// cleanPath is p with empty, . and .. segments resolved, as ServeMux
+// resolves them.
+func cleanPath(p string) string {
+	if p == "" {
+		return "/"
+	}
+	if p[0] != '/' {
+		p = "/" + p
+	}
+	return path.Clean(p)
+}
+
+// redactPath hides the ping key in a clean /p/<key>[/op] path.
 func redactPath(p string) string {
 	rest, ok := strings.CutPrefix(p, "/p/")
 	if !ok {

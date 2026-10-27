@@ -538,6 +538,25 @@ func TestMuteHoldsBackPush(t *testing.T) {
 	}
 }
 
+// One mute on checkin:<slug> holds back the check's incident and its own
+// failed runs, and no other check.
+func TestMuteCoversCheckinRuns(t *testing.T) {
+	r := newRig(t, 0)
+	r.register(t, prodToken, "production")
+	if rec := r.do(t, http.MethodPost, "/v1/mutes", writeTok, `{"key":"checkin:nightly","for":"1h"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("mute: %d %s", rec.Code, rec.Body)
+	}
+	muted := r.post(t, writeTok, `{"source":"checkin","kind":"checkin","key":"nightly","action":"fail","title":"nightly failed"}`)
+	r.post(t, writeTok, `{"source":"checkin","kind":"checkin","key":"weekly","action":"fail","title":"weekly failed"}`)
+	r.post(t, writeTok, `{"source":"heraldo","kind":"incident","key":"checkin:nightly","action":"open","title":"nightly is down"}`)
+	if n := len(r.prod.requests()); n != 1 {
+		t.Fatalf("%d pushes, want 1 (weekly)", n)
+	}
+	if ds := r.delivery(t, muted); len(ds) != 1 || ds[0].Outcome != api.DeliveryOutcomeSkipped {
+		t.Fatalf("delivery %+v", ds)
+	}
+}
+
 func TestInhibitHoldsBackChildren(t *testing.T) {
 	r := newRigRules(t, 0, `inhibit:
   - name: host-down

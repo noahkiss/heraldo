@@ -608,6 +608,10 @@ func downText(c checkin.Check) (string, string) {
 	case checkin.ReasonFailed:
 		return c.Key + " failed", cut(fmt.Sprintf("The run at %s failed.", stamp(c.LastPing)), 178)
 	}
+	if c.State == checkin.StateDown && !c.StartedAt.IsZero() {
+		return c.Key + " is down",
+			cut(fmt.Sprintf("A run started %s and has not ended; the next run was due after it, with %s of grace.", stamp(c.StartedAt), c.Schedule.Grace), 178)
+	}
 	last := "No ping yet."
 	if !c.LastPing.IsZero() {
 		last = "Last ping " + stamp(c.LastPing) + "."

@@ -33,14 +33,15 @@ CREATE TABLE checks (
 -- Checks the scheduler judges: the rest only change on a ping.
 CREATE INDEX checkins_judged ON checks (state) WHERE state IN ('up', 'late', 'started', 'down');
 
--- Existing check-ins carry over unscheduled: running is now started and
--- unknown (only log pings so far) is new.
-INSERT INTO checks (key, grace_s, state, state_since, created_at, last_ping, last_event, last_success, down_reason)
+-- Existing check-ins carry over unscheduled: running is now started, from
+-- its last ping, and unknown (only log pings so far) is new.
+INSERT INTO checks (key, grace_s, state, state_since, created_at, last_ping, last_event, last_success, down_reason, started_at)
 SELECT key, 3600,
        CASE state WHEN 'running' THEN 'started' WHEN 'unknown' THEN 'new' ELSE state END,
        last_ping, last_ping, last_ping, last_event,
        CASE WHEN state = 'up' THEN last_ping END,
-       CASE WHEN state = 'down' THEN 'failed' END
+       CASE WHEN state = 'down' THEN 'failed' END,
+       CASE WHEN state = 'running' THEN last_ping END
 FROM checkins;
 
 DROP TABLE checkins;

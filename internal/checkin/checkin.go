@@ -118,6 +118,15 @@ func (s Schedule) Next(t time.Time) (time.Time, bool) {
 			return time.Time{}, false
 		}
 		n := sched.Next(t)
+		if n.IsZero() {
+			return n, false
+		}
+		// In a fall-back hour the clock reads the same twice; cron fires a
+		// slot once, at its first reading. Skip the second reading of a
+		// slot whose first reading is not after t.
+		if first, ok := firstReading(n); ok && !first.After(t) {
+			n = sched.Next(n)
+		}
 		return n, !n.IsZero()
 	}
 	return time.Time{}, false
@@ -196,7 +205,11 @@ func (c *Check) Apply(p Ping) {
 	case "start":
 		c.StartedAt = p.At
 		c.StartRID = p.RID
-		state = StateStarted
+		// A down check stays down, and keeps its state_since, until a run
+		// succeeds.
+		if c.State != StateDown {
+			state = StateStarted
+		}
 	case "success", "fail":
 		c.endRun(p)
 		if next, ok := c.Schedule.Next(p.At); ok {
@@ -251,46 +264,85 @@ func (c *Check) setState(state string, at time.Time) {
 }
 
 // Tick applies the passage of time at now and reports whether c changed.
-// up turns late at DueAt and down when the grace runs out; a started run
-// goes down past max_runtime_s, or past the grace like up. Nothing goes down
-// before notBefore plus the check's grace: the server sets notBefore to its
-// own start, so pings lost while it was down raise nothing.
+// up turns late at DueAt and down when the grace runs out. A started run is
+// judged on its own clock: with max_runtime_s it goes down (overran) only
+// past that; without, it goes down (missed) only when the next scheduled
+// slot after its start passes, plus the grace. Nothing goes down before
+// notBefore plus the check's grace: the server sets notBefore to its own
+// start, so pings lost while it was down raise nothing.
 func (c *Check) Tick(now, notBefore time.Time) bool {
 	switch c.State {
 	case StateUp, StateLate, StateStarted:
 	default:
 		return false
 	}
-	grace := c.Schedule.Grace
-	if c.State == StateStarted && c.Schedule.MaxRuntime > 0 && !c.StartedAt.IsZero() {
-		end := later(c.StartedAt.Add(c.Schedule.MaxRuntime), notBefore)
-		if !now.Before(end) {
-			c.setState(StateDown, now)
-			c.DownReason = ReasonOverran
-			return true
-		}
-	}
-	if c.DueAt.IsZero() {
+	due, reason := c.deadline()
+	if due.IsZero() {
 		return false
 	}
-	if !now.Before(later(c.DueAt, notBefore).Add(grace)) {
+	if reason == ReasonOverran {
+		due = later(due, notBefore)
+	} else {
+		due = later(due, notBefore).Add(c.Schedule.Grace)
+	}
+	if !now.Before(due) {
 		c.setState(StateDown, now)
-		c.DownReason = ReasonMissed
+		c.DownReason = reason
 		return true
 	}
-	if c.State == StateUp && !now.Before(c.DueAt) {
+	if c.State == StateUp && !c.DueAt.IsZero() && !now.Before(c.DueAt) {
 		c.setState(StateLate, now)
 		return true
 	}
 	return false
 }
 
+// deadline is when c goes down without a ping, before the grace (none for
+// overran), and the reason it would. It is zero when time cannot take c
+// down.
+func (c Check) deadline() (time.Time, string) {
+	if c.State == StateStarted && !c.StartedAt.IsZero() {
+		if c.Schedule.MaxRuntime > 0 {
+			return c.StartedAt.Add(c.Schedule.MaxRuntime), ReasonOverran
+		}
+		next, ok := c.Schedule.Next(c.StartedAt)
+		if !ok {
+			return time.Time{}, ""
+		}
+		return next, ReasonMissed
+	}
+	return c.DueAt, ReasonMissed
+}
+
 // DownAfter is when c goes down if no ping comes, or zero.
 func (c Check) DownAfter() time.Time {
-	if c.DueAt.IsZero() {
+	switch c.State {
+	case StateUp, StateLate, StateStarted:
+	default:
 		return time.Time{}
 	}
-	return c.DueAt.Add(c.Schedule.Grace)
+	due, reason := c.deadline()
+	if due.IsZero() || reason == ReasonOverran {
+		return due
+	}
+	return due.Add(c.Schedule.Grace)
+}
+
+// firstReading returns the earlier instant with the same wall clock as t,
+// when t falls in the second pass of a fall-back hour.
+func firstReading(t time.Time) (time.Time, bool) {
+	_, off := t.Zone()
+	_, before := t.Add(-3 * time.Hour).Zone()
+	if before <= off {
+		return time.Time{}, false
+	}
+	first := t.Add(-time.Duration(before-off) * time.Second)
+	y1, m1, d1 := first.Date()
+	y2, m2, d2 := t.Date()
+	if y1 != y2 || m1 != m2 || d1 != d2 || first.Hour() != t.Hour() || first.Minute() != t.Minute() || first.Second() != t.Second() {
+		return time.Time{}, false
+	}
+	return first, true
 }
 
 func later(a, b time.Time) time.Time {

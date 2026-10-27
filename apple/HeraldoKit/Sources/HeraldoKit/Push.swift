@@ -46,10 +46,15 @@ public enum PushCategory {
     /// How long Mute lasts, as the server reads it.
     public static let muteFor = "1h"
 
-    /// What Mute 1 h holds back: an incident's key, else the event's source.
+    /// What Mute 1 h holds back: an incident's key; for a check-in, its
+    /// check's incident key `checkin:<key>`, which the server applies to the
+    /// check's own runs too; else the event's source.
     public static func muteInput(_ info: PushInfo) -> MuteInput? {
         if info.kind == "incident", let key = info.key, !key.isEmpty {
             return MuteInput(source: nil, key: key, for: muteFor)
+        }
+        if info.kind == "checkin", let key = info.key, !key.isEmpty {
+            return MuteInput(source: nil, key: "checkin:" + key, for: muteFor)
         }
         guard let source = info.source, !source.isEmpty else { return nil }
         return MuteInput(source: source, for: muteFor)

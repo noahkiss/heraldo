@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/noahkiss/heraldo/api"
+	"github.com/noahkiss/heraldo/internal/checkin"
 	"github.com/noahkiss/heraldo/internal/rules"
 	"github.com/noahkiss/heraldo/internal/store"
 )
@@ -228,6 +229,11 @@ func (p *Pusher) suppressed(ctx context.Context, ev *api.Event) (string, error) 
 		key = *ev.Key
 	}
 	m, ok, err := p.cfg.Store.MatchMute(ctx, ev.Source, key, p.cfg.Now())
+	if err == nil && !ok && key != "" && ev.Kind == api.KindCheckin {
+		// A check-in's own events fall under its check's incident key, so
+		// one mute on checkin:<slug> covers the incident and the runs.
+		m, ok, err = p.cfg.Store.MatchMute(ctx, ev.Source, checkin.IncidentPrefix+key, p.cfg.Now())
+	}
 	if err != nil {
 		return "", err
 	}

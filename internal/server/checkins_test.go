@@ -1,8 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -444,5 +446,47 @@ func TestRedactPath(t *testing.T) {
 		if got := redactPath(in); got != want {
 			t.Errorf("%s: %s", in, got)
 		}
+	}
+}
+
+// A ping key never reaches the log, however the path is spelled, and a
+// ping on a non-canonical /p path is served, not redirected.
+func TestPingKeyOddPaths(t *testing.T) {
+	e := newEnv(t)
+	var buf bytes.Buffer
+	e.h.(*Server).s.Logger = slog.New(slog.NewTextHandler(&buf, nil))
+	e.ping(t, "/ping/job?create=1", "")
+	k := decode[api.PingKey](t, e.do(t, http.MethodPost, "/v1/checkins/job/key", writeTok, nil)).Key
+	for _, p := range []string{"//p/" + k, "/p//" + k, "/./p/" + k, "/p/" + k + "/", "/x/../p/" + k + "/log", "/p/" + k + "/../" + k} {
+		rec := e.do(t, http.MethodGet, p, "", nil)
+		if rec.Code != http.StatusOK || rec.Body.String() != "OK" {
+			t.Errorf("%s: %d %q", p, rec.Code, rec.Body.String())
+		}
+	}
+	e.do(t, http.MethodGet, "/p/"+k+"/../../v1/x", "", nil)
+	if strings.Contains(buf.String(), k) {
+		t.Fatalf("key in the log:\n%s", buf.String())
+	}
+	if !strings.Contains(buf.String(), "path=/p/<key>/log") {
+		t.Fatalf("log: %s", buf.String())
+	}
+}
+
+// A long run that sent /start raises nothing while it runs.
+func TestLongRunNoIncident(t *testing.T) {
+	e := newEnv(t)
+	e.ping(t, "/ping/nightly?create=1&period=1h&grace=10m", "")
+	e.clock.add(55 * time.Minute)
+	e.ping(t, "/ping/nightly/start", "")
+	// Past the old due time plus grace (70 min), before the start's own
+	// deadline (start + period + grace).
+	e.clock.add(60 * time.Minute)
+	e.tick(t)
+	c := e.check(t, "nightly")
+	if c.State != api.CheckStateStarted || c.Incident != nil {
+		t.Fatalf("while running: %+v", c)
+	}
+	if want := e.clock.now().Add(-60 * time.Minute).Add(70 * time.Minute); !c.DownAfter.Equal(want) {
+		t.Fatalf("down_after %v, want %v", c.DownAfter, want)
 	}
 }

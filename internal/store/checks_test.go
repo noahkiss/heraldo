@@ -49,6 +49,9 @@ func TestMigrateCheckinsFrom3(t *testing.T) {
 			t.Errorf("%s: %+v", key, c)
 		}
 	}
+	if b, _, _ := s.LoadCheck(ctx, "b"); !b.StartedAt.Equal(b.LastPing) || b.StartedAt.IsZero() {
+		t.Fatalf("started b has started_at %v, last ping %v", b.StartedAt, b.LastPing)
+	}
 	a, _, _ := s.LoadCheck(ctx, "a")
 	c, _, _ := s.LoadCheck(ctx, "c")
 	if a.LastSuccess.IsZero() || c.DownReason != checkin.ReasonFailed || a.Schedule.Grace != checkin.DefaultGrace {

@@ -161,3 +161,95 @@ func TestTickNotBefore(t *testing.T) {
 		t.Fatalf("after start-up grace: %+v", c)
 	}
 }
+
+// A run that started is judged on its own start, not on the due time of the
+// run before: a 2 h nightly job is not missed while it runs.
+func TestStartedRunNotMissed(t *testing.T) {
+	s := Schedule{Cron: "0 2 * * *", Grace: time.Hour}
+	d1 := time.Date(2026, 10, 1, 2, 0, 0, 0, time.UTC)
+	c := New("backup", s, d1.Add(-time.Hour))
+	c.Apply(Ping{Action: "start", At: d1, Duration: -1})
+	c.Apply(Ping{Action: "success", At: d1.Add(2 * time.Hour), Duration: -1})
+	d2 := d1.Add(24 * time.Hour)
+	c.Apply(Ping{Action: "start", At: d2, Duration: -1})
+	if c.Tick(d2.Add(time.Hour+time.Second), time.Time{}) || c.State != StateStarted {
+		t.Fatalf("while running: %+v", c)
+	}
+	// Without max_runtime, it is missed only when the next slot after its
+	// start passes, plus the grace.
+	if want := d2.Add(25 * time.Hour); !c.DownAfter().Equal(want) {
+		t.Fatalf("down after %v, want %v", c.DownAfter(), want)
+	}
+	if c.Tick(d2.Add(25*time.Hour-time.Second), time.Time{}) {
+		t.Fatal("down before the next slot plus grace")
+	}
+	if !c.Tick(d2.Add(25*time.Hour), time.Time{}) || c.State != StateDown || c.DownReason != ReasonMissed {
+		t.Fatalf("next slot passed: %+v", c)
+	}
+}
+
+// With max_runtime, a started run goes down only as overran, even past its
+// due time.
+func TestStartedOnlyOverran(t *testing.T) {
+	c := New("job", Schedule{Period: time.Hour, Grace: time.Minute, MaxRuntime: 3 * time.Hour}, t0)
+	c.Apply(Ping{At: t0, Duration: -1})
+	c.Apply(Ping{Action: "start", At: t0.Add(55 * time.Minute), Duration: -1})
+	if c.Tick(t0.Add(3*time.Hour), t0) || c.State != StateStarted {
+		t.Fatalf("past due while running: %+v", c)
+	}
+	if !c.DownAfter().Equal(t0.Add(235 * time.Minute)) {
+		t.Fatalf("down after %v", c.DownAfter())
+	}
+	if !c.Tick(t0.Add(235*time.Minute), t0) || c.DownReason != ReasonOverran {
+		t.Fatalf("overran: %+v", c)
+	}
+}
+
+// A /start on a down check leaves it down with its state_since; the next
+// success brings it up.
+func TestStartOnDownKeepsDown(t *testing.T) {
+	c := check()
+	c.Apply(Ping{Action: "fail", At: t0, Duration: -1})
+	c.Apply(Ping{Action: "start", At: t0.Add(time.Hour), Duration: -1})
+	if c.State != StateDown || !c.StateSince.Equal(t0) || !c.StartedAt.Equal(t0.Add(time.Hour)) {
+		t.Fatalf("start on down: %+v", c)
+	}
+	if c.Tick(t0.Add(10*time.Hour), t0) {
+		t.Fatal("tick changed a down check")
+	}
+	c.Apply(Ping{Action: "success", At: t0.Add(time.Hour + time.Minute), Duration: -1})
+	if c.State != StateUp || c.LastDuration != time.Minute {
+		t.Fatalf("success: %+v", c)
+	}
+}
+
+// In the fall-back hour, a ping at the first 01:30 is due at 01:30 the
+// next day, not at the second 01:30 an hour later.
+func TestCronFallBack(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skip("no tzdata")
+	}
+	s := Schedule{Cron: "30 1 * * *", TZ: "America/New_York"}
+	first := time.Date(2026, 11, 1, 1, 31, 0, 0, ny) // EDT, the first pass
+	n, _ := s.Next(first)
+	if want := time.Date(2026, 11, 2, 1, 30, 0, 0, ny); !n.Equal(want) {
+		t.Fatalf("next %v, want %v", n, want)
+	}
+	// A ping before the slot is due at its first reading.
+	n, _ = s.Next(time.Date(2026, 11, 1, 0, 50, 0, 0, ny))
+	if want := time.Date(2026, 11, 1, 5, 30, 0, 0, time.UTC); !n.Equal(want) {
+		t.Fatalf("before the slot: %v, want %v (01:30 EDT)", n, want)
+	}
+	// A slot outside the repeated hour is untouched on that day.
+	n, _ = Schedule{Cron: "30 3 * * *", TZ: "America/New_York"}.Next(first)
+	if want := time.Date(2026, 11, 1, 3, 30, 0, 0, ny); !n.Equal(want) {
+		t.Fatalf("03:30: %v, want %v", n, want)
+	}
+	// Spring forward: the 02:30 slot does not exist; the next one is the
+	// day after.
+	n, _ = Schedule{Cron: "30 2 * * *", TZ: "America/New_York"}.Next(time.Date(2026, 3, 8, 1, 0, 0, 0, ny))
+	if n.Before(time.Date(2026, 3, 8, 3, 0, 0, 0, ny)) {
+		t.Fatalf("spring: %v", n)
+	}
+}

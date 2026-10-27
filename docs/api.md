@@ -261,7 +261,7 @@ event that did not push has no `delivery`.
 | `badge` | `unread` of the `inbox` cursor when the push goes out |
 | `sound` | `sound`, default `default`; none for `passive` or `sound: none` |
 | `thread-id` | `thread`, else `source` |
-| `category` | `incident` for an incident `open`, `update` or no action; `event` for the rest. The app registers both: `incident` has Ack, Mute 1 h and Open; `event` has Mute 1 h and Open. Mute 1 h on an incident mutes its key; on an event, its source. |
+| `category` | `incident` for an incident `open`, `update` or no action; `event` for the rest. The app registers both: `incident` has Ack, Mute 1 h and Open; `event` has Mute 1 h and Open. Mute 1 h on an incident mutes its key; on a check-in, its check's incident key `checkin:<key>`; on any other event, its source. |
 | `mutable-content` | Always 1, so the notification service extension runs. |
 | `interruption-level` | The table above. |
 | `relevance-score` | `relevance` |
@@ -471,6 +471,10 @@ synced as usual; only the push is skipped. The app's Mute 1 h action makes one.
   to end first.
 - `DELETE /v1/mutes/{id}` takes a write token and ends the mute now. A mute
   that already ended is returned as it is. 404 for an unknown id.
+- A mute on `checkin:<slug>` covers the check's incident and the check's own
+  check-in events (kind `checkin`, key `<slug>`). So Mute 1 h on a failed run
+  or on the check's down incident silences that one check, both ways, and no
+  other.
 - Mutes hold back pushes and re-alerts, not storage, the event stream, or the
   read cursors.
 
@@ -607,14 +611,22 @@ schedule lives on the server: `PUT /v1/checkins/{slug}` changes it.
 |---|---|---|
 | `new` | Known; no ping yet. Time does not judge it. | Any ping |
 | `up` | The last run succeeded. | `late` at `next_due` |
-| `started` | A run started and has not ended. | `down` past `max_runtime_s`, or like `up` |
+| `started` | A run started and has not ended. | `down` (`overran`) at `started_at` plus `max_runtime_s`. Without `max_runtime_s`: `down` (`missed`) at the next scheduled time after `started_at`, plus `grace_s`. Never `late`. |
 | `late` | The ping is due; the grace has not run out. | `down` at `down_after` (`next_due` plus `grace_s`) |
-| `down` | A run failed (`failed`), ran too long (`overran`), or no ping came (`missed`). `down_reason` says which. | `up` on the next success |
+| `down` | A run failed (`failed`), ran too long (`overran`), or no ping came (`missed`). `down_reason` says which. A `/start` keeps it `down`, with its `state_since`, and records `started_at`. | `up` on the next success |
 | `paused` | Not judged. Pings are still stored and update the times. | `new` on resume |
 
 - `next_due` is the time after the last ended run: plus `period_s`, or the
   next cron time. A failed run counts as a run, so a failing job does not
   also go late.
+- A started run is judged on its own start, not on the `next_due` of the
+  run before. A nightly job that runs for two hours is not missed while it
+  runs. `down_after` shows the started run's deadline.
+- On a fall-back night the clock reads one hour twice. A cron slot in that
+  hour counts once, at its first reading, as cron runs it: a ping at the
+  first 01:31 is due at 01:30 the next day, not an hour later. In a
+  spring-forward gap the slot does not exist that day; the next due time is
+  the slot on the day after.
 - A run's length is the time from its start to its end: with `rid`, the
   start with the same `rid`. A sender's `checkin.duration_ms` takes
   precedence.
@@ -670,8 +682,9 @@ a dead job, so the sender owns sleep:
 `Check`: `key`, `host`, `state`, `state_since`, `down_reason`, `schedule`
 (the table above, with defaults filled in), `created_at`, `last_ping`,
 `last_event` (the id of the last check-in event), `started_at` (the run in
-progress), `last_success`, `last_duration_ms`, `next_due`, `down_after`,
-`last_log` (the body of the last ping that had one), `last_log_at`,
+progress), `last_success`, `last_duration_ms`, `next_due`,
+`down_after` (when the check goes down without a ping: the grace included,
+for `up`, `late` and `started`), `last_log` (the body of the last ping that had one), `last_log_at`,
 `ping_key_at` (when the ping key was minted; never the key), and `incident` (`open`, `acked` or `resolved`, when the check ever had one).
 
 `PUT /v1/checkins/{slug}` takes a `CheckConfig`: `host` and the schedule
