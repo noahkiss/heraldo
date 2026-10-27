@@ -7,8 +7,8 @@ is a summary.
 ## Endpoints
 
 An endpoint with a stage number is planned for that stage and has no handler
-yet. The spec marks it `x-stage: <n>`. Stage 1 stores events and sends no
-push notifications.
+yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
+`HERALDO_PUSH=on` (see "Push" below).
 
 | Method and path | Does | Stage |
 |---|---|---|
@@ -21,13 +21,15 @@ push notifications.
 | `POST /notify/apprise`, `POST /notify/{key}` | Apprise-compatible ingest. Answers 200 with `Sent`. | 11 |
 | `GET /v1/state` | Flat arrays of the latest event per key: incidents not resolved, progress not ended, every check-in, set statuses. The shape is a stand-in until stage 12. | served |
 | `GET /v1/stream` | Server-sent events: one `poke` per stored event, with the newest cursor. | served |
-| `GET /v1/cursors/{name}`, `PUT /v1/cursors/{name}` | The read cursor called `name`, shared by every client. | served |
+| `GET /v1/cursors/{name}`, `PUT /v1/cursors/{name}` | The read cursor called `name`, shared by every client, with its `unread` count. | served |
+| `GET /v1/devices`, `POST /v1/devices` | Lists devices; registers a device or refreshes the one with that APNs token. | served |
+| `GET`, `PUT`, `DELETE /v1/devices/{id}` | One device: read, replace its registration, retire it. | served |
 
 Auth:
 
 - Every call except `/healthz` takes a bearer token. Each token has a scope:
-  `write` (post and send), `read` (list, get, state, stream and the read
-  cursors), or `admin` (both).
+  `write` (post and send), `read` (list, get, state, stream, the read
+  cursors and devices), or `admin` (both).
 - A missing or unknown token gets 401. A token without the scope gets 403.
 - `GET /v1/send` also takes the token as a `token` query parameter. A token in
   the URL ends up in access logs, proxy logs and browser history. Use the header
@@ -74,6 +76,9 @@ Read cursors:
   nothing, and the answer is the stored cursor. So clients that share a
   cursor never move it back. A cursor past the newest event gets 400.
 - `GET` answers 404 for a name with no cursor.
+- Every answer carries `unread`: the events after the cursor that push an
+  alert (see "Push"). It is the app's badge. Held and store-only events,
+  incident acks, progress, status and passing check-ins do not count.
 
 Event stream:
 
@@ -92,6 +97,148 @@ Dedup:
 - A `dedup` id seen in the last 24 hours, from any source, stores nothing. The
   server answers 200 with the first event.
 - For a `trusted-ingest` token and for `import-tee`, the window has no end.
+
+## Devices
+
+The apps register each device for push. The server knows a device by its APNs
+token and gives it an id, `dev_` plus a ULID. The app keeps the id.
+
+`DeviceRegistration`, the body of `POST /v1/devices` and `PUT /v1/devices/{id}`:
+
+| Field | Type and limit | Meaning |
+|---|---|---|
+| `token` | hex, 32 to 200 characters, required | The APNs device token. Stored in lower case. |
+| `environment` | `sandbox` or `production`, required | The APNs environment of the token. A development build is `sandbox`; TestFlight and App Store builds are `production`. |
+| `topic` | string, 255, required | The app's bundle id, sent as `apns-topic`. |
+| `name` | string, 128 | The device's name. |
+| `platform` | string, 32 | Such as `iOS` or `macOS`. |
+| `app_version` | string, 64 | The app's version and build. |
+| `permissions` | `{alerts, time_sensitive, live_activities}`, booleans | Permission health. A field left out is unknown. |
+
+- `POST` with an unknown token creates a device: 201. With a known token it
+  updates that device: 200. Either way the device is active.
+- `PUT /v1/devices/{id}` replaces the registration, token included, such as
+  after APNs gave the app a new token. 404 for an unknown id; 409 when another
+  device holds the token.
+- Both replace every field: a field left out is cleared.
+- `DELETE /v1/devices/{id}` retires the device with reason `removed`. Nothing
+  is deleted; the device stays in the list with its delivery history.
+  Registering its token again brings it back.
+- An unknown field, a bad token or a bad environment gets 400.
+
+`Device`, the answer: `id`, `environment`, `topic`, `token_suffix` (the last 8
+characters of the token; the server never returns the full token), `name`,
+`platform`, `app_version`, `permissions`, `active`, `registered_at`,
+`updated_at`, and for a retired device `retired_at` and `retired_reason`
+(`removed`, or the APNs reason such as `apns: Unregistered`).
+
+Permission health:
+
+- A permission reported `false` opens an incident with source `heraldo`,
+  key `device:<id>:<permission>` and level `active`, such as
+  `device:dev_01J...:time_sensitive`. Reporting it `false` again raises
+  nothing new.
+- Reported `true` later, the incident resolves (level `passive`). Removing the
+  device resolves its open permission incidents.
+- `<permission>` is `alerts`, `time_sensitive` or `live_activities`.
+
+## Push
+
+Push is off until `HERALDO_PUSH=on`, and needs an APNs key (README,
+"Configuration"). Off, the server stores events and registers devices as
+usual and sends nothing. `/healthz` reports `push`: `off`, `on`, or `no-key`
+when push is on but no key loads.
+
+The server sends each new event that pushes to every active device, straight
+to APNs over HTTP/2, signed with an ES256 provider token. It signs a new token
+every 50 minutes, and at once when APNs answers `ExpiredProviderToken`. The
+device's `environment` picks the APNs host.
+
+Ingest never waits for APNs. A stored event goes into an in-memory queue and
+workers send it. A full queue (1024 events) drops the push and logs it, and a
+restart drops queued pushes. The event is stored either way: the app syncs
+history by cursor, so a missed push loses nothing.
+
+Which events push, and how loud:
+
+| kind | action | Push | interruption-level |
+|---|---|---|---|
+| `message` | none | yes | the event's `level`, default `active` |
+| `digest` | none | yes | `passive` (silent) |
+| `incident` | `open`, `update`, none | yes | the event's `level` |
+| `incident` | `resolve` | yes | `passive` |
+| `incident` | `ack` | no | |
+| `checkin` | `fail`, or any but `log` with a non-zero `exit_code` | yes | the event's `level` |
+| `checkin` | `start`, `success`, `log` | no | |
+| `progress` | any | no (Live Activities, stage 7) | |
+| `status` | any | no (widgets) | |
+
+- Before the table: a held event (`hold.state` is `held`), a store-only event
+  (`hold.store_only`), and an event past `expires_at` never push.
+- A quiet message is one with `level: passive`. An ingest rule can set it.
+- `critical` goes out as `time-sensitive`: the app has no critical-alerts
+  entitlement. `delivery` records `level: time-sensitive` and the note
+  `critical sent as time-sensitive` in `error`.
+- A passive push has no sound and `apns-priority` 5; the others have 10.
+
+Answers from APNs:
+
+| Answer | The server |
+|---|---|
+| 200 | Records `sent`. |
+| 410, or 400 `BadDeviceToken` or `DeviceTokenNotForTopic` | Records `failed` and retires the device with reason `apns: <reason>`. |
+| 403 `ExpiredProviderToken` or `InvalidProviderToken` | Signs a new provider token and sends once more. |
+| 429, 5xx, or no answer | Retries after 1 s, 4 s, 15 s and 1 min (or `retry-after`, up to 5 min), then records `failed`. |
+| Any other | Records `failed` with the reason. |
+
+`delivery` on an event, from `GET /v1/events` and `GET /v1/events/{id}`,
+lists the outcome per device: `device`, `outcome`, `level`, `at`, `error`. An
+event that did not push has no `delivery`.
+
+### Payload
+
+```json
+{
+  "aps": {
+    "alert": {"title": "Web is down", "body": "nginx failed"},
+    "badge": 3,
+    "sound": "default",
+    "thread-id": "uptime",
+    "category": "incident",
+    "mutable-content": 1,
+    "interruption-level": "time-sensitive",
+    "relevance-score": 0.8
+  },
+  "heraldo": {
+    "id": "01JBA6Y8Q2K9M3T4V5W6X7Y8Z9",
+    "kind": "incident",
+    "source": "uptime",
+    "key": "unit:web-1:nginx",
+    "action": "open",
+    "url": "https://example.com/status",
+    "image": "https://example.com/graph.png",
+    "truncated": true
+  }
+}
+```
+
+| Payload | From |
+|---|---|
+| `alert.title` | `title`, else `source` |
+| `alert.body` | `summary`, else `body`. A body is cut at a character boundary, with `…`, so the payload fits 4 KB. |
+| `badge` | `unread` of the `inbox` cursor when the push goes out |
+| `sound` | `sound`, default `default`; none for `passive` or `sound: none` |
+| `thread-id` | `thread`, else `source` |
+| `category` | `incident` for an incident `open`, `update` or no action; `event` for the rest. The app registers both: `incident` has Ack, Mute and Open; `event` has Mute and Open. |
+| `mutable-content` | Always 1, so the notification service extension runs. |
+| `interruption-level` | The table above. |
+| `relevance-score` | `relevance` |
+| `heraldo.truncated` | The alert does not carry the full text: the body was cut, or the alert shows the summary of an event that also has a body. The extension fetches `GET /v1/events/{id}`. |
+
+Headers: `apns-push-type: alert`; `apns-topic` from the device; `apns-collapse-id`
+is the first 32 hex characters of the SHA-256 of `key`, when the event has one;
+`apns-expiration` is `expires_at` when set, and absent otherwise, so APNs keeps
+the push for an offline device.
 
 ## Input and stored events
 
@@ -192,18 +339,21 @@ that, the check's config lives on the server.
 | `id` | Event id: a ULID (26 characters, sortable by time). Live events get the arrival time. |
 | `received_at` | When the server stored the event. |
 | `hold` | Triage state. |
-| `delivery` | Per-device outcome: `sent`, `failed` or `skipped`, with the level the push carried. |
+| `delivery` | Per-device outcome: `sent` or `failed`, with the level the push carried. `skipped` is reserved for device settings. See "Push". |
 
 ## APNs mapping
 
 | Envelope | APNs |
 |---|---|
 | `thread` | `thread-id` |
-| `key` | `apns-collapse-id`, as a hash of the key |
+| `key` | `apns-collapse-id`: the first 32 hex characters of the key's SHA-256 |
 | `level` | `interruption-level`. Without the entitlement, `critical` goes out as `time-sensitive` and `delivery` records the downgrade. |
 | `expires_at` | `apns-expiration` |
 | `relevance` | `relevance-score` |
 | `summary`, `body` | The push carries the summary, or the body truncated to fit 4 KB. The notification service extension fetches the full text by `id`. |
+| `thread`, `source` | `thread-id`: `thread`, else `source` |
+
+"Push" above has the full payload.
 
 ## Examples and types
 

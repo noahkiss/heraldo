@@ -114,6 +114,42 @@ func (e DeliveryOutcome) Valid() bool {
 	}
 }
 
+// Defines values for DeviceEnvironment.
+const (
+	DeviceEnvironmentProduction DeviceEnvironment = "production"
+	DeviceEnvironmentSandbox    DeviceEnvironment = "sandbox"
+)
+
+// Valid indicates whether the value is a known member of the DeviceEnvironment enum.
+func (e DeviceEnvironment) Valid() bool {
+	switch e {
+	case DeviceEnvironmentProduction:
+		return true
+	case DeviceEnvironmentSandbox:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeviceRegistrationEnvironment.
+const (
+	DeviceRegistrationEnvironmentProduction DeviceRegistrationEnvironment = "production"
+	DeviceRegistrationEnvironmentSandbox    DeviceRegistrationEnvironment = "sandbox"
+)
+
+// Valid indicates whether the value is a known member of the DeviceRegistrationEnvironment enum.
+func (e DeviceRegistrationEnvironment) Valid() bool {
+	switch e {
+	case DeviceRegistrationEnvironmentProduction:
+		return true
+	case DeviceRegistrationEnvironmentSandbox:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for EventAction.
 const (
 	EventActionAck     EventAction = "ack"
@@ -171,6 +207,27 @@ func (e HealthDb) Valid() bool {
 	case HealthDbError:
 		return true
 	case HealthDbOk:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for HealthPush.
+const (
+	HealthPushNoKey HealthPush = "no-key"
+	HealthPushOff   HealthPush = "off"
+	HealthPushOn    HealthPush = "on"
+)
+
+// Valid indicates whether the value is a known member of the HealthPush enum.
+func (e HealthPush) Valid() bool {
+	switch e {
+	case HealthPushNoKey:
+		return true
+	case HealthPushOff:
+		return true
+	case HealthPushOn:
 		return true
 	default:
 		return false
@@ -357,6 +414,11 @@ type Cursor struct {
 
 	// Name The cursor's name. Set in answers.
 	Name *string `json:"name,omitempty"`
+
+	// Unread Set in answers. The number of events after the cursor that push an alert:
+	// the app's badge. A held or store-only event, an incident ack, and progress,
+	// status and passing check-in events do not count.
+	Unread *int `json:"unread,omitempty"`
 }
 
 // Delivery The outcome of the push on one device.
@@ -367,7 +429,7 @@ type Delivery struct {
 	// Device Server id of the device.
 	Device string `json:"device"`
 
-	// Error Why the push failed or was skipped.
+	// Error Why the push failed or was skipped. On a sent push, a note such as a downgraded level.
 	Error *string `json:"error,omitempty"`
 
 	// Level Interruption level. Maps to the APNs interruption-level. Without the critical-alerts entitlement, the server sends critical as time-sensitive and records the downgrade in delivery.
@@ -379,6 +441,71 @@ type Delivery struct {
 
 // DeliveryOutcome sent: APNs accepted the push. failed: APNs refused it; see error. skipped: a rule or device setting held it back.
 type DeliveryOutcome string
+
+// Device defines model for Device.
+type Device struct {
+	// Active The device gets pushes.
+	Active      bool              `json:"active"`
+	AppVersion  *string           `json:"app_version,omitempty"`
+	Environment DeviceEnvironment `json:"environment"`
+
+	// Id The server's id for the device.
+	Id   string  `json:"id"`
+	Name *string `json:"name,omitempty"`
+
+	// Permissions Permission health the app reports. A field left out is unknown. false raises an
+	// incident with key device:<id>:<field>; true resolves it.
+	Permissions  Permissions `json:"permissions"`
+	Platform     *string     `json:"platform,omitempty"`
+	RegisteredAt time.Time   `json:"registered_at"`
+
+	// RetiredAt When the device stopped getting pushes.
+	RetiredAt *time.Time `json:"retired_at,omitempty"`
+
+	// RetiredReason removed, or the APNs reason, such as "apns: Unregistered".
+	RetiredReason *string `json:"retired_reason,omitempty"`
+
+	// TokenSuffix The last 8 characters of the APNs token. The full token is never returned.
+	TokenSuffix string    `json:"token_suffix"`
+	Topic       string    `json:"topic"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// DeviceEnvironment defines model for Device.Environment.
+type DeviceEnvironment string
+
+// DeviceList defines model for DeviceList.
+type DeviceList struct {
+	Devices []Device `json:"devices"`
+}
+
+// DeviceRegistration What the app sends to register or refresh a device.
+type DeviceRegistration struct {
+	// AppVersion The app's version and build.
+	AppVersion *string `json:"app_version,omitempty"`
+
+	// Environment The APNs environment the token belongs to. A development build's token is sandbox; TestFlight and App Store tokens are production.
+	Environment DeviceRegistrationEnvironment `json:"environment"`
+
+	// Name The device's name, as the person sees it.
+	Name *string `json:"name,omitempty"`
+
+	// Permissions Permission health the app reports. A field left out is unknown. false raises an
+	// incident with key device:<id>:<field>; true resolves it.
+	Permissions *Permissions `json:"permissions,omitempty"`
+
+	// Platform Such as iOS or macOS.
+	Platform *string `json:"platform,omitempty"`
+
+	// Token The APNs device token, hex.
+	Token string `json:"token"`
+
+	// Topic The app's bundle id, sent as apns-topic.
+	Topic string `json:"topic"`
+}
+
+// DeviceRegistrationEnvironment The APNs environment the token belongs to. A development build's token is sandbox; TestFlight and App Store tokens are production.
+type DeviceRegistrationEnvironment string
 
 // Error defines model for Error.
 type Error struct {
@@ -559,13 +686,21 @@ type Health struct {
 	Db HealthDb `json:"db"`
 
 	// Events The number of stored events. Missing when the database does not answer.
-	Events  *int64       `json:"events,omitempty"`
+	Events *int64 `json:"events,omitempty"`
+
+	// Push APNs push. off: HERALDO_PUSH is off. on: pushes go out. no-key: HERALDO_PUSH is
+	// on but no usable APNs key is configured, so nothing is pushed.
+	Push    *HealthPush  `json:"push,omitempty"`
 	Status  HealthStatus `json:"status"`
 	Version string       `json:"version"`
 }
 
 // HealthDb Whether the database answered a query.
 type HealthDb string
+
+// HealthPush APNs push. off: HERALDO_PUSH is off. on: pushes go out. no-key: HERALDO_PUSH is
+// on but no usable APNs key is configured, so nothing is pushed.
+type HealthPush string
 
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
@@ -631,6 +766,19 @@ type Metric struct {
 
 	// Value The value as display text, such as 215 or 1.2k.
 	Value string `json:"value"`
+}
+
+// Permissions Permission health the app reports. A field left out is unknown. false raises an
+// incident with key device:<id>:<field>; true resolves it.
+type Permissions struct {
+	// Alerts The person allows notifications that show an alert.
+	Alerts *bool `json:"alerts,omitempty"`
+
+	// LiveActivities Live Activities are allowed.
+	LiveActivities *bool `json:"live_activities,omitempty"`
+
+	// TimeSensitive Time-sensitive notifications are allowed.
+	TimeSensitive *bool `json:"time_sensitive,omitempty"`
 }
 
 // Schedule When the check expects a ping. The server uses it only to create a check it does not know yet, as healthchecks.io does with ?create=1; after that the check's config lives on the server. Set period_s, or cron with an optional tz, not both.
@@ -832,6 +980,12 @@ type PingLogTextRequestBody = PingLogTextBody
 
 // PutCursorJSONRequestBody defines body for PutCursor for application/json ContentType.
 type PutCursorJSONRequestBody = Cursor
+
+// RegisterDeviceJSONRequestBody defines body for RegisterDevice for application/json ContentType.
+type RegisterDeviceJSONRequestBody = DeviceRegistration
+
+// UpdateDeviceJSONRequestBody defines body for UpdateDevice for application/json ContentType.
+type UpdateDeviceJSONRequestBody = DeviceRegistration
 
 // PostEventJSONRequestBody defines body for PostEvent for application/json ContentType.
 type PostEventJSONRequestBody = EventInput

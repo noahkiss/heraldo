@@ -30,6 +30,15 @@ type Config struct {
 	// RulesFile is the ingest rules file; empty means no rules.
 	// HERALDO_RULES.
 	RulesFile string
+	// Push turns APNs pushes on. Off by default, so a server with a key
+	// still sends nothing until it is set. HERALDO_PUSH.
+	Push bool
+	// APNsKeyFile is the APNs auth key, a .p8 file. HERALDO_APNS_KEY_FILE.
+	APNsKeyFile string
+	// APNsKeyID is the key's 10-character id. HERALDO_APNS_KEY_ID.
+	APNsKeyID string
+	// APNsTeamID is the Apple developer team id. HERALDO_APNS_TEAM_ID.
+	APNsTeamID string
 }
 
 // FromEnv builds a Config from getenv, normally os.Getenv.
@@ -40,6 +49,20 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		TokensFile: getenv("HERALDO_TOKENS_FILE"),
 		Tokens:     getenv("HERALDO_TOKENS"),
 		RulesFile:  getenv("HERALDO_RULES"),
+
+		APNsKeyFile: getenv("HERALDO_APNS_KEY_FILE"),
+		APNsKeyID:   getenv("HERALDO_APNS_KEY_ID"),
+		APNsTeamID:  getenv("HERALDO_APNS_TEAM_ID"),
+	}
+	switch strings.ToLower(getenv("HERALDO_PUSH")) {
+	case "", "off", "false", "0":
+	case "on", "true", "1":
+		c.Push = true
+	default:
+		return Config{}, fmt.Errorf("HERALDO_PUSH %q: want on or off", getenv("HERALDO_PUSH"))
+	}
+	if n := countSet(c.APNsKeyFile, c.APNsKeyID, c.APNsTeamID); n != 0 && n != 3 {
+		return Config{}, errors.New("set all of HERALDO_APNS_KEY_FILE, HERALDO_APNS_KEY_ID and HERALDO_APNS_TEAM_ID, or none")
 	}
 	if v := getenv("HERALDO_ADDR"); v != "" {
 		c.Addr = v
@@ -77,3 +100,16 @@ func (c Config) LoadTokens() (*auth.Set, error) {
 	}
 	return s, nil
 }
+
+func countSet(vals ...string) int {
+	n := 0
+	for _, v := range vals {
+		if v != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// HasAPNsKey reports whether an APNs key is configured.
+func (c Config) HasAPNsKey() bool { return c.APNsKeyFile != "" }

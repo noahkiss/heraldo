@@ -7,6 +7,9 @@
 //	HERALDO_TOKENS_FILE  token list file, one "<name> <scope> <sha256>" per line
 //	HERALDO_TOKENS       the same list inline, entries separated by commas
 //	HERALDO_RULES        ingest rules file, reloaded when it changes (default: no rules)
+//	HERALDO_PUSH         on sends APNs pushes (default off)
+//	HERALDO_APNS_KEY_FILE, HERALDO_APNS_KEY_ID, HERALDO_APNS_TEAM_ID
+//	                     the APNs auth key (.p8), its key id and the team id
 //
 // Subcommands:
 //
@@ -36,8 +39,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/auth"
 	"github.com/noahkiss/heraldo/internal/config"
+	"github.com/noahkiss/heraldo/internal/push"
 	"github.com/noahkiss/heraldo/internal/replay"
 	"github.com/noahkiss/heraldo/internal/rules"
 	"github.com/noahkiss/heraldo/internal/server"
@@ -154,11 +159,12 @@ func serve(log *slog.Logger) error {
 		}
 		go rw.Watch(ctx, rules.DefaultInterval)
 	}
+	pusher, pushState := startPush(ctx, cfg, st, log)
 	srv := &http.Server{
 		Addr: cfg.Addr,
 		Handler: server.New(server.Options{
 			Version: version.String(), Store: st, Tokens: tokens, Validator: v, Rules: rw, Logger: log,
-			Done: ctx.Done(),
+			Done: ctx.Done(), Pusher: pusher, PushState: pushState,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -169,7 +175,7 @@ func serve(log *slog.Logger) error {
 	errc := make(chan error, 1)
 	go func() {
 		log.Info("listening", "addr", cfg.Addr, "db", cfg.DB, "tokens", tokens.Len(),
-			"rules", rw.Rules().Len(), "version", version.String())
+			"rules", rw.Rules().Len(), "push", pushState, "version", version.String())
 		errc <- srv.ListenAndServe()
 	}()
 	select {
@@ -187,6 +193,35 @@ func serve(log *slog.Logger) error {
 		return err
 	}
 	return nil
+}
+
+// startPush starts the APNs pusher when HERALDO_PUSH is on and a key loads.
+// A missing or bad key logs an error and leaves push off: ingest keeps
+// working.
+func startPush(ctx context.Context, cfg config.Config, st *store.Store, log *slog.Logger) (server.Pusher, api.HealthPush) {
+	if !cfg.Push {
+		if cfg.HasAPNsKey() {
+			log.Info("push: an APNs key is set, but HERALDO_PUSH is off; nothing is pushed")
+		}
+		return nil, api.HealthPushOff
+	}
+	if !cfg.HasAPNsKey() {
+		log.Error("push: HERALDO_PUSH is on, but no APNs key is set; nothing is pushed")
+		return nil, api.HealthPushNoKey
+	}
+	pem, err := os.ReadFile(cfg.APNsKeyFile)
+	if err != nil {
+		log.Error("push: HERALDO_APNS_KEY_FILE; nothing is pushed", "err", err)
+		return nil, api.HealthPushNoKey
+	}
+	key, err := push.ParseKey(pem)
+	if err != nil {
+		log.Error("push: HERALDO_APNS_KEY_FILE; nothing is pushed", "err", err)
+		return nil, api.HealthPushNoKey
+	}
+	p := push.New(push.Config{Key: key, KeyID: cfg.APNsKeyID, TeamID: cfg.APNsTeamID, Store: st, Logger: log})
+	go p.Run(ctx)
+	return p, api.HealthPushOn
 }
 
 func importTee(dir string, log *slog.Logger) error {

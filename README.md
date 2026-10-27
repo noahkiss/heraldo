@@ -8,8 +8,8 @@
 A self-hosted notification hub. Services post events to one server. The server
 stores every event and delivers it to an iPhone and Mac app you build yourself.
 
-Status: stage 1, shadow mode. The server stores and serves every event. It
-sends no push notifications yet.
+Status: stage 4. The server stores and serves every event. It can push to
+Apple devices through APNs, but push is off until `HERALDO_PUSH=on`.
 
 ## What it will do
 
@@ -106,7 +106,17 @@ The server reads its configuration from the environment.
 | `HERALDO_TOKENS` | none | The same entries inline, separated by commas. Set this or the file, not both. |
 | `HERALDO_RULES` | none | Ingest rules file (YAML) that types untyped inputs (no `kind`); without it they are stored as `message`. The server reloads it within 5 s of a change; a file that does not parse keeps the rules in force and logs an error. A broken file at startup stops the server. Format: [docs/api.md](docs/api.md#ingest-rules), example: `deploy/rules.example.yaml`. |
 
+| `HERALDO_PUSH` | `off` | `on` sends APNs pushes to the registered devices. Off, the server registers devices and pushes nothing. |
+| `HERALDO_APNS_KEY_FILE` | none | The APNs auth key, the `.p8` file from Apple. Mount it read-only. |
+| `HERALDO_APNS_KEY_ID` | none | The key's id, 10 characters. |
+| `HERALDO_APNS_TEAM_ID` | none | The Apple developer team id. |
+
 With no tokens, the server refuses every call except `/healthz`.
+
+Set all three `HERALDO_APNS_*` variables or none; a partial set stops the
+server. With `HERALDO_PUSH=on` and no key, or a key file that does not load,
+the server logs an error, keeps running and pushes nothing. `/healthz` reports
+`push` as `off`, `on` or `no-key`.
 
 ## Operations
 

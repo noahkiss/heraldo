@@ -25,10 +25,10 @@ func TestMigrateFromEmpty(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "h.db")
 	s := open(t, path)
 	v, err := s.Version(ctx)
-	if err != nil || v != 2 {
-		t.Fatalf("version = %d, %v; want 2", v, err)
+	if err != nil || v != 3 {
+		t.Fatalf("version = %d, %v; want 3", v, err)
 	}
-	for _, table := range []string{"events", "events_fts", "incidents", "checkins", "activities", "status", "imports", "cursors"} {
+	for _, table := range []string{"events", "events_fts", "incidents", "checkins", "activities", "status", "imports", "cursors", "devices", "deliveries"} {
 		var n int
 		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM `+table).Scan(&n); err != nil {
 			t.Fatalf("%s: %v", table, err)
@@ -42,7 +42,7 @@ func TestMigrateFromEmpty(t *testing.T) {
 	// A second open applies nothing and keeps the version.
 	s = open(t, path)
 	defer s.Close()
-	if v, _ := s.Version(ctx); v != 2 {
+	if v, _ := s.Version(ctx); v != 3 {
 		t.Fatalf("version after reopen = %d", v)
 	}
 }

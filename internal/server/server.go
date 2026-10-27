@@ -44,6 +44,15 @@ type Options struct {
 	// Heartbeat is the gap between keep-alive comments on an event stream;
 	// 0 means 25 seconds.
 	Heartbeat time.Duration
+	// Pusher gets every newly stored event; nil pushes nothing.
+	Pusher Pusher
+	// PushState is what /healthz reports as push; empty means off.
+	PushState api.HealthPush
+}
+
+// Pusher queues stored events for push. Enqueue must not block.
+type Pusher interface {
+	Enqueue(store.Record) bool
 }
 
 type server struct {
@@ -65,6 +74,9 @@ func New(o Options) http.Handler {
 	if o.Heartbeat == 0 {
 		o.Heartbeat = 25 * time.Second
 	}
+	if o.PushState == "" {
+		o.PushState = api.HealthPushOff
+	}
 	s := &server{Options: o, hub: newHub()}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
@@ -76,6 +88,11 @@ func New(o Options) http.Handler {
 	mux.HandleFunc("GET /v1/state", s.auth(auth.ScopeRead, false, s.state))
 	mux.HandleFunc("GET /v1/cursors/{name}", s.auth(auth.ScopeRead, false, s.getCursor))
 	mux.HandleFunc("PUT /v1/cursors/{name}", s.auth(auth.ScopeRead, false, s.putCursor))
+	mux.HandleFunc("GET /v1/devices", s.auth(DeviceScope, false, s.listDevices))
+	mux.HandleFunc("POST /v1/devices", s.auth(DeviceScope, false, s.registerDevice))
+	mux.HandleFunc("GET /v1/devices/{id}", s.auth(DeviceScope, false, s.getDevice))
+	mux.HandleFunc("PUT /v1/devices/{id}", s.auth(DeviceScope, false, s.updateDevice))
+	mux.HandleFunc("DELETE /v1/devices/{id}", s.auth(DeviceScope, false, s.removeDevice))
 	return s.logRequests(mux)
 }
 
@@ -177,12 +194,12 @@ func (s *server) health(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.Logger.Error("health: database", "err", err)
 		writeJSON(w, http.StatusServiceUnavailable, api.Health{
-			Status: api.HealthStatusError, Version: s.Version, Db: api.HealthDbError,
+			Status: api.HealthStatusError, Version: s.Version, Db: api.HealthDbError, Push: &s.PushState,
 		})
 		return
 	}
 	writeJSON(w, http.StatusOK, api.Health{
-		Status: api.HealthStatusOk, Version: s.Version, Db: api.HealthDbOk, Events: &n,
+		Status: api.HealthStatusOk, Version: s.Version, Db: api.HealthDbOk, Events: &n, Push: &s.PushState,
 	})
 }
 
@@ -273,11 +290,28 @@ func (s *server) badInput(w http.ResponseWriter, err error) {
 }
 
 func (s *server) store(w http.ResponseWriter, r *http.Request, in *validate.Input) {
+	rec, created, err := s.ingest(r.Context(), in, tokenFrom(r).Has(auth.CapTrustedIngest))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not store the event")
+		return
+	}
+	status := http.StatusCreated
+	if !created {
+		status = http.StatusOK
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(append(rec.Event, '\n'))
+}
+
+// ingest types, stores and announces one input: it pokes the event streams
+// and queues the push. trusted is the trusted-ingest capability. It logs its
+// own errors.
+func (s *server) ingest(ctx context.Context, in *validate.Input, trusted bool) (store.Record, bool, error) {
 	typed, _, err := rules.Type(s.Rules.Rules(), in, s.Validator)
 	if typed == nil {
 		s.Logger.Error("type", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
+		return store.Record{}, false, err
 	}
 	if err != nil {
 		// The sender's event is valid; a rule that cannot type it must not
@@ -293,29 +327,25 @@ func (s *server) store(w http.ResponseWriter, r *http.Request, in *validate.Inpu
 	if _, ok := f["ts"]; !ok {
 		f["ts"] = now.Format(time.RFC3339Nano)
 	}
-	trusted := tokenFrom(r).Has(auth.CapTrustedIngest)
 	if trusted {
 		if h := bridgedHold(f); h != nil {
 			f["hold"] = h
 		}
 	}
-	rec, created, err := s.Store.Insert(r.Context(), store.NewEvent{
+	rec, created, err := s.Store.Insert(ctx, store.NewEvent{
 		ID: id, ReceivedAt: now, Fields: f, Typed: in.Typed, DedupAnyAge: trusted,
 	})
 	if err != nil {
 		s.Logger.Error("store", "err", err)
-		writeError(w, http.StatusInternalServerError, "could not store the event")
-		return
+		return store.Record{}, false, err
 	}
-	status := http.StatusCreated
-	if !created {
-		status = http.StatusOK
-	} else {
+	if created {
 		s.hub.poke(rec.Seq)
+		if s.Pusher != nil {
+			s.Pusher.Enqueue(rec)
+		}
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_, _ = w.Write(append(rec.Event, '\n'))
+	return rec, created, nil
 }
 
 // bridgedHold returns the stored hold for a bridged sender's triage state,
@@ -341,6 +371,11 @@ func (s *server) getEvent(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "no event with that id")
 		return
+	}
+	if err == nil {
+		recs := []store.Record{rec}
+		err = s.Store.WithDeliveries(r.Context(), recs)
+		rec = recs[0]
 	}
 	if err != nil {
 		s.Logger.Error("get", "err", err)
@@ -417,6 +452,9 @@ func (s *server) listEvents(w http.ResponseWriter, r *http.Request) {
 		f.Kind = v
 	}
 	recs, err := s.Store.List(r.Context(), f)
+	if err == nil {
+		err = s.Store.WithDeliveries(r.Context(), recs)
+	}
 	if err != nil {
 		s.Logger.Error("list", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")

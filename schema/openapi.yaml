@@ -23,6 +23,8 @@ tags:
   - name: compat
     description: Ingest shapes that existing senders already speak.
   - name: health
+  - name: devices
+    description: Devices the apps register for push.
 paths:
   /healthz:
     get:
@@ -346,6 +348,135 @@ paths:
           $ref: "#/components/responses/Error"
         "403":
           $ref: "#/components/responses/Error"
+  /v1/devices:
+    get:
+      operationId: listDevices
+      summary: Every registered device, retired ones included, in registration order.
+      tags: [devices]
+      responses:
+        "200":
+          description: The devices.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceList"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: registerDevice
+      summary: Register a device, or refresh the device that holds this token.
+      description: |
+        The server knows a device by its APNs token. An unknown token creates a device
+        (201) with a new id; the app keeps the id. A known token updates that device
+        (200) and makes it active again when it was retired. Every field is replaced:
+        a field left out is cleared.
+
+        A permission reported false raises an incident with key
+        device:<id>:<permission>; reported true again, it resolves.
+      tags: [devices]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceRegistration"
+      responses:
+        "201":
+          description: A new device.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "200":
+          description: The device that holds the token, updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/devices/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The device id the server gave on registration.
+        schema:
+          type: string
+    get:
+      operationId: getDevice
+      summary: One device.
+      tags: [devices]
+      responses:
+        "200":
+          description: The device.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    put:
+      operationId: updateDevice
+      summary: Replace a device's registration, such as after APNs gave it a new token.
+      description: |
+        Every field is replaced, and a retired device becomes active again. A token that
+        another device holds gets 409. Permission changes raise or resolve incidents as
+        on POST.
+      tags: [devices]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceRegistration"
+      responses:
+        "200":
+          description: The device, updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: removeDevice
+      summary: Stop pushes to a device.
+      description: |
+        The device is retired with reason removed, not deleted: its delivery history
+        stays. Registering its token again brings it back.
+      tags: [devices]
+      responses:
+        "200":
+          description: The retired device.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
   /ping/{slug}:
     parameters:
       - $ref: "#/components/parameters/Slug"
@@ -520,7 +651,7 @@ components:
       description: |
         One token per sender for writes, one per client for reads. Each token has a
         scope: write (POST /v1/events, GET /v1/send), read (GET /v1/events,
-        /v1/events/{id}, /v1/state, /v1/stream, and the read cursors), or
+        /v1/events/{id}, /v1/state, /v1/stream, the read cursors and /v1/devices), or
         admin (both). A missing or unknown token gets 401; a
         token without the scope gets 403.
 
@@ -656,6 +787,108 @@ components:
         cursor:
           type: string
           description: A list cursor, as next_cursor gives it.
+        unread:
+          type: integer
+          description: |
+            Set in answers. The number of events after the cursor that push an alert:
+            the app's badge. A held or store-only event, an incident ack, and progress,
+            status and passing check-in events do not count.
+    DeviceRegistration:
+      type: object
+      description: What the app sends to register or refresh a device.
+      required: [token, environment, topic]
+      additionalProperties: false
+      properties:
+        token:
+          type: string
+          description: The APNs device token, hex.
+          pattern: "^[0-9A-Fa-f]{32,200}$"
+        environment:
+          type: string
+          enum: [sandbox, production]
+          description: The APNs environment the token belongs to. A development build's token is sandbox; TestFlight and App Store tokens are production.
+        topic:
+          type: string
+          description: The app's bundle id, sent as apns-topic.
+          minLength: 1
+          maxLength: 255
+        name:
+          type: string
+          description: The device's name, as the person sees it.
+          maxLength: 128
+        platform:
+          type: string
+          description: Such as iOS or macOS.
+          maxLength: 32
+        app_version:
+          type: string
+          description: The app's version and build.
+          maxLength: 64
+        permissions:
+          $ref: "#/components/schemas/Permissions"
+    Permissions:
+      type: object
+      description: |
+        Permission health the app reports. A field left out is unknown. false raises an
+        incident with key device:<id>:<field>; true resolves it.
+      additionalProperties: false
+      properties:
+        alerts:
+          type: boolean
+          description: The person allows notifications that show an alert.
+        time_sensitive:
+          type: boolean
+          description: Time-sensitive notifications are allowed.
+        live_activities:
+          type: boolean
+          description: Live Activities are allowed.
+    Device:
+      type: object
+      required: [id, environment, topic, token_suffix, permissions, active, registered_at, updated_at]
+      properties:
+        id:
+          type: string
+          description: The server's id for the device.
+        environment:
+          type: string
+          enum: [sandbox, production]
+        topic:
+          type: string
+        token_suffix:
+          type: string
+          description: The last 8 characters of the APNs token. The full token is never returned.
+        name:
+          type: string
+        platform:
+          type: string
+        app_version:
+          type: string
+        permissions:
+          $ref: "#/components/schemas/Permissions"
+        active:
+          type: boolean
+          description: The device gets pushes.
+        registered_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        retired_at:
+          type: string
+          format: date-time
+          description: When the device stopped getting pushes.
+        retired_reason:
+          type: string
+          description: 'removed, or the APNs reason, such as "apns: Unregistered".'
+    DeviceList:
+      type: object
+      required: [devices]
+      properties:
+        devices:
+          type: array
+          items:
+            $ref: "#/components/schemas/Device"
     AppriseNotify:
       type: object
       description: An Apprise API notify request. Fields heraldo does not use are accepted and ignored.
@@ -692,6 +925,12 @@ components:
           type: integer
           format: int64
           description: The number of stored events. Missing when the database does not answer.
+        push:
+          type: string
+          enum: ["off", "on", "no-key"]
+          description: |
+            APNs push. off: HERALDO_PUSH is off. on: pushes go out. no-key: HERALDO_PUSH is
+            on but no usable APNs key is configured, so nothing is pushed.
     Error:
       type: object
       required: [error]

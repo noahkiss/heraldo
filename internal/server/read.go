@@ -131,6 +131,19 @@ var cursorName = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 type cursorBody struct {
 	Name   string `json:"name,omitempty"`
 	Cursor string `json:"cursor"`
+	// Unread is set in answers: the badge count after the cursor.
+	Unread *int `json:"unread,omitempty"`
+}
+
+// cursorAnswer writes the cursor called name at seq, with its unread count.
+func (s *server) cursorAnswer(w http.ResponseWriter, r *http.Request, name string, seq int64) {
+	n, err := s.Store.UnreadAfter(r.Context(), seq)
+	if err != nil {
+		s.Logger.Error("cursor: unread", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, cursorBody{Name: name, Cursor: store.CursorFor(seq), Unread: &n})
 }
 
 func (s *server) cursorName(w http.ResponseWriter, r *http.Request) (string, bool) {
@@ -159,7 +172,7 @@ func (s *server) getCursor(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no cursor named %q", name)
 		return
 	}
-	writeJSON(w, http.StatusOK, cursorBody{Name: name, Cursor: store.CursorFor(seq)})
+	s.cursorAnswer(w, r, name, seq)
 }
 
 // putCursor is PUT /v1/cursors/{name} with {"cursor": "..."}. Any read token
@@ -196,5 +209,5 @@ func (s *server) putCursor(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusOK, cursorBody{Name: name, Cursor: store.CursorFor(stored)})
+	s.cursorAnswer(w, r, name, stored)
 }

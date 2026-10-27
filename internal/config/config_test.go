@@ -82,3 +82,23 @@ func TestFromEnvRules(t *testing.T) {
 		t.Fatalf("default RulesFile = %q, want none", c.RulesFile)
 	}
 }
+
+func TestFromEnvPush(t *testing.T) {
+	c, err := FromEnv(env(nil))
+	if err != nil || c.Push || c.HasAPNsKey() {
+		t.Fatalf("default: push %v key %v err %v", c.Push, c.HasAPNsKey(), err)
+	}
+	c, err = FromEnv(env(map[string]string{
+		"HERALDO_PUSH": "on", "HERALDO_APNS_KEY_FILE": "/keys/apns.p8",
+		"HERALDO_APNS_KEY_ID": "KEYID00001", "HERALDO_APNS_TEAM_ID": "TEAMID0001",
+	}))
+	if err != nil || !c.Push || !c.HasAPNsKey() || c.APNsKeyID != "KEYID00001" || c.APNsTeamID != "TEAMID0001" {
+		t.Fatalf("%+v %v", c, err)
+	}
+	if _, err := FromEnv(env(map[string]string{"HERALDO_PUSH": "maybe"})); err == nil {
+		t.Fatal("accepted HERALDO_PUSH=maybe")
+	}
+	if _, err := FromEnv(env(map[string]string{"HERALDO_APNS_KEY_FILE": "/keys/apns.p8"})); err == nil {
+		t.Fatal("accepted a key file without key and team ids")
+	}
+}

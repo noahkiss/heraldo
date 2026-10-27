@@ -879,7 +879,7 @@
         },
         "error": {
           "type": "string",
-          "description": "Why the push failed or was skipped."
+          "description": "Why the push failed or was skipped. On a sent push, a note such as a downgraded level."
         }
       },
       "additionalProperties": false
