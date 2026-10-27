@@ -24,6 +24,9 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `GET /v1/cursors/{name}`, `PUT /v1/cursors/{name}` | The read cursor called `name`, shared by every client, with its `unread` count. | served |
 | `GET /v1/devices`, `POST /v1/devices` | Lists devices; registers a device or refreshes the one with that APNs token. | served |
 | `GET`, `PUT`, `DELETE /v1/devices/{id}` | One device: read, replace its registration, retire it. | served |
+| `GET /v1/activities?all=` | Live Activities, one per progress key: running ones, or every one with `all=1`. | served |
+| `GET /v1/activities/{key}` | One activity, with its instances on each device and its timeline. The key may hold slashes. | served |
+| `PUT /v1/activity-instances/{id}` | The app reports an activity's update token, or that it was dismissed or ended. | served |
 
 Auth:
 
@@ -118,6 +121,7 @@ token and gives it an id, `dev_` plus a ULID. The app keeps the id.
 | `platform` | string, 32 | Such as `iOS` or `macOS`. |
 | `app_version` | string, 64 | The app's version and build. |
 | `permissions` | `{alerts, time_sensitive, live_activities}`, booleans | Permission health. A field left out is unknown. |
+| `live_activity_token` | hex, 32 to 400 characters | ActivityKit's push-to-start token for the app's Live Activities. |
 
 - `POST` with an unknown token creates a device: 201. With a known token it
   updates that device: 200. Either way the device is active.
@@ -133,8 +137,9 @@ token and gives it an id, `dev_` plus a ULID. The app keeps the id.
 `Device`, the answer: `id`, `environment`, `topic`, `token_suffix` (the last 8
 characters of the token; the server never returns the full token), `name`,
 `platform`, `app_version`, `permissions`, `active`, `registered_at`,
-`updated_at`, and for a retired device `retired_at` and `retired_reason`
-(`removed`, or the APNs reason such as `apns: Unregistered`).
+`updated_at`, `live_activity_token_suffix` when the app reported one, and for
+a retired device `retired_at` and `retired_reason` (`removed`, or the APNs
+reason such as `apns: Unregistered`).
 
 Permission health:
 
@@ -175,7 +180,7 @@ Which events push, and how loud:
 | `incident` | `ack` | no | |
 | `checkin` | `fail`, or any but `log` with a non-zero `exit_code` | yes | the event's `level` |
 | `checkin` | `start`, `success`, `log` | no | |
-| `progress` | any | no (Live Activities, stage 7) | |
+| `progress` | any | no: Live Activities (below) | |
 | `status` | any | no (widgets) | |
 
 - Before the table: a held event (`hold.state` is `held`), a store-only event
@@ -244,6 +249,114 @@ Headers: `apns-push-type: alert`; `apns-topic` from the device; `apns-collapse-i
 is the first 32 hex characters of the SHA-256 of `key`, when the event has one;
 `apns-expiration` is `expires_at` when set, and absent otherwise, so APNs keeps
 the push for an offline device.
+
+## Live Activities
+
+Kind `progress` drives Live Activities, on every active iOS device that
+reported a push-to-start token. They go out only with push on. The sender
+posts `start`, `update` and `end` on one key, with `content`
+([LiveContent](#livecontent)).
+
+Activities:
+
+- A `start`, or any event on a key with no running activity, begins an
+  activity. Its id is `act_` plus the event id. A `start` on a running key
+  ends the old activity (`end_reason: restarted`) and begins a new one.
+- An `update` merges its content. An `end` merges it and ends the activity
+  (`end_reason: sender`). A second `end` changes nothing.
+- Two hours without an event on the key, the server ends the activity
+  (`end_reason: abandoned`).
+- At its end, every activity writes one history event: a `passive` message on
+  the activity's key, with the last title, the last status and how long it
+  ran, such as `Done · ran 3h 20m`. `details.heraldo.activity` holds the id,
+  the times, the end reason, the number of links and the last content.
+- Every progress event is stored as usual. `GET /v1/activities/{key}` lists
+  them since the start as `timeline`, at most 500; `GET /v1/events?key=` lists
+  them all.
+
+On each device an activity is a chain of instances. Each instance is one
+ActivityKit activity, with its own id (`lai_` plus a ULID) in its attributes:
+
+| state | Means | The server |
+|---|---|---|
+| `starting` | The push-to-start went out; no update token yet. | Waits for the token. |
+| `active` | The app reported the update token. | Pushes updates to it. |
+| `ended` | The server ended it, or the system did (the app reported `ended`). | After a system end, starts the next link while the activity runs. |
+| `dismissed` | The person removed it (the app reported `dismissed`). | Never starts it again on that device. |
+| `never-started` | No update token within 15 minutes, or APNs refused the push-to-start token. | Starts it again on the next update, three times at most per device. |
+| `dead` | APNs refused its update token (410, `BadDeviceToken`, `ExpiredToken`). | Never starts it again on that device. |
+
+- A refused push-to-start token is cleared from the device. A new one, sent
+  with the next registration, starts every running activity on that device.
+- An update token that comes after `never-started` revives the instance when
+  it is still the newest on the device. Otherwise the server ends it.
+
+Pushes:
+
+| Push | When | apns-priority | Notes |
+|---|---|---|---|
+| start | A new activity or a new link | 10 | To the push-to-start token. `alert` with the title and the body or status; sound unless the start's `level` is unset or `passive`. Expires after 15 minutes. |
+| update, state change | The app reported a token (catch-up), or `status` changed | 10 | At once. |
+| update, progress | Any other update | 5 | At most one per 15 seconds per activity. Updates in between merge; the last content goes out when the 15 seconds are up. |
+| end | The activity ended, a link was handed over, or a start replaced it | 10 | `dismissal-date` is now plus `keep_for` when set, now on a hand-off, else the system default. |
+
+- Headers: `apns-push-type: liveactivity`, `apns-topic: <bundle id>.push-type.liveactivity`.
+- `stale-date` is now plus `stale_after` when the content has it, else twice
+  the gap between the sender's last two events (15 seconds to 1 hour; 10
+  minutes before there are two). An update push expires at its stale date.
+- Chain: Apple ends an activity after 8 hours. At 7.5 hours the server starts
+  the next link with the same content, then ends the old one with
+  `dismissal-date` now. A failed start leaves the old link up; the next check
+  tries again. Without a push-to-start token there is no next link.
+- APNs gets one try and one retry after 1 second for 429, 5xx or no answer.
+  A later update replaces a lost one. On a restart the server pushes the
+  current content of every running activity.
+
+The payload, a start:
+
+```json
+{
+  "aps": {
+    "timestamp": 1793091600,
+    "event": "start",
+    "content-state": {
+      "title": "bracket.3mf", "symbol": "printer.fill", "tint": "blue",
+      "progress": 0.42, "status": "Printing", "ends_at": 1793127600,
+      "metrics": [{"label": "Nozzle", "value": "215", "unit": "°C"}]
+    },
+    "stale-date": 1793092800,
+    "attributes-type": "ProgressAttributes",
+    "attributes": {"key": "print/42", "instance": "lai_01JBA6Y8Q2K9M3T4V5W6X7Y8Z9", "source": "printer"},
+    "alert": {"title": "bracket.3mf", "body": "Printing", "sound": "default"},
+    "input-push-token": 1
+  }
+}
+```
+
+- `content-state` has the LiveContent fields except `stale_after` and
+  `keep_for`. `ends_at` is Unix seconds, because ActivityKit decodes the state
+  without the app's date format.
+- `attributes-type` and the attribute names are the app's
+  `ProgressAttributes`. Renaming either breaks push-to-start.
+
+The app's side:
+
+- It sends ActivityKit's push-to-start token as `live_activity_token` in the
+  device registration, and again when it changes.
+- For each activity, it sends the update token with
+  `PUT /v1/activity-instances/{id}` and `{"device": "<id>", "token": "<hex>"}`,
+  and later `{"state": "dismissed"}` or `{"state": "ended"}`. A report that
+  fails goes again on the next foreground.
+- `PUT` answers the instance. 400 for a bad body or another device's
+  instance, 404 for an unknown id, 503 with push off. A report on an instance
+  the server already closed changes nothing.
+
+`GET /v1/activities/{key}` answers an `Activity`: `key`, `id`, `state`
+(`active` or `ended`), `source`, `content` (merged), `started_at`,
+`updated_at`, `ended_at`, `end_reason`, `instances` (each with `id`,
+`device`, `chain`, `state`, `end_reason` and times) and `timeline` (`id`,
+`received_at`, `action`, `content` per event). `GET /v1/activities` lists the
+same without `timeline`.
 
 ## Input and stored events
 

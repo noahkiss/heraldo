@@ -229,8 +229,16 @@ app group.
   extension fetches the full event by id and adds the image. With the
   Communication Notifications entitlement (not on the App ID yet), it would
   also show the source's `icon` as the sender avatar.
-- **Shortcuts**: Send Event (with the write token) and Get Recent History (JSON).
-- `heraldo://event/<id>` opens one event.
+- **Live Activities**: a `progress` key shows as a Live Activity on the Lock
+  Screen, in the Dynamic Island and in the Watch Smart Stack. The server starts
+  it with push-to-start, so the app need not be open. The app reports its
+  push-to-start token with the registration, and each activity's update token
+  and dismissal (docs/api.md, "Live Activities"). The inbox leaves progress
+  events out; each activity leaves one message when it ends.
+- **Shortcuts**: Send Event (with the write token), Get Recent History (JSON),
+  and Start, Update, End and Get Live Activity, with Notify!'s parameters.
+- `heraldo://event/<id>` opens one event. `heraldo://open?url=<url>` opens the
+  URL; a Live Activity's open button uses it.
 
 ## Mac app
 
