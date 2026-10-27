@@ -237,7 +237,8 @@ app group.
 - **Notifications**: `incident` has Ack, Mute 1 h and Open; `event` has
   Mute 1 h and Open. Mute 1 h mutes an incident's key, or an event's source
   (`POST /v1/mutes`, write token). A resolve replaces the incident's
-  notification with "Resolved after 12 min". The extension fetches the full
+  notification with "Resolved after 12 min". A passive event shows no
+  notification; it waits in the inbox. The extension fetches the full
   event by id and attaches the image, else the source's icon from the
   server's registry. A digest keeps its one line; a tap opens the full text.
 - **Settings**: the mutes in force, with End.
