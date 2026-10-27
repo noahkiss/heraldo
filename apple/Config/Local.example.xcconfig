@@ -12,7 +12,10 @@ OTHER_CODE_SIGN_FLAGS[sdk=macosx*] = --timestamp
 
 // 2. iOS: an App Store provisioning profile for each bundle ID, installed on
 //    this Mac. Names as `security cms -D -i <file>` prints them under Name.
-// APP_IOS_PROFILE = <iOS app profile name>
+//    fastlane match (appstore) makes them with these names:
+// APP_IOS_PROFILE = match AppStore com.nkmkdigital.heraldo
+// APP_NSE_IOS_PROFILE = match AppStore com.nkmkdigital.heraldo.nse
+// APP_WIDGETS_IOS_PROFILE = match AppStore com.nkmkdigital.heraldo.widgets
 
 // 3. macOS: a Developer ID profile, only when an entitlement needs one
 //    (keychain groups, iCloud). Plain Developer ID signing needs none.
