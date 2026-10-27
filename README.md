@@ -73,11 +73,17 @@ docker compose -f deploy/compose.yml up --build
    ```text
    # name    scope  sha256 of the token (64 hex characters)
    backup    write  <sha256-of-sender.token>
-   phone     read   <sha256-of-phone.token>
+   phone       read   <sha256-of-phone.token>
+   phone-write write  <sha256-of-phone-write.token>
    ```
 
    `write` may post events, `read` may list and fetch them, and `admin` may do
-   both. The server stores only the hashes.
+   both. A `read` token also moves the read cursors and registers devices for
+   push. The server stores only the hashes.
+
+   Each app device holds a token pair, as the CLI does: a `read` token to sync
+   history, mark events read and register for push, and a `write` token for
+   the notification actions (Ack, Mute) and for sending an event.
 
    A fourth field, `trusted-ingest`, marks a bridge such as apprise-tee. Its
    `details.tee.hold` becomes the event's `hold`, and its `dedup` ids never

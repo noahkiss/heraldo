@@ -649,7 +649,9 @@ components:
       type: http
       scheme: bearer
       description: |
-        One token per sender for writes, one per client for reads. Each token has a
+        One token per sender for writes, one per client for reads. An app holds a pair: a
+        read token (history, cursors, device registration) and a write token (notification
+        actions, sending). Each token has a
         scope: write (POST /v1/events, GET /v1/send), read (GET /v1/events,
         /v1/events/{id}, /v1/state, /v1/stream, the read cursors and /v1/devices), or
         admin (both). A missing or unknown token gets 401; a

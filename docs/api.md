@@ -30,6 +30,10 @@ Auth:
 - Every call except `/healthz` takes a bearer token. Each token has a scope:
   `write` (post and send), `read` (list, get, state, stream, the read
   cursors and devices), or `admin` (both).
+- A `read` token may register, update and remove devices, as it may move the
+  read cursors. The apps hold a token pair, like the CLI: a `read` token for
+  history, cursors and device registration, and a `write` token for the
+  notification actions (Ack, Mute) and for sending an event.
 - A missing or unknown token gets 401. A token without the scope gets 403.
 - `GET /v1/send` also takes the token as a `token` query parameter. A token in
   the URL ends up in access logs, proxy logs and browser history. Use the header
@@ -100,7 +104,7 @@ Dedup:
 
 ## Devices
 
-The apps register each device for push. The server knows a device by its APNs
+The apps register each device for push with their `read` token. The server knows a device by its APNs
 token and gives it an id, `dev_` plus a ULID. The app keeps the id.
 
 `DeviceRegistration`, the body of `POST /v1/devices` and `PUT /v1/devices/{id}`:

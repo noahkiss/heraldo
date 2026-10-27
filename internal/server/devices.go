@@ -16,7 +16,8 @@ import (
 	"github.com/noahkiss/heraldo/internal/store"
 )
 
-// DeviceScope is the token scope the device calls need.
+// DeviceScope is the token scope the device calls need: read, as for the
+// read cursors. The app's read token registers its device.
 var DeviceScope = auth.ScopeRead
 
 var apnsToken = regexp.MustCompile(`^[0-9A-Fa-f]{32,200}$`)
