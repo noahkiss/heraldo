@@ -224,8 +224,9 @@ read and write tokens; the app keeps them in the Keychain.
   launch, and again when a permission changes. A Debug build reports
   `sandbox`; a TestFlight or App Store build reports `production`.
 - **Notifications**: `incident` has Ack and Open; `event` has Open. The
-  extension fetches the full event by id, adds the image, and shows the
-  source's `icon` as the sender avatar.
+  extension fetches the full event by id and adds the image. With the
+  Communication Notifications entitlement (not on the App ID yet), it would
+  also show the source's `icon` as the sender avatar.
 - **Shortcuts**: Send Event (with the write token) and Get Recent History (JSON).
 - `heraldo://event/<id>` opens one event.
 
