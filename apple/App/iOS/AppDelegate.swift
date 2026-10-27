@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         AppModel.shared.onBadge = { push.setBadge($0) }
         AppModel.shared.onCredentialsChanged = { push.credentialsChanged() }
         push.start()
+        LiveActivities.shared.start()
         return true
     }
 

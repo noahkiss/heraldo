@@ -21,6 +21,7 @@ struct HeraldoApp: App {
             guard phase == .active else { return }
             Task { await model.refresh() }
             Task { await PushManager.shared.foreground() }
+            Task { await LiveActivities.shared.flush() }
         }
         #else
         // The history window. One of it; the menu bar item and notifications bring it up.
@@ -48,6 +49,7 @@ struct HeraldoApp: App {
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openURL) private var openURL
     @State private var tab = Tab.inbox
     #if os(macOS)
     @Environment(\.openSettings) private var openSettings
@@ -82,9 +84,17 @@ struct RootView: View {
         }
         // The scene is often active before onChange(of: scenePhase) can see it.
         .task { await model.refresh() }
-        // heraldo://event/<id> opens one event.
+        // heraldo://event/<id> opens one event. heraldo://open?url=<url> opens
+        // the URL: a Live Activity's open button.
         .onOpenURL { url in
-            guard url.scheme == "heraldo", url.host() == "event", let id = url.pathComponents.dropFirst().first else { return }
+            guard url.scheme == "heraldo" else { return }
+            if url.host() == "open",
+               let target = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                   .queryItems?.first(where: { $0.name == "url" })?.value.flatMap(URL.init(string:)) {
+                openURL(target)
+                return
+            }
+            guard url.host() == "event", let id = url.pathComponents.dropFirst().first else { return }
             model.openEventID = id
         }
         .onChange(of: model.openEventID) { _, id in if id != nil { tab = .inbox } }

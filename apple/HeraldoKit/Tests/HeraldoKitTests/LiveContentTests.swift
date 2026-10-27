@@ -118,3 +118,50 @@ final class LiveContentTests: XCTestCase {
         XCTAssertNotNil(a.updatedAt)
     }
 }
+
+/// The Shortcut fields, mapped to envelope content.
+final class LiveFieldsTests: XCTestCase {
+    func testStartFields() throws {
+        var f = LiveFields()
+        f.title = "  Backup  "
+        f.progress = 42
+        f.endsIn = 600
+        f.steps = 10
+        f.step = 12
+        f.tint = "chartreuse"
+        f.metricsText = "Files: 1.2k"
+        f.buttonTitle = "Open"
+        f.buttonURL = "https://example.com/job"
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let p = f.patch(now: now)
+        XCTAssertEqual(p.title, .set("Backup"))
+        XCTAssertEqual(p.progress, .set(0.42))
+        XCTAssertEqual(p.endsAt, .set(now.addingTimeInterval(600)))
+        XCTAssertEqual(p.steps, .set(LiveSteps(total: 10, current: 10)), "step is capped at steps")
+        XCTAssertEqual(p.tint, .keep, "an unknown color is left out, not sent for the server to refuse")
+        XCTAssertEqual(p.metrics, .set([LiveMetric(label: "Files", value: "1.2k")]))
+        XCTAssertEqual(p.button, .set(LiveButton(id: "button", title: "Open", type: "open", url: "https://example.com/job")))
+    }
+
+    func testHTTPButton() {
+        var f = LiveFields()
+        f.buttonTitle = "Pause"
+        f.buttonURL = "http://192.0.2.20/pause"
+        f.buttonOpensLink = false
+        XCTAssertEqual(f.patch().button, .set(LiveButton(id: "button", title: "Pause", type: "http",
+                                                          url: "http://192.0.2.20/pause", method: "POST")))
+    }
+
+    func testClearFields() {
+        var f = LiveFields()
+        f.status = "Paused"
+        let p = f.patch(clearing: [.countdown, .status, .metrics, .stages, .button, .trailing])
+        XCTAssertEqual(p.endsAt, .clear)
+        XCTAssertEqual(p.status, .set("Paused"), "a field set in the same call is not cleared")
+        XCTAssertEqual(p.metrics, .clear)
+        XCTAssertEqual(p.steps, .clear)
+        XCTAssertEqual(p.button, .clear)
+        XCTAssertEqual(p.trailing, .clear)
+        XCTAssertTrue(LiveFields().patch().isEmpty)
+    }
+}

@@ -73,5 +73,17 @@ struct HeraldoShortcuts: AppShortcutsProvider {
         AppShortcut(intent: GetRecentHistoryIntent(),
                     phrases: ["Get recent \(.applicationName) history", "Get history from \(.applicationName)"],
                     shortTitle: "Recent History", systemImageName: "clock.arrow.circlepath")
+        AppShortcut(intent: StartLiveActivityIntent(),
+                    phrases: ["Start a Live Activity with \(.applicationName)", "Start a \(.applicationName) Live Activity"],
+                    shortTitle: "Start Live Activity", systemImageName: "livephoto.play")
+        AppShortcut(intent: UpdateLiveActivityIntent(),
+                    phrases: ["Update a Live Activity with \(.applicationName)", "Update the \(.applicationName) Live Activity"],
+                    shortTitle: "Update Live Activity", systemImageName: "arrow.triangle.2.circlepath")
+        AppShortcut(intent: EndLiveActivityIntent(),
+                    phrases: ["End a Live Activity with \(.applicationName)", "End the \(.applicationName) Live Activity"],
+                    shortTitle: "End Live Activity", systemImageName: "stop.circle")
+        AppShortcut(intent: GetLiveActivityIntent(),
+                    phrases: ["Get a Live Activity from \(.applicationName)"],
+                    shortTitle: "Get Live Activity", systemImageName: "info.circle")
     }
 }

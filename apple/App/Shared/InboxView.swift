@@ -16,7 +16,10 @@ struct InboxView: View {
         !query.trimmingCharacters(in: .whitespaces).isEmpty || kind != nil || source != nil
     }
 
-    private var events: [Event] { filtering ? (results ?? []) : model.cache.events }
+    /// Progress updates stay out of the plain list: the Live Activity shows
+    /// them, and each activity leaves one message when it ends. The kind
+    /// filter still finds them.
+    private var events: [Event] { filtering ? (results ?? []) : model.cache.events.filter { $0.kind != "progress" } }
 
     var body: some View {
         NavigationStack(path: $path) {

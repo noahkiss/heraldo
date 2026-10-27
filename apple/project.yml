@@ -29,6 +29,9 @@ targets:
       - path: App/macOS
         excludes: ["*.entitlements", "Info.plist"]
         destinationFilters: [macOS]
+      # The Live Activity button intent: in the app and the widget extension.
+      - path: LiveActivity
+        destinationFilters: [iOS]
     dependencies:
       - package: HeraldoKit
         product: HeraldoKit
@@ -81,6 +84,8 @@ targets:
     sources:
       - path: Widgets
         excludes: ["*.entitlements", "Info.plist"]
+      - path: LiveActivity
+        destinationFilters: [iOS]
     dependencies:
       - package: HeraldoKit
         product: HeraldoKit

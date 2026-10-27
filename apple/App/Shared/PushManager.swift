@@ -32,6 +32,9 @@ final class PushManager {
         set { defaults.set(newValue, forKey: "deviceID") }
     }
 
+    /// The server's id for this device, once registered.
+    var deviceIdentifier: String? { deviceID }
+
     /// The token and permissions the server last heard, so a foreground
     /// registers only when one of them changed.
     private var reported: DeviceRegistration? {
@@ -129,10 +132,15 @@ final class PushManager {
     func register(force: Bool) async {
         let model = AppModel.shared
         guard let token = apnsToken, model.isConfigured, let client = try? model.client() else { return }
+        #if os(iOS)
+        let liveToken = LiveActivities.shared.pushToStartToken
+        #else
+        let liveToken: String? = nil
+        #endif
         let reg = DeviceRegistration(
             token: token, environment: environment, topic: Bundle.main.bundleIdentifier ?? "",
             name: Self.deviceName, platform: Self.platform, appVersion: AppInfo.version(),
-            permissions: permissions)
+            permissions: permissions, liveActivityToken: liveToken)
         let last = reported
         guard force || last != reg else { return }
         do {
