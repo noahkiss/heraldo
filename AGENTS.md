@@ -14,7 +14,7 @@ The plan and its stages live in bm (project `heraldo`).
 | `internal/` | Server packages: `config` (env), `server` (handlers), `version` |
 | `apple/` | XcodeGen project: multiplatform app `Heraldo`, `HeraldoNotificationService` (iOS), `HeraldoWidgets`, package `HeraldoKit` |
 | `deploy/` | Generic `compose.yml` and `heraldo.example.env` |
-| `design/icon/` | App and web icon: SVG masters, layers, web set, and `build.py`, which also writes `apple/App/AppIcon.icon` |
+| `design/icon/` | App and web icon. `heraldo.svg` is the source of truth; `build.py` derives the masters, layers, web set and `apple/App/AppIcon.icon` |
 | `docs/` | API summary, Apple notes |
 
 ## Build and test
@@ -26,7 +26,7 @@ The plan and its stages live in bm (project `heraldo`).
 | Run the server | `go run ./cmd/heraldo-server` (port 7842; `HERALDO_ADDR` changes it) |
 | Apple build (iOS Simulator + macOS) and HeraldoKit tests | `apple/scripts/check.sh` |
 | Regenerate the Xcode project | `apple/scripts/generate.sh` (the `.xcodeproj` is not committed) |
-| Rebuild the icon after a design change | `uv run design/icon/build.py --apple` (see `design/icon/README.md`) |
+| Rebuild the icon after editing `design/icon/heraldo.svg` | `uv run design/icon/build.py --apple` (see `design/icon/README.md`) |
 
 - A schema change adds or updates examples in `schema/examples/valid` and `invalid`.
 - CI runs the Go checks only. Run `apple/scripts/check.sh` before pushing Apple changes.

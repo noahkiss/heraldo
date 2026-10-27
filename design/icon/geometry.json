@@ -11,9 +11,7 @@
    503.0
   ],
   "max_radius": 433.0,
-  "rule_thick": 56.5,
-  "rule_thin": 27.1,
-  "rule_area": 17452
+  "rule_area": 17464
  },
  "squircle-small": {
   "bbox": [
@@ -23,44 +21,38 @@
    869
   ],
   "centroid": [
-   512.0,
-   508.4
+   511.9,
+   508.6
   ],
   "max_radius": 423.5,
-  "rule_thick": 81.9,
-  "rule_thin": 39.3,
-  "rule_area": 23878
+  "rule_area": 23894
  },
  "circle": {
   "bbox": [
    231,
-   184,
+   185,
    773,
    860
   ],
   "centroid": [
-   512.1,
+   512.2,
    502.1
   ],
   "max_radius": 391.8,
-  "rule_thick": 56.5,
-  "rule_thin": 27.1,
-  "rule_area": 12951
+  "rule_area": 12954
  },
  "circle-small": {
   "bbox": [
-   229,
+   230,
    179,
    775,
-   858
+   857
   ],
   "centroid": [
-   512.3,
+   511.9,
    505.9
   ],
-  "max_radius": 392.5,
-  "rule_thick": 81.9,
-  "rule_thin": 39.3,
-  "rule_area": 17728
+  "max_radius": 391.8,
+  "rule_area": 17716
  }
 }
