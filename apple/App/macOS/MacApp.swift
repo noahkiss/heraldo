@@ -108,11 +108,11 @@ struct MenuBarLabel: View {
     }
 
     private var attention: Bool {
-        model.unread.badge > 0 || model.unackedIncidents > 0 || !model.failingCheckins.isEmpty
+        model.unread.badge > 0 || model.unackedIncidents > 0 || model.downChecks > 0
     }
 }
 
-/// The menu bar window: unread count, open incidents, failing check-ins.
+/// The menu bar window: unread count, open incidents, down checks.
 struct MenuBarContent: View {
     @Environment(AppModel.self) private var model
     @State private var ackError: String?
@@ -127,7 +127,7 @@ struct MenuBarContent: View {
                     .foregroundStyle(.secondary)
             } else {
                 section("Open incidents", model.incidents, empty: "No open incidents")
-                section("Failing check-ins", model.failingCheckins, empty: "No failing check-ins")
+                downSection
             }
             if let error = ackError ?? model.lastError {
                 Text(error).font(.caption).foregroundStyle(.red).lineLimit(3)
@@ -164,6 +164,45 @@ struct MenuBarContent: View {
                 Text("\(events.count - limit) more").font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// The checks that are down, from /v1/checkins, like the Check-ins tab.
+    private var downSection: some View {
+        let down = model.down
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("Down checks").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+            if down.isEmpty {
+                Text("No checks down").font(.callout).foregroundStyle(.tertiary)
+            }
+            ForEach(down.prefix(limit)) { c in
+                checkRow(c)
+            }
+            if down.count > limit {
+                Text("\(down.count - limit) more").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func checkRow(_ c: Check) -> some View {
+        Button {
+            model.showMain?()
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: "clock.badge.xmark").foregroundStyle(.red).font(.body)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(c.key).lineLimit(1)
+                    Text([c.stateLabel, c.host].compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                if let d = c.stateSince {
+                    Text(d, format: .relative(presentation: .numeric, unitsStyle: .narrow))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func row(_ e: Event) -> some View {

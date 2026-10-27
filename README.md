@@ -263,8 +263,9 @@ cask installs it:
 brew install --cask noahkiss/tap/heraldo-app
 ```
 
-- **Menu bar**: the unread count, the open incidents with Ack, and the failing
-  check-ins. A click on one opens it in the history window.
+- **Menu bar**: the unread count, the open incidents with Ack, and the checks
+  that are down, from `/v1/checkins`. A click on an incident opens it in the
+  history window; a click on a check opens the window.
 - **History window**: the inbox and incidents of the iOS app. Settings is in
   the app menu (Command-comma).
 - **Credentials**: the same iCloud Keychain item as the iPhone, so tokens saved
