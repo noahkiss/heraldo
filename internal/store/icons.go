@@ -43,7 +43,7 @@ func (s *Store) PutIcon(ctx context.Context, ic *Icon) (bool, error) {
 		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT (name) DO UPDATE SET content_type = excluded.content_type, data = excluded.data,
 		sha256 = excluded.sha256, updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
-		ic.Name, ic.ContentType, ic.Data, ic.SHA256, formatTime(ic.UpdatedAt), ic.UpdatedBy); err != nil {
+		ic.Name, ic.ContentType, ic.Data, ic.SHA256, fmtTime(ic.UpdatedAt), ic.UpdatedBy); err != nil {
 		return false, err
 	}
 	return n == 0, tx.Commit()
@@ -58,7 +58,7 @@ func (s *Store) GetIcon(ctx context.Context, name string) (Icon, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return Icon{}, ErrNotFound
 	}
-	ic.UpdatedAt, ic.Size = parseTime(at), len(ic.Data)
+	ic.UpdatedAt, ic.Size = parseNullTime(at), len(ic.Data)
 	return ic, err
 }
 
@@ -77,7 +77,7 @@ func (s *Store) Icons(ctx context.Context) ([]Icon, error) {
 		if err := rows.Scan(&ic.Name, &ic.ContentType, &ic.Size, &ic.SHA256, &at, &ic.UpdatedBy); err != nil {
 			return nil, err
 		}
-		ic.UpdatedAt = parseTime(at)
+		ic.UpdatedAt = parseNullTime(at)
 		out = append(out, ic)
 	}
 	return out, rows.Err()

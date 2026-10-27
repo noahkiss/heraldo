@@ -39,7 +39,7 @@ func scanMute(r scanner) (Mute, error) {
 		return Mute{}, err
 	}
 	m.Source, m.Key, m.EndedBy = source.String, key.String, endedBy.String
-	m.Until, m.CreatedAt, m.EndedAt = parseTime(until), parseTime(created), parseTime(ended)
+	m.Until, m.CreatedAt, m.EndedAt = parseNullTime(until), parseNullTime(created), parseNullTime(ended)
 	return m, nil
 }
 
@@ -48,8 +48,8 @@ func (s *Store) AddMute(ctx context.Context, m Mute) error {
 	s.wmu.Lock()
 	defer s.wmu.Unlock()
 	_, err := s.db.ExecContext(ctx, `INSERT INTO mutes (id, source, key, until, created_at, created_by)
-		VALUES (?, ?, ?, ?, ?, ?)`, m.ID, nullStr(m.Source), nullStr(m.Key), formatTime(m.Until),
-		formatTime(m.CreatedAt), m.CreatedBy)
+		VALUES (?, ?, ?, ?, ?, ?)`, m.ID, nullStr(m.Source), nullStr(m.Key), fmtTime(m.Until),
+		fmtTime(m.CreatedAt), m.CreatedBy)
 	return err
 }
 
@@ -100,7 +100,7 @@ func (s *Store) EndMute(ctx context.Context, id, by string, now time.Time) (Mute
 	s.wmu.Lock()
 	if _, err := s.db.ExecContext(ctx, `UPDATE mutes SET ended_at = ?, ended_by = ?
 		WHERE id = ? AND ended_at IS NULL AND until > ?`,
-		formatTime(now), by, id, now.UTC().Format(timeFormat)); err != nil {
+		fmtTime(now), by, id, now.UTC().Format(timeFormat)); err != nil {
 		s.wmu.Unlock()
 		return Mute{}, err
 	}

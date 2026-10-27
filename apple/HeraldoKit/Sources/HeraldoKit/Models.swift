@@ -89,7 +89,7 @@ public struct Checkin: Codable, Hashable, Sendable {
     public var rid: String?
     public var exitCode: Int?
     public var durationMs: Int?
-    public var schedule: String?
+    public var schedule: CheckSchedule?
 
     enum CodingKeys: String, CodingKey {
         case rid, schedule
@@ -101,6 +101,168 @@ public struct Checkin: Codable, Hashable, Sendable {
         self.rid = rid
         self.exitCode = exitCode
     }
+}
+
+/// When a check expects pings (docs/api.md, "Check-ins"). A sender's
+/// `checkin.schedule` has the same fields, less `reminder_s`.
+public struct CheckSchedule: Codable, Hashable, Sendable {
+    public var periodS: Int?
+    public var cron: String?
+    public var tz: String?
+    public var graceS: Int?
+    public var maxRuntimeS: Int?
+    public var reminderS: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case cron, tz
+        case periodS = "period_s"
+        case graceS = "grace_s"
+        case maxRuntimeS = "max_runtime_s"
+        case reminderS = "reminder_s"
+    }
+
+    public init(periodS: Int? = nil, cron: String? = nil, tz: String? = nil, graceS: Int? = nil,
+                maxRuntimeS: Int? = nil, reminderS: Int? = nil) {
+        self.periodS = periodS
+        self.cron = cron
+        self.tz = tz
+        self.graceS = graceS
+        self.maxRuntimeS = maxRuntimeS
+        self.reminderS = reminderS
+    }
+
+    /// One line, such as "every 1h, grace 10m" or "cron 0 3 * * * Europe/Madrid".
+    public var summary: String {
+        var parts: [String] = []
+        if let periodS {
+            parts.append("every \(Self.duration(periodS))")
+        } else if let cron {
+            parts.append(["cron", cron, tz].compactMap { $0 }.joined(separator: " "))
+        } else {
+            parts.append("unscheduled")
+        }
+        if let graceS { parts.append("grace \(Self.duration(graceS))") }
+        if let maxRuntimeS { parts.append("max runtime \(Self.duration(maxRuntimeS))") }
+        return parts.joined(separator: ", ")
+    }
+
+    /// Seconds as the largest units that fit, such as 1h30m or 45s.
+    public static func duration(_ seconds: Int) -> String {
+        if seconds == 0 { return "0s" }
+        var n = seconds
+        var out = ""
+        for (unit, size) in [("d", 86400), ("h", 3600), ("m", 60), ("s", 1)] where n >= size {
+            out += "\(n / size)\(unit)"
+            n %= size
+        }
+        return out
+    }
+}
+
+/// A check from `GET /v1/checkins`: a job that pings on a schedule.
+public struct Check: Codable, Hashable, Identifiable, Sendable {
+    public enum State: String, Codable, Sendable {
+        case new, up, started, late, down, paused
+    }
+
+    public var key: String
+    public var host: String?
+    public var state: State
+    public var stateSince: Date?
+    public var downReason: String?
+    public var schedule: CheckSchedule?
+    public var createdAt: Date?
+    public var lastPing: Date?
+    public var lastEvent: String?
+    public var startedAt: Date?
+    public var lastSuccess: Date?
+    public var lastDurationMs: Int?
+    public var nextDue: Date?
+    public var downAfter: Date?
+    public var lastLog: String?
+    public var lastLogAt: Date?
+    public var incident: String?
+
+    public var id: String { key }
+
+    enum CodingKeys: String, CodingKey {
+        case key, host, state, schedule, incident
+        case stateSince = "state_since"
+        case downReason = "down_reason"
+        case createdAt = "created_at"
+        case lastPing = "last_ping"
+        case lastEvent = "last_event"
+        case startedAt = "started_at"
+        case lastSuccess = "last_success"
+        case lastDurationMs = "last_duration_ms"
+        case nextDue = "next_due"
+        case downAfter = "down_after"
+        case lastLog = "last_log"
+        case lastLogAt = "last_log_at"
+    }
+
+    public init(key: String, state: State) {
+        self.key = key
+        self.state = state
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key = try c.decode(String.self, forKey: .key)
+        // A state this build does not know reads as new, so a newer server
+        // still decodes.
+        state = (try? c.decode(State.self, forKey: .state)) ?? .new
+        host = try c.decodeIfPresent(String.self, forKey: .host)
+        stateSince = try c.decodeIfPresent(Date.self, forKey: .stateSince)
+        downReason = try c.decodeIfPresent(String.self, forKey: .downReason)
+        schedule = try c.decodeIfPresent(CheckSchedule.self, forKey: .schedule)
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt)
+        lastPing = try c.decodeIfPresent(Date.self, forKey: .lastPing)
+        lastEvent = try c.decodeIfPresent(String.self, forKey: .lastEvent)
+        startedAt = try c.decodeIfPresent(Date.self, forKey: .startedAt)
+        lastSuccess = try c.decodeIfPresent(Date.self, forKey: .lastSuccess)
+        lastDurationMs = try c.decodeIfPresent(Int.self, forKey: .lastDurationMs)
+        nextDue = try c.decodeIfPresent(Date.self, forKey: .nextDue)
+        downAfter = try c.decodeIfPresent(Date.self, forKey: .downAfter)
+        lastLog = try c.decodeIfPresent(String.self, forKey: .lastLog)
+        lastLogAt = try c.decodeIfPresent(Date.self, forKey: .lastLogAt)
+        incident = try c.decodeIfPresent(String.self, forKey: .incident)
+    }
+
+    /// The last run's length, such as "1m42s", or nil when none was measured.
+    public var lastDuration: String? {
+        guard let ms = lastDurationMs else { return nil }
+        if ms < 1000 { return "\(ms)ms" }
+        return CheckSchedule.duration((ms + 500) / 1000)
+    }
+
+    /// The first line of the last log.
+    public var lastLogLine: String? {
+        guard let log = lastLog?.trimmingCharacters(in: .whitespacesAndNewlines), !log.isEmpty else { return nil }
+        return String(log.split(separator: "\n", maxSplits: 1).first ?? "")
+    }
+
+    /// The state as a label, with the reason for down.
+    public var stateLabel: String {
+        switch state {
+        case .new: return "New"
+        case .up: return "Up"
+        case .started: return "Running"
+        case .late: return "Late"
+        case .paused: return "Paused"
+        case .down:
+            switch downReason {
+            case "failed": return "Failed"
+            case "overran": return "Too long"
+            default: return "Down"
+            }
+        }
+    }
+}
+
+/// `GET /v1/checkins`.
+public struct CheckList: Codable, Sendable {
+    public var checkins: [Check]
 }
 
 public struct EventAction: Codable, Hashable, Sendable {

@@ -161,12 +161,14 @@ func serve(log *slog.Logger) error {
 		go rw.Watch(ctx, rules.DefaultInterval)
 	}
 	pusher, pushState := startPush(ctx, cfg, st, rw, log)
+	h := server.NewServer(server.Options{
+		Version: version.String(), Store: st, Tokens: tokens, Validator: v, Rules: rw, Logger: log,
+		Done: ctx.Done(), Pusher: pusher, PushState: pushState,
+	})
+	go h.RunCheckins(ctx, checkinTick)
 	srv := &http.Server{
-		Addr: cfg.Addr,
-		Handler: server.New(server.Options{
-			Version: version.String(), Store: st, Tokens: tokens, Validator: v, Rules: rw, Logger: log,
-			Done: ctx.Done(), Pusher: pusher, PushState: pushState,
-		}),
+		Addr:              cfg.Addr,
+		Handler:           h,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -195,6 +197,9 @@ func serve(log *slog.Logger) error {
 	}
 	return nil
 }
+
+// checkinTick is how often the scheduler judges the checks.
+const checkinTick = 15 * time.Second
 
 // startPush starts the APNs pusher when HERALDO_PUSH is on and a key loads.
 // A missing or bad key logs an error and leaves push off: ingest keeps

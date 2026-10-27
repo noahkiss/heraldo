@@ -38,20 +38,8 @@ func (r *incidentRow) snapshot() map[string]any {
 	return m
 }
 
-func parseTime(s sql.NullString) time.Time {
-	if !s.Valid {
-		return time.Time{}
-	}
-	t, _ := time.Parse(timeFormat, s.String)
-	return t
-}
-
-func formatTime(t time.Time) any {
-	if t.IsZero() {
-		return nil
-	}
-	return t.UTC().Format(timeFormat)
-}
+// parseNullTime is parseTime for a nullable column.
+func parseNullTime(s sql.NullString) time.Time { return parseTime(s.String) }
 
 // RealertOf returns the re-alert interval an event asks for:
 // details.heraldo.realert_s, which a rule's set.realert writes. 0 means none.
@@ -107,7 +95,7 @@ func nextIncident(ctx context.Context, tx *sql.Tx, ev NewEvent) (*incidentRow, e
 		FROM incidents WHERE key = ?`, key).Scan(&r.state, &opened, &resolved, &r.lastEvent, &realert, &next, &alertEvent)
 	switch {
 	case err == nil:
-		r.openedAt, r.resolvedAt, r.nextAlert = parseTime(opened), parseTime(resolved), parseTime(next)
+		r.openedAt, r.resolvedAt, r.nextAlert = parseNullTime(opened), parseNullTime(resolved), parseNullTime(next)
 		r.realert = time.Duration(realert.Int64) * time.Second
 		r.alertEvent = alertEvent.String
 		p := r
@@ -172,8 +160,8 @@ func writeIncident(ctx context.Context, tx *sql.Tx, key string, r *incidentRow) 
 		ON CONFLICT (key) DO UPDATE SET state = excluded.state, opened_at = excluded.opened_at,
 		resolved_at = excluded.resolved_at, last_event = excluded.last_event, realert_s = excluded.realert_s,
 		next_alert_at = excluded.next_alert_at, alert_event = excluded.alert_event`,
-		key, r.state, formatTime(r.openedAt), formatTime(r.resolvedAt), r.lastEvent, realert,
-		formatTime(r.nextAlert), nullStr(r.alertEvent))
+		key, r.state, fmtTime(r.openedAt), fmtTime(r.resolvedAt), r.lastEvent, realert,
+		fmtTime(r.nextAlert), nullStr(r.alertEvent))
 	return err
 }
 
@@ -205,7 +193,7 @@ func (s *Store) DueAlerts(ctx context.Context, now time.Time) ([]DueAlert, error
 		if err := rows.Scan(&d.Key, &d.EventID, &opened, &due, &every); err != nil {
 			return nil, err
 		}
-		d.OpenedAt, d.Due, d.Every = parseTime(opened), parseTime(due), time.Duration(every)*time.Second
+		d.OpenedAt, d.Due, d.Every = parseNullTime(opened), parseNullTime(due), time.Duration(every)*time.Second
 		out = append(out, d)
 	}
 	return out, rows.Err()

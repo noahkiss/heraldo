@@ -153,7 +153,10 @@ any `-wal` and `-shm` files left beside the old database first.
 | `heraldo show [--json] <id>` | Prints one event with its full body. |
 | `heraldo ls` | Lists the newest events (20 by default, oldest first). Filters: `--kind`, `--source`, `--host`, `--key`, `--tag`, `-q` (full text). `--open` lists the incidents that are not resolved. |
 | `heraldo held` | Lists events held for triage (`hold.state` is `held`). |
-| `heraldo checkins` | Lists the last run of every check. |
+| `heraldo checkins` | Lists every check: state, next due time, last run length, first line of the last log. `checkins show <slug>` prints one check with its full last log. |
+| `heraldo checkins create <slug>` | Creates a check, or replaces a known check's schedule: `--period` or `--cron` with `--tz`, `--grace`, `--max-runtime`, `--reminder`, `--host`. Needs `HERALDO_WRITE_TOKEN`. |
+| `heraldo checkins pause <slug>`, `resume <slug>` | Pauses or resumes a check. Needs `HERALDO_WRITE_TOKEN`. |
+| `heraldo checkins key [--remove] <slug>` | Prints a new ping URL, `<HERALDO_URL>/p/<key>`, for the check; the old key stops working. `--remove` removes the key. Needs `HERALDO_WRITE_TOKEN`. |
 | `heraldo tail` | Prints new events as they arrive. It takes the `ls` filters, `--unread` (start at the read cursor), `--mark` (move the cursor; not with filters) and `--exec <command>`. |
 | `heraldo ack <key>`, `heraldo resolve <key>` | Posts an `ack` or `resolve` event for an open incident. `-m` adds a note; `--force` posts for a key with no open incident. |
 | `heraldo send` | Posts a notification to an Apprise-compatible notify URL. |
@@ -169,7 +172,7 @@ Settings come from the environment first, then from an env file:
 |---|---|
 | `HERALDO_URL` | The server root, such as `https://heraldo.example.net` |
 | `HERALDO_TOKEN` | A `read` token |
-| `HERALDO_WRITE_TOKEN` | A `write` token, for `ack` and `resolve` |
+| `HERALDO_WRITE_TOKEN` | A `write` token, for `ack`, `resolve`, changing checks and minting ping keys |
 | `HERALDO_CURSOR` | The read cursor's name. Default: `inbox`, the cursor every client shares. Set another name for a separate cursor. |
 | `HERALDO_SOURCE` | The `source` of `ack` and `resolve` events. Default: `heraldo-cli`. |
 | `HERALDO_SEND_URL`, `APPRISE_URL` | `send`'s notify URL; the first one set wins |
@@ -225,6 +228,9 @@ app group.
 - **Incidents**: open incidents first, then acknowledged ones, from
   `/v1/state`, with Ack; then the ones resolved in the last day, with how long
   each was open.
+- **Check-ins**: every check from `/v1/checkins`, with its state, next due
+  time, last run length and last log. A swipe pauses or resumes a check (write
+  token). The tab's badge counts the checks that are down.
 - **Push**: the app registers its APNs token with `POST /v1/devices` on every
   launch, and again when a permission changes. A Debug build reports
   `sandbox`; a TestFlight or App Store build reports `production`.

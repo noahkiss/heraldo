@@ -34,6 +34,40 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(e.date, JSON.parseDate("2026-10-26T12:00:00Z"))
     }
 
+    func testDecodesChecks() throws {
+        let json = """
+        {"checkins": [
+          {"key": "backup", "host": "box-1", "state": "down", "down_reason": "missed",
+           "state_since": "2026-10-27T13:10:00Z", "created_at": "2026-10-26T12:00:00Z",
+           "schedule": {"period_s": 3600, "grace_s": 600, "reminder_s": 86400},
+           "last_ping": "2026-10-27T12:00:00.5Z", "last_duration_ms": 102400,
+           "next_due": "2026-10-27T13:00:00Z", "down_after": "2026-10-27T13:10:00Z",
+           "last_log": "copied 3 files\\nall good\\n", "last_log_at": "2026-10-27T12:00:00Z",
+           "incident": "open"},
+          {"key": "weekly", "state": "sleeping", "state_since": "2026-10-27T13:10:00Z",
+           "created_at": "2026-10-27T13:10:00Z",
+           "schedule": {"cron": "0 4 * * 1", "tz": "Europe/Madrid", "grace_s": 3600, "max_runtime_s": 1800}}
+        ]}
+        """
+        let list = try JSON.decoder.decode(CheckList.self, from: Data(json.utf8))
+        let backup = list.checkins[0]
+        XCTAssertEqual(backup.stateLabel, "Down")
+        XCTAssertEqual(backup.lastDuration, "1m42s")
+        XCTAssertEqual(backup.lastLogLine, "copied 3 files")
+        XCTAssertEqual(backup.schedule?.summary, "every 1h, grace 10m")
+        XCTAssertEqual(backup.nextDue, JSON.parseDate("2026-10-27T13:00:00Z"))
+        let weekly = list.checkins[1]
+        XCTAssertEqual(weekly.state, .new, "an unknown state reads as new")
+        XCTAssertEqual(weekly.schedule?.summary, "cron 0 4 * * 1 Europe/Madrid, grace 1h, max runtime 30m")
+        XCTAssertNil(weekly.lastDuration)
+    }
+
+    func testDecodesCheckinSchedule() throws {
+        let json = #"{"id": "01A", "source": "cron", "kind": "checkin", "key": "k", "checkin": {"rid": "r", "schedule": {"period_s": 60}}}"#
+        let e = try JSON.decoder.decode(Event.self, from: Data(json.utf8))
+        XCTAssertEqual(e.checkin?.schedule?.periodS, 60)
+    }
+
     func testEmptyPageHasNoCursor() throws {
         let page = try JSON.decoder.decode(EventPage.self, from: Data(#"{"events": []}"#.utf8))
         XCTAssertTrue(page.events.isEmpty)

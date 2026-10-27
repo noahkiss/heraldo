@@ -212,6 +212,58 @@ func (c *Client) State(ctx context.Context) (State, error) {
 	return s, err
 }
 
+// Checks returns every check. A server before stage 6 answers 404.
+func (c *Client) Checks(ctx context.Context) ([]api.Check, error) {
+	var l api.CheckList
+	err := c.do(ctx, http.MethodGet, "/v1/checkins", nil, c.Token, nil, &l)
+	return l.Checkins, err
+}
+
+// Check returns one check.
+func (c *Client) Check(ctx context.Context, slug string) (api.Check, error) {
+	var ch api.Check
+	err := c.do(ctx, http.MethodGet, "/v1/checkins/"+url.PathEscape(slug), nil, c.Token, nil, &ch)
+	return ch, err
+}
+
+// PutCheck creates a check or replaces its config, with the write token.
+func (c *Client) PutCheck(ctx context.Context, slug string, cfg api.CheckConfig) (api.Check, error) {
+	var ch api.Check
+	err := c.do(ctx, http.MethodPut, "/v1/checkins/"+url.PathEscape(slug), nil, c.writeToken(), cfg, &ch)
+	return ch, err
+}
+
+// SetPaused pauses or resumes a check, with the write token.
+func (c *Client) SetPaused(ctx context.Context, slug string, paused bool) (api.Check, error) {
+	op := "/resume"
+	if paused {
+		op = "/pause"
+	}
+	var ch api.Check
+	err := c.do(ctx, http.MethodPost, "/v1/checkins/"+url.PathEscape(slug)+op, nil, c.writeToken(), nil, &ch)
+	return ch, err
+}
+
+// MintPingKey makes a new ping key for a check, replacing the old one, with
+// the write token.
+func (c *Client) MintPingKey(ctx context.Context, slug string) (api.PingKey, error) {
+	var k api.PingKey
+	err := c.do(ctx, http.MethodPost, "/v1/checkins/"+url.PathEscape(slug)+"/key", nil, c.writeToken(), nil, &k)
+	return k, err
+}
+
+// RemovePingKey removes a check's ping key, with the write token.
+func (c *Client) RemovePingKey(ctx context.Context, slug string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/checkins/"+url.PathEscape(slug)+"/key", nil, c.writeToken(), nil, nil)
+}
+
+func (c *Client) writeToken() string {
+	if c.WriteToken == "" {
+		return c.Token
+	}
+	return c.WriteToken
+}
+
 type cursorBody struct {
 	Cursor string `json:"cursor"`
 }
@@ -245,12 +297,8 @@ func (c *Client) SetCursor(ctx context.Context, name, cursor string) (string, er
 // Post stores one event with the write token. input is an EventInput as JSON
 // fields.
 func (c *Client) Post(ctx context.Context, input map[string]any) (Event, error) {
-	tok := c.WriteToken
-	if tok == "" {
-		tok = c.Token
-	}
 	var e Event
-	err := c.do(ctx, http.MethodPost, "/v1/events", nil, tok, input, &e)
+	err := c.do(ctx, http.MethodPost, "/v1/events", nil, c.writeToken(), input, &e)
 	return e, err
 }
 
