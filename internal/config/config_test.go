@@ -1,8 +1,15 @@
 package config
 
 import (
+	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -100,5 +107,63 @@ func TestFromEnvPush(t *testing.T) {
 	}
 	if _, err := FromEnv(env(map[string]string{"HERALDO_APNS_KEY_FILE": "/keys/apns.p8"})); err == nil {
 		t.Fatal("accepted a key file without key and team ids")
+	}
+}
+
+func TestFromEnvAPNsKeyInline(t *testing.T) {
+	ids := map[string]string{"HERALDO_APNS_KEY_ID": "KEYID00001", "HERALDO_APNS_TEAM_ID": "TEAMID0001"}
+	with := func(kv ...string) map[string]string {
+		m := map[string]string{}
+		for k, v := range ids {
+			m[k] = v
+		}
+		for i := 0; i < len(kv); i += 2 {
+			m[kv[i]] = kv[i+1]
+		}
+		return m
+	}
+	c, err := FromEnv(env(with("HERALDO_APNS_KEY", "pem")))
+	if err != nil || !c.HasAPNsKey() || c.APNsKey != "pem" {
+		t.Fatalf("%+v %v", c, err)
+	}
+	if _, err := FromEnv(env(with("HERALDO_APNS_KEY", "pem", "HERALDO_APNS_KEY_FILE", "/keys/apns.p8"))); err == nil {
+		t.Fatal("accepted both HERALDO_APNS_KEY and HERALDO_APNS_KEY_FILE")
+	}
+	if _, err := FromEnv(env(map[string]string{"HERALDO_APNS_KEY": "pem"})); err == nil {
+		t.Fatal("accepted an inline key without key and team ids")
+	}
+}
+
+func TestLoadAPNsKey(t *testing.T) {
+	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p8 := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
+	path := filepath.Join(t.TempDir(), "apns.p8")
+	if err := os.WriteFile(path, p8, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	flat := strings.ReplaceAll(string(p8), "\n", `\n`)
+	for name, c := range map[string]Config{
+		"file":   {APNsKeyFile: path},
+		"inline": {APNsKey: string(p8)},
+		"flat":   {APNsKey: flat},
+	} {
+		got, err := c.LoadAPNsKey()
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		if !bytes.Equal(got, p8) {
+			t.Errorf("%s: got %q, want the PEM text", name, got)
+		}
+	}
+	if _, err := (Config{APNsKeyFile: path + ".missing"}).LoadAPNsKey(); err == nil {
+		t.Fatal("want an error for a missing key file")
 	}
 }

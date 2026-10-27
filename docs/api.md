@@ -149,7 +149,8 @@ Permission health:
 ## Push
 
 Push is off until `HERALDO_PUSH=on`, and needs an APNs key (README,
-"Configuration"). Off, the server stores events and registers devices as
+"Configuration"): a mounted `.p8` file (`HERALDO_APNS_KEY_FILE`) or its PEM text
+in `HERALDO_APNS_KEY`. Off, the server stores events and registers devices as
 usual and sends nothing. `/healthz` reports `push`: `off`, `on`, or `no-key`
 when push is on but no key loads.
 

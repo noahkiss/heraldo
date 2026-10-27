@@ -35,6 +35,9 @@ type Config struct {
 	Push bool
 	// APNsKeyFile is the APNs auth key, a .p8 file. HERALDO_APNS_KEY_FILE.
 	APNsKeyFile string
+	// APNsKey is the APNs auth key inline, the .p8 file's PEM text.
+	// HERALDO_APNS_KEY. Set this or APNsKeyFile, not both.
+	APNsKey string
 	// APNsKeyID is the key's 10-character id. HERALDO_APNS_KEY_ID.
 	APNsKeyID string
 	// APNsTeamID is the Apple developer team id. HERALDO_APNS_TEAM_ID.
@@ -51,6 +54,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		RulesFile:  getenv("HERALDO_RULES"),
 
 		APNsKeyFile: getenv("HERALDO_APNS_KEY_FILE"),
+		APNsKey:     getenv("HERALDO_APNS_KEY"),
 		APNsKeyID:   getenv("HERALDO_APNS_KEY_ID"),
 		APNsTeamID:  getenv("HERALDO_APNS_TEAM_ID"),
 	}
@@ -61,8 +65,11 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	default:
 		return Config{}, fmt.Errorf("HERALDO_PUSH %q: want on or off", getenv("HERALDO_PUSH"))
 	}
-	if n := countSet(c.APNsKeyFile, c.APNsKeyID, c.APNsTeamID); n != 0 && n != 3 {
-		return Config{}, errors.New("set all of HERALDO_APNS_KEY_FILE, HERALDO_APNS_KEY_ID and HERALDO_APNS_TEAM_ID, or none")
+	if c.APNsKeyFile != "" && c.APNsKey != "" {
+		return Config{}, errors.New("set HERALDO_APNS_KEY_FILE or HERALDO_APNS_KEY, not both")
+	}
+	if n := countSet(c.APNsKeyFile+c.APNsKey, c.APNsKeyID, c.APNsTeamID); n != 0 && n != 3 {
+		return Config{}, errors.New("set an APNs key (HERALDO_APNS_KEY_FILE or HERALDO_APNS_KEY), HERALDO_APNS_KEY_ID and HERALDO_APNS_TEAM_ID, or none")
 	}
 	if v := getenv("HERALDO_ADDR"); v != "" {
 		c.Addr = v
@@ -112,4 +119,23 @@ func countSet(vals ...string) int {
 }
 
 // HasAPNsKey reports whether an APNs key is configured.
-func (c Config) HasAPNsKey() bool { return c.APNsKeyFile != "" }
+func (c Config) HasAPNsKey() bool { return c.APNsKeyFile != "" || c.APNsKey != "" }
+
+// LoadAPNsKey returns the APNs key's PEM text, read from APNsKeyFile or
+// taken from APNsKey. An inline key with no line breaks but literal "\n"
+// sequences, as a single-line secret store gives it, has them turned back
+// into line breaks.
+func (c Config) LoadAPNsKey() ([]byte, error) {
+	if c.APNsKeyFile != "" {
+		b, err := os.ReadFile(c.APNsKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("HERALDO_APNS_KEY_FILE: %w", err)
+		}
+		return b, nil
+	}
+	k := c.APNsKey
+	if !strings.Contains(k, "\n") {
+		k = strings.ReplaceAll(k, `\n`, "\n")
+	}
+	return []byte(k), nil
+}

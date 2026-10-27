@@ -10,6 +10,7 @@
 //	HERALDO_PUSH         on sends APNs pushes (default off)
 //	HERALDO_APNS_KEY_FILE, HERALDO_APNS_KEY_ID, HERALDO_APNS_TEAM_ID
 //	                     the APNs auth key (.p8), its key id and the team id
+//	HERALDO_APNS_KEY     the .p8 key's PEM text inline, instead of the file
 //
 // Subcommands:
 //
@@ -209,14 +210,14 @@ func startPush(ctx context.Context, cfg config.Config, st *store.Store, log *slo
 		log.Error("push: HERALDO_PUSH is on, but no APNs key is set; nothing is pushed")
 		return nil, api.HealthPushNoKey
 	}
-	pem, err := os.ReadFile(cfg.APNsKeyFile)
+	pem, err := cfg.LoadAPNsKey()
 	if err != nil {
-		log.Error("push: HERALDO_APNS_KEY_FILE; nothing is pushed", "err", err)
+		log.Error("push: the APNs key does not load; nothing is pushed", "err", err)
 		return nil, api.HealthPushNoKey
 	}
 	key, err := push.ParseKey(pem)
 	if err != nil {
-		log.Error("push: HERALDO_APNS_KEY_FILE; nothing is pushed", "err", err)
+		log.Error("push: the APNs key does not parse; nothing is pushed", "err", err)
 		return nil, api.HealthPushNoKey
 	}
 	p := push.New(push.Config{Key: key, KeyID: cfg.APNsKeyID, TeamID: cfg.APNsTeamID, Store: st, Logger: log})
