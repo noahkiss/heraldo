@@ -38,6 +38,7 @@ The plan and its stages live in bm (project `heraldo`).
   pushing Apple changes.
 - Names and bundle IDs live in `apple/Config/Names.xcconfig`. Signing lives in the
   untracked `apple/Config/Local.xcconfig`.
+- Never edit an applied database migration. Add a new numbered migration instead.
 
 ## Hygiene: the repo stays publishable
 
@@ -48,3 +49,4 @@ The plan and its stages live in bm (project `heraldo`).
   names a real machine.
 - The homelab deployment (stack, hostnames, tokens, sender rules) lives in the
   private servers repo, not here.
+- Test fixtures are written by hand. Never copy real notification data into the repo.
