@@ -44,7 +44,7 @@ private func post(_ action: String, key: String, source: String, title: String?,
 struct StartLiveActivityIntent: AppIntent {
     static let title: LocalizedStringResource = "Start Live Activity"
     static let description = IntentDescription(
-        "Starts a Live Activity on your iPhone through the heraldo server. Returns the activity id.")
+        "Starts a Live Activity through the heraldo server. Returns the activity id.")
 
     @Parameter(title: "Title") var activityTitle: String
     @Parameter(title: "Body") var body: String?
