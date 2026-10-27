@@ -1,6 +1,6 @@
 module github.com/noahkiss/heraldo
 
-go 1.27.2
+go 1.27.0
 
 tool github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
 
