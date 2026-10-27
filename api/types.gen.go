@@ -432,6 +432,21 @@ func (e Create) Valid() bool {
 	}
 }
 
+// Defines values for NotifyLiveActivityUpsertParamsNew.
+const (
+	NotifyLiveActivityUpsertParamsNewN1 NotifyLiveActivityUpsertParamsNew = 1
+)
+
+// Valid indicates whether the value is a known member of the NotifyLiveActivityUpsertParamsNew enum.
+func (e NotifyLiveActivityUpsertParamsNew) Valid() bool {
+	switch e {
+	case NotifyLiveActivityUpsertParamsNewN1:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListActivitiesParamsAll.
 const (
 	ListActivitiesParamsAllN0 ListActivitiesParamsAll = 0
@@ -1058,6 +1073,35 @@ type Repeat = Event
 // Stored One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold and delivery.
 type Stored = Event
 
+// NotifyLiveActivityEndParams defines parameters for NotifyLiveActivityEnd.
+type NotifyLiveActivityEndParams struct {
+	// Token A heraldo write token.
+	Token string `form:"token" json:"token"`
+}
+
+// NotifyLiveActivityStatusParams defines parameters for NotifyLiveActivityStatus.
+type NotifyLiveActivityStatusParams struct {
+	// Token A heraldo write token.
+	Token string `form:"token" json:"token"`
+}
+
+// NotifyLiveActivityUpsertJSONBody defines parameters for NotifyLiveActivityUpsert.
+type NotifyLiveActivityUpsertJSONBody = map[string]interface{}
+
+// NotifyLiveActivityUpsertParams defines parameters for NotifyLiveActivityUpsert.
+type NotifyLiveActivityUpsertParams struct {
+	New *NotifyLiveActivityUpsertParamsNew `form:"new,omitempty" json:"new,omitempty"`
+
+	// Token A heraldo write token.
+	Token string `form:"token" json:"token"`
+}
+
+// NotifyLiveActivityUpsertParamsNew defines parameters for NotifyLiveActivityUpsert.
+type NotifyLiveActivityUpsertParamsNew int
+
+// NotifyJSONJSONBody defines parameters for NotifyJSON.
+type NotifyJSONJSONBody = map[string]interface{}
+
 // PingSuccessParams defines parameters for PingSuccess.
 type PingSuccessParams struct {
 	// Rid Run id. Pairs a start with its end.
@@ -1194,6 +1238,12 @@ type SendEventParams struct {
 	ExpiresAt *time.Time `form:"expires_at,omitempty" json:"expires_at,omitempty"`
 	Relevance *float32   `form:"relevance,omitempty" json:"relevance,omitempty"`
 }
+
+// NotifyLiveActivityUpsertJSONRequestBody defines body for NotifyLiveActivityUpsert for application/json ContentType.
+type NotifyLiveActivityUpsertJSONRequestBody = NotifyLiveActivityUpsertJSONBody
+
+// NotifyJSONJSONRequestBody defines body for NotifyJSON for application/json ContentType.
+type NotifyJSONJSONRequestBody = NotifyJSONJSONBody
 
 // NotifyAppriseJSONRequestBody defines body for NotifyApprise for application/json ContentType.
 type NotifyAppriseJSONRequestBody = AppriseNotify

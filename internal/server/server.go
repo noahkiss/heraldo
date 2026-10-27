@@ -104,6 +104,7 @@ func New(o Options) http.Handler {
 	mux.HandleFunc("GET /v1/activities", s.auth(auth.ScopeRead, false, s.listActivities))
 	mux.HandleFunc("GET /v1/activities/{key...}", s.auth(auth.ScopeRead, false, s.getActivity))
 	mux.HandleFunc("PUT /v1/activity-instances/{id}", s.auth(DeviceScope, false, s.reportInstance))
+	s.compatRoutes(mux)
 	return s.logRequests(mux)
 }
 

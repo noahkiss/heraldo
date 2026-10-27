@@ -569,6 +569,125 @@ paths:
           $ref: "#/components/responses/Error"
         "503":
           $ref: "#/components/responses/Error"
+  /live-activity/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The sender's device id (any text) on a start or a list; the activityId a start answered otherwise.
+        schema:
+          type: string
+      - name: token
+        in: query
+        required: true
+        description: A heraldo write token.
+        schema:
+          type: string
+    post:
+      operationId: notifyLiveActivityUpsert
+      summary: "Notify! compatibility: start (new=1, or a device id) or update a Live Activity."
+      description: |
+        The body takes Notify!'s fields: title, body, symbol, tint (hex, alpha first in
+        8 digits), progress in percent, steps and step, endsIn in seconds, trailing,
+        status, metrics and button {title, url, open}. Null clears a field. The server
+        stores a progress event; docs/api.md, "Notify! compatibility".
+      tags: [compat]
+      security:
+        - tokenQuery: []
+      parameters:
+        - name: new
+          in: query
+          schema:
+            type: integer
+            enum: [1]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: "{success, activityId, expiresAt}"
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          $ref: "#/components/responses/Error"
+        "410":
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: notifyLiveActivityEnd
+      summary: "Notify! compatibility: end a Live Activity, with final content and keepFor."
+      tags: [compat]
+      security:
+        - tokenQuery: []
+      responses:
+        "200":
+          description: "{success, activityId}. Ending an ended activity succeeds."
+          content:
+            application/json:
+              schema:
+                type: object
+        "403":
+          $ref: "#/components/responses/Error"
+    get:
+      operationId: notifyLiveActivityStatus
+      summary: "Notify! compatibility: one activity's state and endReason, or the sender's running activities."
+      tags: [compat]
+      security:
+        - tokenQuery: []
+      responses:
+        "200":
+          description: "{activityId, state, endReason, content, expiresAt}, or {activities: [...]} for a device id."
+          content:
+            application/json:
+              schema:
+                type: object
+        "403":
+          $ref: "#/components/responses/Error"
+  /link:
+    get:
+      operationId: notifyLink
+      summary: "Notify! compatibility: credential check. Answers {success, type: device, id, name}."
+      tags: [compat]
+      security:
+        - tokenQuery: []
+      responses:
+        "200":
+          description: The token is a write token.
+          content:
+            application/json:
+              schema:
+                type: object
+  /notify-json/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: notifyJSON
+      summary: "Notify! compatibility: a plain notification, stored as a message event."
+      description: text is the body, groupType the thread, iconUrl the icon; timeSensitive true is level time-sensitive.
+      tags: [compat]
+      security:
+        - tokenQuery: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: "{success, id}"
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          $ref: "#/components/responses/Error"
   /ping/{slug}:
     parameters:
       - $ref: "#/components/parameters/Slug"

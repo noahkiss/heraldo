@@ -679,3 +679,105 @@ func TestSystemEndStartsNextLink(t *testing.T) {
 		t.Fatalf("pushes = %+v", got)
 	}
 }
+
+// compat calls the Notify!-compatible API with the token in the URL, as
+// notify-bambuddy does.
+func (r *rig) compat(t *testing.T, method, path, body string) (int, map[string]any) {
+	t.Helper()
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	req := httptest.NewRequest(method, path+sep+"token="+writeTok, strings.NewReader(body))
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	rec := httptest.NewRecorder()
+	r.h.ServeHTTP(rec, req)
+	out := map[string]any{}
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	return rec.Code, out
+}
+
+func TestNotifyCompat(t *testing.T) {
+	r := newRig(t)
+	r.phone(t)
+	if code, out := r.compat(t, http.MethodGet, "/link?id=printer-farm", ""); code != 200 || out["type"] != "device" {
+		t.Fatalf("link: %d %v", code, out)
+	}
+	code, out := r.compat(t, http.MethodPost, "/live-activity/printer-farm?new=1", `{"title":"X2D","symbol":"printer.fill",
+		"tint":"#FF00A76F","body":"bracket","progress":12,"steps":10,"step":3,"endsIn":3600,"status":"Printing",
+		"button":{"title":"Open","url":"http://192.0.2.30/","open":true}}`)
+	if code != 200 || out["success"] != true {
+		t.Fatalf("start: %d %v", code, out)
+	}
+	id := out["activityId"].(string)
+	got := r.apns.take()
+	if len(got) != 1 || got[0].event() != "start" {
+		t.Fatalf("pushes = %+v", got)
+	}
+	st := got[0].state()
+	steps, _ := st["steps"].(map[string]any)
+	btn, _ := st["button"].(map[string]any)
+	if st["progress"] != 0.12 || steps["current"] != 3.0 || st["tint"] != "#00A76FFF" || btn["type"] != "open" {
+		t.Errorf("content-state = %v", st)
+	}
+	if ends, _ := st["ends_at"].(float64); int64(ends) != r.clk.now().Add(time.Hour).Unix() {
+		t.Errorf("ends_at = %v", st["ends_at"])
+	}
+	if code, out := r.compat(t, http.MethodGet, "/live-activity/"+id, ""); code != 200 || out["state"] != "starting" {
+		t.Fatalf("status: %d %v", code, out)
+	}
+	attrs, _ := got[0].APS["attributes"].(map[string]any)
+	inst := attrs["instance"].(string)
+	r.report(t, inst, fmt.Sprintf(`{"token":%q}`, updateToken(1)))
+	r.apns.take()
+	if _, out := r.compat(t, http.MethodGet, "/live-activity/printer-farm", ""); len(out["activities"].([]any)) != 1 {
+		t.Fatalf("list = %v", out)
+	}
+	r.clk.add(time.Minute)
+	if code, _ := r.compat(t, http.MethodPost, "/live-activity/"+id, `{"progress":50,"endsIn":null}`); code != 200 {
+		t.Fatalf("update: %d", code)
+	}
+	if got := r.apns.take(); len(got) != 1 || got[0].state()["progress"] != 0.5 || got[0].state()["ends_at"] != nil {
+		t.Fatalf("update pushes = %+v", got)
+	}
+
+	// The person swipes it away: updates get 410, and the status says why.
+	r.report(t, inst, `{"state":"dismissed"}`)
+	if code, _ := r.compat(t, http.MethodPost, "/live-activity/"+id, `{"progress":60}`); code != http.StatusGone {
+		t.Fatalf("update after dismissal: %d", code)
+	}
+	if _, out := r.compat(t, http.MethodGet, "/live-activity/"+id, ""); out["state"] != "dismissed" || out["endReason"] != "dismissed" {
+		t.Fatalf("status after dismissal = %v", out)
+	}
+	if code, _ := r.compat(t, http.MethodDelete, "/live-activity/"+id, `{"keepFor":0,"status":"Done"}`); code != 200 {
+		t.Fatalf("end: %d", code)
+	}
+	if _, out := r.compat(t, http.MethodGet, "/live-activity/"+id, ""); out["state"] != "ended" || out["endReason"] != "script" {
+		t.Fatalf("status after end = %v", out)
+	}
+	if code, _ := r.compat(t, http.MethodDelete, "/live-activity/"+id, ""); code != 200 {
+		t.Fatalf("second end: %d", code)
+	}
+	if code, _ := r.compat(t, http.MethodDelete, "/live-activity/notify-la-unknown", ""); code != http.StatusForbidden {
+		t.Fatalf("end unknown: %d", code)
+	}
+
+	if code, _ := r.compat(t, http.MethodPost, "/notify-json/printer-farm", `{"text":"Print finished","title":"X2D",
+		"groupType":"printer-x2d","iconUrl":"https://example.com/icon.png","timeSensitive":true}`); code != 200 {
+		t.Fatalf("notify-json: %d", code)
+	}
+	msgs := r.messages(t)
+	last := msgs[len(msgs)-1]
+	if *last.Body != "Print finished" || *last.Thread != "printer-x2d" || *last.Level != api.LevelTimeSensitive || last.Source != "sender" {
+		t.Errorf("message = %+v", last)
+	}
+	// A token in the URL only works with write scope.
+	req := httptest.NewRequest(http.MethodGet, "/link?id=x&token="+readTok, nil)
+	rec := httptest.NewRecorder()
+	r.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("read token on the compat API: %d", rec.Code)
+	}
+}

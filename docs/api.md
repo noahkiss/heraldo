@@ -27,6 +27,7 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `GET /v1/activities?all=` | Live Activities, one per progress key: running ones, or every one with `all=1`. | served |
 | `GET /v1/activities/{key}` | One activity, with its instances on each device and its timeline. The key may hold slashes. | served |
 | `PUT /v1/activity-instances/{id}` | The app reports an activity's update token, or that it was dismissed or ended. | served |
+| `POST`, `DELETE`, `GET /live-activity/{id}`, `GET /link`, `POST /notify-json/{id}` | Notify! compatibility, for senders written for Notify!. Write token as `?token=`. | served |
 
 Auth:
 
@@ -357,6 +358,35 @@ The app's side:
 `device`, `chain`, `state`, `end_reason` and times) and `timeline` (`id`,
 `received_at`, `action`, `content` per event). `GET /v1/activities` lists the
 same without `timeline`.
+
+## Notify! compatibility
+
+A sender written for Notify!'s Live Activity API, such as notify-bambuddy,
+works with heraldo after two changes: the base URL, and a heraldo write token
+as its device token. The device id can be any text. Each call becomes a
+`progress` event from the token's name as `source`, and heraldo runs the
+activity as above.
+
+| Call | heraldo |
+|---|---|
+| `POST /live-activity/{deviceId}?token=&new=1` | `start` on a new key `notify-la-<ulid>`. Answers `{success, activityId, expiresAt}`; the activity id is the key. |
+| `POST /live-activity/{activityId}?token=` | `update`. 410 when the activity ended, or every device's copy was dismissed or died. |
+| `DELETE /live-activity/{activityId}?token=` | `end`, with the body's final content and `keepFor`. Ending an ended activity answers 200. 403 for an unknown id, as Notify! does. |
+| `GET /live-activity/{activityId}?token=` | `{activityId, state, endReason, content, expiresAt}`. `state` is `starting`, `active`, `dismissed` or `ended`; `endReason` is `dismissed`, `script` (an end or a restart), or `abandoned`. |
+| `GET /live-activity/{deviceId}?token=` | `{activities: [...]}`: the token's running compat activities. |
+| `GET /link?id=&token=` | `{success: true, type: "device", id, name: "heraldo"}` for a write token. |
+| `POST /notify-json/{deviceId}?token=` | A `message`: `text` is the body, `title`, `groupType` the thread, `iconUrl` the icon, `timeSensitive` the level. |
+
+Field mapping, Notify! to LiveContent: `progress` 0–100 to 0–1; `steps` and
+`step` to `steps {total, current}`; `endsIn` seconds to `ends_at`, from now;
+`tint` hex with or without `#`, alpha first in 8 digits, to `#RRGGBBAA`;
+`button {title, url, open}` to an `open` action when `open` is true, else
+`http`; `keepFor` to `keep_for`; `title`, `body`, `symbol`, `trailing`,
+`status`, `metrics` as they are. null clears a field.
+
+- `expiresAt` is ten years out. heraldo hands a long activity over to a new
+  one itself, so the sender must not roll it over.
+- A missing or unknown token answers 401, not Notify!'s 403.
 
 ## Input and stored events
 
