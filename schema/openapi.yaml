@@ -27,12 +27,18 @@ paths:
   /healthz:
     get:
       operationId: getHealth
-      summary: Liveness check.
+      summary: Liveness check, with the database state.
       tags: [health]
       security: []
       responses:
         "200":
-          description: The server is up.
+          description: The server is up and the database answers.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "503":
+          description: The server is up but the database does not answer.
           content:
             application/json:
               schema:
@@ -48,7 +54,6 @@ paths:
 
         When the input carries a dedup id seen in the last 24 hours, the server stores
         nothing and returns the first event with 200.
-      x-stage: 1
       tags: [events]
       requestBody:
         required: true
@@ -65,13 +70,20 @@ paths:
           $ref: "#/components/responses/Error"
         "401":
           $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "413":
+          $ref: "#/components/responses/Error"
     get:
       operationId: listEvents
       summary: List events after a cursor, oldest first.
       description: |
         Clients sync history with this call. Pass the next_cursor from the last page as
-        after. An empty page means the client is up to date.
-      x-stage: 1
+        after. An empty page means the client is up to date; keep the last cursor and
+        poll with it again later.
+
+        The order is arrival order at this server. An event imported after a client
+        synced still appears after that client's cursor.
       tags: [events]
       parameters:
         - name: after
@@ -94,6 +106,24 @@ paths:
           in: query
           schema:
             $ref: "#/components/schemas/Kind"
+        - name: host
+          in: query
+          schema:
+            type: string
+        - name: key
+          in: query
+          schema:
+            type: string
+        - name: tag
+          in: query
+          description: Events that carry this tag.
+          schema:
+            type: string
+        - name: q
+          in: query
+          description: Full-text search over title, summary and body. Every word must match.
+          schema:
+            type: string
       responses:
         "200":
           description: One page of events.
@@ -105,12 +135,13 @@ paths:
           $ref: "#/components/responses/Error"
         "401":
           $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
   /v1/events/{id}:
     get:
       operationId: getEvent
       summary: Fetch one event with its full body.
       description: The notification service extension calls this to fetch a body that did not fit in the push.
-      x-stage: 1
       tags: [events]
       parameters:
         - name: id
@@ -127,6 +158,8 @@ paths:
                 $ref: "#/components/schemas/Event"
         "401":
           $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
   /v1/send:
@@ -140,8 +173,8 @@ paths:
 
         The token may come in the Authorization header or in the token parameter.
         A token in the URL ends up in access logs, proxy logs and browser history;
-        use the header when the client can set one.
-      x-stage: 1
+        use the header when the client can set one. Any other parameter is rejected
+        with 400.
       tags: [events]
       security:
         - bearerAuth: []
@@ -181,6 +214,8 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
         "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
   /v1/state:
     get:
@@ -371,7 +406,11 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      description: One token per sender for writes, one per client for reads.
+      description: |
+        One token per sender for writes, one per client for reads. Each token has a
+        scope: write (POST /v1/events, GET /v1/send), read (GET /v1/events and
+        /v1/events/{id}), or admin (both). A missing or unknown token gets 401; a
+        token without the scope gets 403.
     tokenQuery:
       type: apiKey
       in: query
@@ -465,7 +504,7 @@ components:
             $ref: "#/components/schemas/Event"
         next_cursor:
           type: string
-          description: Pass as after to get the next page. Missing when the page is the last one.
+          description: Pass as after to get the next page. Present whenever the page has events; missing on an empty page.
     State:
       type: object
       description: The latest event per key, by kind. A stand-in until stage 12.
@@ -512,13 +551,21 @@ components:
           enum: [text, markdown, html]
     Health:
       type: object
-      required: [status, version]
+      required: [status, version, db]
       properties:
         status:
           type: string
-          enum: [ok]
+          enum: [ok, error]
         version:
           type: string
+        db:
+          type: string
+          enum: [ok, error]
+          description: Whether the database answered a query.
+        events:
+          type: integer
+          format: int64
+          description: The number of stored events. Missing when the database does not answer.
     Error:
       type: object
       required: [error]

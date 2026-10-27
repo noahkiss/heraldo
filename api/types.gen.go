@@ -159,14 +159,35 @@ func (e EventAction) Valid() bool {
 	}
 }
 
+// Defines values for HealthDb.
+const (
+	HealthDbError HealthDb = "error"
+	HealthDbOk    HealthDb = "ok"
+)
+
+// Valid indicates whether the value is a known member of the HealthDb enum.
+func (e HealthDb) Valid() bool {
+	switch e {
+	case HealthDbError:
+		return true
+	case HealthDbOk:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HealthStatus.
 const (
-	HealthStatusOk HealthStatus = "ok"
+	HealthStatusError HealthStatus = "error"
+	HealthStatusOk    HealthStatus = "ok"
 )
 
 // Valid indicates whether the value is a known member of the HealthStatus enum.
 func (e HealthStatus) Valid() bool {
 	switch e {
+	case HealthStatusError:
+		return true
 	case HealthStatusOk:
 		return true
 	default:
@@ -501,15 +522,23 @@ type EventInput struct {
 type EventPage struct {
 	Events []Event `json:"events"`
 
-	// NextCursor Pass as after to get the next page. Missing when the page is the last one.
+	// NextCursor Pass as after to get the next page. Present whenever the page has events; missing on an empty page.
 	NextCursor *string `json:"next_cursor,omitempty"`
 }
 
 // Health defines model for Health.
 type Health struct {
+	// Db Whether the database answered a query.
+	Db HealthDb `json:"db"`
+
+	// Events The number of stored events. Missing when the database does not answer.
+	Events  *int64       `json:"events,omitempty"`
 	Status  HealthStatus `json:"status"`
 	Version string       `json:"version"`
 }
+
+// HealthDb Whether the database answered a query.
+type HealthDb string
 
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
@@ -704,6 +733,14 @@ type ListEventsParams struct {
 	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
 	Source *string `form:"source,omitempty" json:"source,omitempty"`
 	Kind   *Kind   `form:"kind,omitempty" json:"kind,omitempty"`
+	Host   *string `form:"host,omitempty" json:"host,omitempty"`
+	Key    *string `form:"key,omitempty" json:"key,omitempty"`
+
+	// Tag Events that carry this tag.
+	Tag *string `form:"tag,omitempty" json:"tag,omitempty"`
+
+	// Q Full-text search over title, summary and body. Every word must match.
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
 }
 
 // SendEventParams defines parameters for SendEvent.
