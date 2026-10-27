@@ -93,6 +93,78 @@ func (e AppriseNotifyType) Valid() bool {
 	}
 }
 
+// Defines values for CheckDownReason.
+const (
+	CheckDownReasonFailed  CheckDownReason = "failed"
+	CheckDownReasonMissed  CheckDownReason = "missed"
+	CheckDownReasonOverran CheckDownReason = "overran"
+)
+
+// Valid indicates whether the value is a known member of the CheckDownReason enum.
+func (e CheckDownReason) Valid() bool {
+	switch e {
+	case CheckDownReasonFailed:
+		return true
+	case CheckDownReasonMissed:
+		return true
+	case CheckDownReasonOverran:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CheckIncident.
+const (
+	CheckIncidentAcked    CheckIncident = "acked"
+	CheckIncidentOpen     CheckIncident = "open"
+	CheckIncidentResolved CheckIncident = "resolved"
+)
+
+// Valid indicates whether the value is a known member of the CheckIncident enum.
+func (e CheckIncident) Valid() bool {
+	switch e {
+	case CheckIncidentAcked:
+		return true
+	case CheckIncidentOpen:
+		return true
+	case CheckIncidentResolved:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CheckState.
+const (
+	CheckStateDown    CheckState = "down"
+	CheckStateLate    CheckState = "late"
+	CheckStateNew     CheckState = "new"
+	CheckStatePaused  CheckState = "paused"
+	CheckStateStarted CheckState = "started"
+	CheckStateUp      CheckState = "up"
+)
+
+// Valid indicates whether the value is a known member of the CheckState enum.
+func (e CheckState) Valid() bool {
+	switch e {
+	case CheckStateDown:
+		return true
+	case CheckStateLate:
+		return true
+	case CheckStateNew:
+		return true
+	case CheckStatePaused:
+		return true
+	case CheckStateStarted:
+		return true
+	case CheckStateUp:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DeliveryOutcome.
 const (
 	DeliveryOutcomeFailed  DeliveryOutcome = "failed"
@@ -388,6 +460,88 @@ type AppriseNotifyFormat string
 
 // AppriseNotifyType defines model for AppriseNotify.Type.
 type AppriseNotifyType string
+
+// Check defines model for Check.
+type Check struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// DownAfter next_due plus the grace. The check goes down then without a ping.
+	DownAfter  *time.Time       `json:"down_after,omitempty"`
+	DownReason *CheckDownReason `json:"down_reason,omitempty"`
+	Host       *string          `json:"host,omitempty"`
+
+	// Incident The state of the check's incident, checkin:<key>. Missing when it never had one.
+	Incident *CheckIncident `json:"incident,omitempty"`
+
+	// Key The check's slug, the key of its check-in events.
+	Key string `json:"key"`
+
+	// LastDurationMs The last measured run, from a start to its end or as the sender measured it.
+	LastDurationMs *int `json:"last_duration_ms,omitempty"`
+
+	// LastEvent The id of the last check-in event.
+	LastEvent *string `json:"last_event,omitempty"`
+
+	// LastLog The body of the last ping that carried a log.
+	LastLog     *string    `json:"last_log,omitempty"`
+	LastLogAt   *time.Time `json:"last_log_at,omitempty"`
+	LastPing    *time.Time `json:"last_ping,omitempty"`
+	LastSuccess *time.Time `json:"last_success,omitempty"`
+
+	// NextDue When the next ping is due. The check turns late then.
+	NextDue *time.Time `json:"next_due,omitempty"`
+
+	// Schedule When a check expects pings. Set period_s, or cron with an optional tz, or neither for an unscheduled check that only a failed or overrun run takes down.
+	Schedule CheckSchedule `json:"schedule"`
+
+	// StartedAt The start of the run in progress.
+	StartedAt  *time.Time `json:"started_at,omitempty"`
+	State      CheckState `json:"state"`
+	StateSince time.Time  `json:"state_since"`
+}
+
+// CheckDownReason defines model for Check.DownReason.
+type CheckDownReason string
+
+// CheckIncident The state of the check's incident, checkin:<key>. Missing when it never had one.
+type CheckIncident string
+
+// CheckState defines model for Check.State.
+type CheckState string
+
+// CheckConfig defines model for CheckConfig.
+type CheckConfig struct {
+	Cron        *string `json:"cron,omitempty"`
+	GraceS      *int    `json:"grace_s,omitempty"`
+	Host        *string `json:"host,omitempty"`
+	MaxRuntimeS *int    `json:"max_runtime_s,omitempty"`
+	PeriodS     *int    `json:"period_s,omitempty"`
+	ReminderS   *int    `json:"reminder_s,omitempty"`
+	Tz          *string `json:"tz,omitempty"`
+}
+
+// CheckList defines model for CheckList.
+type CheckList struct {
+	Checkins []Check `json:"checkins"`
+}
+
+// CheckSchedule When a check expects pings. Set period_s, or cron with an optional tz, or neither for an unscheduled check that only a failed or overrun run takes down.
+type CheckSchedule struct {
+	Cron *string `json:"cron,omitempty"`
+
+	// GraceS Seconds a ping may be late before the check goes down. Default 3600.
+	GraceS *int `json:"grace_s,omitempty"`
+
+	// MaxRuntimeS Seconds a started run may take before the check goes down.
+	MaxRuntimeS *int `json:"max_runtime_s,omitempty"`
+	PeriodS     *int `json:"period_s,omitempty"`
+
+	// ReminderS Seconds between reminders while the check's incident is open and not acked. Default 86400; 0 sends none.
+	ReminderS *int `json:"reminder_s,omitempty"`
+
+	// Tz IANA time zone for cron. Default UTC.
+	Tz *string `json:"tz,omitempty"`
+}
 
 // Checkin Run details for kind checkin, in the shape of a healthchecks.io ping.
 type Checkin struct {
@@ -817,6 +971,12 @@ type State struct {
 // Create defines model for Create.
 type Create int
 
+// PingHost defines model for PingHost.
+type PingHost = string
+
+// PingSource defines model for PingSource.
+type PingSource = string
+
 // Rid defines model for Rid.
 type Rid = string
 
@@ -834,8 +994,16 @@ type PingSuccessParams struct {
 	// Rid Run id. Pairs a start with its end.
 	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
 
-	// Create Set to 1 to create the check when the server does not know the slug.
+	// Create Set to 1 to create the check when the server does not know the slug. A new check
+	// takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+	// or a Go duration such as 1h30m. These parameters are ignored for a known check.
 	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
 }
 
 // PingSuccessWithLogTextBody defines parameters for PingSuccessWithLog.
@@ -846,8 +1014,16 @@ type PingSuccessWithLogParams struct {
 	// Rid Run id. Pairs a start with its end.
 	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
 
-	// Create Set to 1 to create the check when the server does not know the slug.
+	// Create Set to 1 to create the check when the server does not know the slug. A new check
+	// takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+	// or a Go duration such as 1h30m. These parameters are ignored for a known check.
 	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
 }
 
 // PingFailParams defines parameters for PingFail.
@@ -855,8 +1031,16 @@ type PingFailParams struct {
 	// Rid Run id. Pairs a start with its end.
 	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
 
-	// Create Set to 1 to create the check when the server does not know the slug.
+	// Create Set to 1 to create the check when the server does not know the slug. A new check
+	// takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+	// or a Go duration such as 1h30m. These parameters are ignored for a known check.
 	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
 }
 
 // PingFailWithLogTextBody defines parameters for PingFailWithLog.
@@ -867,8 +1051,33 @@ type PingFailWithLogParams struct {
 	// Rid Run id. Pairs a start with its end.
 	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
 
-	// Create Set to 1 to create the check when the server does not know the slug.
+	// Create Set to 1 to create the check when the server does not know the slug. A new check
+	// takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+	// or a Go duration such as 1h30m. These parameters are ignored for a known check.
 	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// PingLogGetParams defines parameters for PingLogGet.
+type PingLogGetParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Create Set to 1 to create the check when the server does not know the slug. A new check
+	// takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+	// or a Go duration such as 1h30m. These parameters are ignored for a known check.
+	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
 }
 
 // PingLogTextBody defines parameters for PingLog.
@@ -879,8 +1088,16 @@ type PingLogParams struct {
 	// Rid Run id. Pairs a start with its end.
 	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
 
-	// Create Set to 1 to create the check when the server does not know the slug.
+	// Create Set to 1 to create the check when the server does not know the slug. A new check
+	// takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+	// or a Go duration such as 1h30m. These parameters are ignored for a known check.
 	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
 }
 
 // PingStartParams defines parameters for PingStart.
@@ -888,8 +1105,36 @@ type PingStartParams struct {
 	// Rid Run id. Pairs a start with its end.
 	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
 
-	// Create Set to 1 to create the check when the server does not know the slug.
+	// Create Set to 1 to create the check when the server does not know the slug. A new check
+	// takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+	// or a Go duration such as 1h30m. These parameters are ignored for a known check.
 	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// PingStartWithLogTextBody defines parameters for PingStartWithLog.
+type PingStartWithLogTextBody = string
+
+// PingStartWithLogParams defines parameters for PingStartWithLog.
+type PingStartWithLogParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Create Set to 1 to create the check when the server does not know the slug. A new check
+	// takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+	// or a Go duration such as 1h30m. These parameters are ignored for a known check.
+	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
 }
 
 // PingExitCodeParams defines parameters for PingExitCode.
@@ -897,8 +1142,36 @@ type PingExitCodeParams struct {
 	// Rid Run id. Pairs a start with its end.
 	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
 
-	// Create Set to 1 to create the check when the server does not know the slug.
+	// Create Set to 1 to create the check when the server does not know the slug. A new check
+	// takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+	// or a Go duration such as 1h30m. These parameters are ignored for a known check.
 	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// PingExitCodeWithLogTextBody defines parameters for PingExitCodeWithLog.
+type PingExitCodeWithLogTextBody = string
+
+// PingExitCodeWithLogParams defines parameters for PingExitCodeWithLog.
+type PingExitCodeWithLogParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Create Set to 1 to create the check when the server does not know the slug. A new check
+	// takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+	// or a Go duration such as 1h30m. These parameters are ignored for a known check.
+	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
 }
 
 // ListEventsParams defines parameters for ListEvents.
@@ -977,6 +1250,15 @@ type PingFailWithLogTextRequestBody = PingFailWithLogTextBody
 
 // PingLogTextRequestBody defines body for PingLog for text/plain ContentType.
 type PingLogTextRequestBody = PingLogTextBody
+
+// PingStartWithLogTextRequestBody defines body for PingStartWithLog for text/plain ContentType.
+type PingStartWithLogTextRequestBody = PingStartWithLogTextBody
+
+// PingExitCodeWithLogTextRequestBody defines body for PingExitCodeWithLog for text/plain ContentType.
+type PingExitCodeWithLogTextRequestBody = PingExitCodeWithLogTextBody
+
+// PutCheckinJSONRequestBody defines body for PutCheckin for application/json ContentType.
+type PutCheckinJSONRequestBody = CheckConfig
 
 // PutCursorJSONRequestBody defines body for PutCursor for application/json ContentType.
 type PutCursorJSONRequestBody = Cursor

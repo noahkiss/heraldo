@@ -300,31 +300,7 @@ func derive(ctx context.Context, tx *sql.Tx, ev NewEvent) error {
 			return err
 		}
 	case api.KindCheckin:
-		state := ""
-		switch action {
-		case "start":
-			state = "running"
-		case "fail":
-			state = "down"
-		case "log":
-		default: // success, or none: a plain ping is a success
-			state = "up"
-		}
-		if in.Checkin != nil && in.Checkin.ExitCode != nil && *in.Checkin.ExitCode != 0 && action != "log" {
-			state = "down"
-		}
-		if state == "" {
-			_, err := tx.ExecContext(ctx, `INSERT INTO checkins (key, last_ping, state, last_event)
-				VALUES (?, ?, 'unknown', ?)
-				ON CONFLICT (key) DO UPDATE SET last_ping = excluded.last_ping, last_event = excluded.last_event`,
-				key, at, ev.ID)
-			return err
-		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO checkins (key, last_ping, state, last_event)
-			VALUES (?, ?, ?, ?)
-			ON CONFLICT (key) DO UPDATE SET last_ping = excluded.last_ping, state = excluded.state,
-			last_event = excluded.last_event`, key, at, state, ev.ID)
-		return err
+		return deriveCheckin(ctx, tx, ev, key)
 	case api.KindProgress:
 		state := "active"
 		if action == "end" {

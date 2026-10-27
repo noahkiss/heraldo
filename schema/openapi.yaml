@@ -25,6 +25,8 @@ tags:
   - name: health
   - name: devices
     description: Devices the apps register for push.
+  - name: checkins
+    description: Checks that expect pings on a schedule, and the ping API.
 paths:
   /healthz:
     get:
@@ -482,29 +484,43 @@ paths:
       - $ref: "#/components/parameters/Slug"
       - $ref: "#/components/parameters/Rid"
       - $ref: "#/components/parameters/Create"
+      - $ref: "#/components/parameters/PingSource"
+      - $ref: "#/components/parameters/PingHost"
     get:
       operationId: pingSuccess
       summary: Record a successful run (healthchecks.io shape).
-      x-stage: 6
-      tags: [compat]
+      tags: [checkins]
+      security:
+        - bearerAuth: []
+        - tokenQuery: []
       responses:
         "200":
           $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
         "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
     post:
       operationId: pingSuccessWithLog
       summary: Record a successful run with a log in the body.
-      x-stage: 6
-      tags: [compat]
+      tags: [checkins]
+      security:
+        - bearerAuth: []
+        - tokenQuery: []
       requestBody:
         $ref: "#/components/requestBodies/PingLog"
       responses:
         "200":
           $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
         "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
@@ -513,15 +529,43 @@ paths:
       - $ref: "#/components/parameters/Slug"
       - $ref: "#/components/parameters/Rid"
       - $ref: "#/components/parameters/Create"
+      - $ref: "#/components/parameters/PingSource"
+      - $ref: "#/components/parameters/PingHost"
     get:
       operationId: pingStart
       summary: Record the start of a run.
-      x-stage: 6
-      tags: [compat]
+      tags: [checkins]
+      security:
+        - bearerAuth: []
+        - tokenQuery: []
       responses:
         "200":
           $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
         "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: pingStartWithLog
+      summary: Record the start of a run with a log in the body.
+      tags: [checkins]
+      security:
+        - bearerAuth: []
+        - tokenQuery: []
+      requestBody:
+        $ref: "#/components/requestBodies/PingLog"
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
@@ -530,29 +574,43 @@ paths:
       - $ref: "#/components/parameters/Slug"
       - $ref: "#/components/parameters/Rid"
       - $ref: "#/components/parameters/Create"
+      - $ref: "#/components/parameters/PingSource"
+      - $ref: "#/components/parameters/PingHost"
     get:
       operationId: pingFail
       summary: Record a failed run.
-      x-stage: 6
-      tags: [compat]
+      tags: [checkins]
+      security:
+        - bearerAuth: []
+        - tokenQuery: []
       responses:
         "200":
           $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
         "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
     post:
       operationId: pingFailWithLog
       summary: Record a failed run with a log in the body.
-      x-stage: 6
-      tags: [compat]
+      tags: [checkins]
+      security:
+        - bearerAuth: []
+        - tokenQuery: []
       requestBody:
         $ref: "#/components/requestBodies/PingLog"
       responses:
         "200":
           $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
         "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
@@ -561,17 +619,43 @@ paths:
       - $ref: "#/components/parameters/Slug"
       - $ref: "#/components/parameters/Rid"
       - $ref: "#/components/parameters/Create"
+      - $ref: "#/components/parameters/PingSource"
+      - $ref: "#/components/parameters/PingHost"
+    get:
+      operationId: pingLogGet
+      summary: Record a ping that changes nothing but the last ping time.
+      tags: [checkins]
+      security:
+        - bearerAuth: []
+        - tokenQuery: []
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
     post:
       operationId: pingLog
-      summary: Attach a log line without changing the check's state.
-      x-stage: 6
-      tags: [compat]
+      summary: Attach a log without changing the check's state.
+      tags: [checkins]
+      security:
+        - bearerAuth: []
+        - tokenQuery: []
       requestBody:
         $ref: "#/components/requestBodies/PingLog"
       responses:
         "200":
           $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
         "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
@@ -588,15 +672,152 @@ paths:
           maximum: 255
       - $ref: "#/components/parameters/Rid"
       - $ref: "#/components/parameters/Create"
+      - $ref: "#/components/parameters/PingSource"
+      - $ref: "#/components/parameters/PingHost"
     get:
       operationId: pingExitCode
       summary: Record a run by its exit code.
-      x-stage: 6
-      tags: [compat]
+      tags: [checkins]
+      security:
+        - bearerAuth: []
+        - tokenQuery: []
       responses:
         "200":
           $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
         "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: pingExitCodeWithLog
+      summary: Record a run by its exit code, with a log in the body.
+      tags: [checkins]
+      security:
+        - bearerAuth: []
+        - tokenQuery: []
+      requestBody:
+        $ref: "#/components/requestBodies/PingLog"
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/checkins:
+    get:
+      operationId: listCheckins
+      summary: Every check with its schedule, state, next due time, last duration and last log.
+      tags: [checkins]
+      responses:
+        "200":
+          description: The checks, in key order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckList"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/checkins/{slug}:
+    parameters:
+      - $ref: "#/components/parameters/Slug"
+    get:
+      operationId: getCheckin
+      summary: One check.
+      tags: [checkins]
+      responses:
+        "200":
+          description: The check.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Check"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    put:
+      operationId: putCheckin
+      summary: Create a check, or replace a known check's host and schedule.
+      description: |
+        Every field is replaced: a field left out takes its default. A changed schedule
+        moves the next due time from the last run, and a check that is late or down for
+        a missed ping is judged again under the new schedule.
+      tags: [checkins]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckConfig"
+      responses:
+        "200":
+          description: The check, updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Check"
+        "201":
+          description: The check, created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Check"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/checkins/{slug}/pause:
+    parameters:
+      - $ref: "#/components/parameters/Slug"
+    post:
+      operationId: pauseCheckin
+      summary: Stop judging a check. Pings are still recorded; an open incident resolves.
+      tags: [checkins]
+      responses:
+        "200":
+          description: The check, paused.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Check"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/checkins/{slug}/resume:
+    parameters:
+      - $ref: "#/components/parameters/Slug"
+    post:
+      operationId: resumeCheckin
+      summary: Judge a paused check again. It is new until its next ping.
+      tags: [checkins]
+      responses:
+        "200":
+          description: The check, resumed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Check"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
@@ -673,9 +894,10 @@ components:
       name: slug
       in: path
       required: true
-      description: The check's name, the same as the checkin key.
+      description: "The check's name, the same as the checkin key: 1 to 200 of A-Z a-z 0-9 and . _ : -"
       schema:
         type: string
+        pattern: "^[A-Za-z0-9._:-]{1,200}$"
     Rid:
       name: rid
       in: query
@@ -685,13 +907,30 @@ components:
     Create:
       name: create
       in: query
-      description: Set to 1 to create the check when the server does not know the slug.
+      description: |
+        Set to 1 to create the check when the server does not know the slug. A new check
+        takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+        or a Go duration such as 1h30m. These parameters are ignored for a known check.
       schema:
         type: integer
         enum: [0, 1]
+    PingSource:
+      name: source
+      in: query
+      description: The event's source. Default checkin.
+      schema:
+        type: string
+        maxLength: 128
+    PingHost:
+      name: host
+      in: query
+      description: The event's host, and the host of a check that this ping creates.
+      schema:
+        type: string
+        maxLength: 128
   requestBodies:
     PingLog:
-      description: Log text for the run.
+      description: Log text for the run, stored as the event's body. The server keeps the first 100 kB.
       content:
         text/plain:
           schema:
@@ -891,6 +1130,122 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Device"
+    CheckSchedule:
+      type: object
+      description: When a check expects pings. Set period_s, or cron with an optional tz, or neither for an unscheduled check that only a failed or overrun run takes down.
+      properties:
+        period_s:
+          type: integer
+          minimum: 1
+        cron:
+          type: string
+          maxLength: 128
+        tz:
+          type: string
+          maxLength: 64
+          description: IANA time zone for cron. Default UTC.
+        grace_s:
+          type: integer
+          minimum: 0
+          description: Seconds a ping may be late before the check goes down. Default 3600.
+        max_runtime_s:
+          type: integer
+          minimum: 1
+          description: Seconds a started run may take before the check goes down.
+        reminder_s:
+          type: integer
+          minimum: 0
+          description: "Seconds between reminders while the check's incident is open and not acked. Default 86400; 0 sends none."
+    CheckConfig:
+      type: object
+      additionalProperties: false
+      properties:
+        host:
+          type: string
+          maxLength: 128
+        period_s:
+          type: integer
+          minimum: 1
+        cron:
+          type: string
+          maxLength: 128
+        tz:
+          type: string
+          maxLength: 64
+        grace_s:
+          type: integer
+          minimum: 0
+        max_runtime_s:
+          type: integer
+          minimum: 1
+        reminder_s:
+          type: integer
+          minimum: 0
+    Check:
+      type: object
+      required: [key, state, state_since, created_at, schedule]
+      properties:
+        key:
+          type: string
+          description: The check's slug, the key of its check-in events.
+        host:
+          type: string
+        state:
+          type: string
+          enum: [new, up, started, late, down, paused]
+        state_since:
+          type: string
+          format: date-time
+        down_reason:
+          type: string
+          enum: [failed, missed, overran]
+        schedule:
+          $ref: "#/components/schemas/CheckSchedule"
+        created_at:
+          type: string
+          format: date-time
+        last_ping:
+          type: string
+          format: date-time
+        last_event:
+          type: string
+          description: The id of the last check-in event.
+        started_at:
+          type: string
+          format: date-time
+          description: The start of the run in progress.
+        last_success:
+          type: string
+          format: date-time
+        last_duration_ms:
+          type: integer
+          description: The last measured run, from a start to its end or as the sender measured it.
+        next_due:
+          type: string
+          format: date-time
+          description: When the next ping is due. The check turns late then.
+        down_after:
+          type: string
+          format: date-time
+          description: next_due plus the grace. The check goes down then without a ping.
+        last_log:
+          type: string
+          description: The body of the last ping that carried a log.
+        last_log_at:
+          type: string
+          format: date-time
+        incident:
+          type: string
+          enum: [open, acked, resolved]
+          description: "The state of the check's incident, checkin:<key>. Missing when it never had one."
+    CheckList:
+      type: object
+      required: [checkins]
+      properties:
+        checkins:
+          type: array
+          items:
+            $ref: "#/components/schemas/Check"
     AppriseNotify:
       type: object
       description: An Apprise API notify request. Fields heraldo does not use are accepted and ignored.

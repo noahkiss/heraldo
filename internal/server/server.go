@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/noahkiss/heraldo/api"
@@ -58,10 +59,26 @@ type Pusher interface {
 type server struct {
 	Options
 	hub *hub
+	// started is when the server started: no check goes down for a missed
+	// ping before started plus its grace.
+	started time.Time
+	// cmu serialises check judging, so a ping and a scheduler tick never
+	// open the same incident twice.
+	cmu sync.Mutex
 }
 
-// New returns the server's HTTP handler.
-func New(o Options) http.Handler {
+// Server is the HTTP handler and the check-in scheduler.
+type Server struct {
+	http.Handler
+	s *server
+}
+
+// New returns the server's HTTP handler. It is a *Server.
+func New(o Options) http.Handler { return NewServer(o) }
+
+// NewServer returns the server. Serve its handler, and run RunCheckins for
+// the check-in scheduler.
+func NewServer(o Options) *Server {
 	if o.Now == nil {
 		o.Now = time.Now
 	}
@@ -77,7 +94,7 @@ func New(o Options) http.Handler {
 	if o.PushState == "" {
 		o.PushState = api.HealthPushOff
 	}
-	s := &server{Options: o, hub: newHub()}
+	s := &server{Options: o, hub: newHub(), started: o.Now()}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("POST /v1/events", s.auth(auth.ScopeWrite, false, s.postEvent))
@@ -93,7 +110,16 @@ func New(o Options) http.Handler {
 	mux.HandleFunc("GET /v1/devices/{id}", s.auth(DeviceScope, false, s.getDevice))
 	mux.HandleFunc("PUT /v1/devices/{id}", s.auth(DeviceScope, false, s.updateDevice))
 	mux.HandleFunc("DELETE /v1/devices/{id}", s.auth(DeviceScope, false, s.removeDevice))
-	return s.logRequests(mux)
+	for _, m := range []string{"GET", "POST"} {
+		mux.HandleFunc(m+" /ping/{slug}", s.auth(auth.ScopeWrite, true, s.ping))
+		mux.HandleFunc(m+" /ping/{slug}/{op}", s.auth(auth.ScopeWrite, true, s.ping))
+	}
+	mux.HandleFunc("GET /v1/checkins", s.auth(auth.ScopeRead, false, s.listChecks))
+	mux.HandleFunc("GET /v1/checkins/{slug}", s.auth(auth.ScopeRead, false, s.getCheck))
+	mux.HandleFunc("PUT /v1/checkins/{slug}", s.auth(auth.ScopeWrite, false, s.putCheck))
+	mux.HandleFunc("POST /v1/checkins/{slug}/pause", s.auth(auth.ScopeWrite, false, s.pauseCheck))
+	mux.HandleFunc("POST /v1/checkins/{slug}/resume", s.auth(auth.ScopeWrite, false, s.resumeCheck))
+	return &Server{Handler: s.logRequests(mux), s: s}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -132,7 +158,7 @@ func (w *statusWriter) WriteHeader(code int) {
 func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // logRequests logs one line per request. It logs the path, never the query
-// string, because /v1/send may carry a token there.
+// string, because /v1/send and /ping may carry a token there.
 func (s *server) logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -165,7 +191,7 @@ func (s *server) auth(need auth.Scope, queryToken bool, h http.HandlerFunc) http
 		if presented == "" && r.URL.Query().Has("token") {
 			if !queryToken {
 				w.Header().Set("WWW-Authenticate", `Bearer`)
-				writeError(w, http.StatusUnauthorized, "the token parameter is accepted only on /v1/send; use the Authorization header")
+				writeError(w, http.StatusUnauthorized, "the token parameter is accepted only on /v1/send and /ping; use the Authorization header")
 				return
 			}
 			presented = r.URL.Query().Get("token")
@@ -343,6 +369,9 @@ func (s *server) ingest(ctx context.Context, in *validate.Input, trusted bool) (
 		s.hub.poke(rec.Seq)
 		if s.Pusher != nil {
 			s.Pusher.Enqueue(rec)
+		}
+		if *in.Typed.Kind == api.KindCheckin && in.Typed.Key != nil {
+			s.judgeCheck(ctx, *in.Typed.Key)
 		}
 	}
 	return rec, created, nil
