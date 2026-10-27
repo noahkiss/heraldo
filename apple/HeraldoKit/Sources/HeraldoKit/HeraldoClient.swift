@@ -152,6 +152,25 @@ public struct HeraldoClient: Sendable {
         try await listEvents(EventQuery(order: .desc, limit: 1)).nextCursor
     }
 
+    // MARK: Check-ins
+
+    /// Every check, in key order, or nil from a server before check-ins.
+    public func checks() async throws -> [Check]? {
+        do {
+            let list: CheckList = try await get("v1/checkins")
+            return list.checkins
+        } catch let e as HeraldoError where e.status == 404 || e.status == 405 {
+            return nil
+        }
+    }
+
+    /// Pauses or resumes a check with the write token.
+    @discardableResult
+    public func setPaused(_ key: String, _ paused: Bool) async throws -> Check {
+        guard let writeToken else { throw HeraldoError.notConfigured("The write token") }
+        return try await send(request("v1/checkins/\(escape(key))/\(paused ? "pause" : "resume")", method: "POST", token: writeToken))
+    }
+
     // MARK: Read cursors
 
     /// The read cursor called `name`, or nil when it does not exist yet.
