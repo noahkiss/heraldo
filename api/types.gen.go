@@ -48,6 +48,75 @@ func (e ActionType) Valid() bool {
 	}
 }
 
+// Defines values for ActivityEndReason.
+const (
+	ActivityEndReasonAbandoned ActivityEndReason = "abandoned"
+	ActivityEndReasonRestarted ActivityEndReason = "restarted"
+	ActivityEndReasonSender    ActivityEndReason = "sender"
+)
+
+// Valid indicates whether the value is a known member of the ActivityEndReason enum.
+func (e ActivityEndReason) Valid() bool {
+	switch e {
+	case ActivityEndReasonAbandoned:
+		return true
+	case ActivityEndReasonRestarted:
+		return true
+	case ActivityEndReasonSender:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ActivityState.
+const (
+	ActivityStateActive ActivityState = "active"
+	ActivityStateEnded  ActivityState = "ended"
+)
+
+// Valid indicates whether the value is a known member of the ActivityState enum.
+func (e ActivityState) Valid() bool {
+	switch e {
+	case ActivityStateActive:
+		return true
+	case ActivityStateEnded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ActivityInstanceState.
+const (
+	ActivityInstanceStateActive       ActivityInstanceState = "active"
+	ActivityInstanceStateDead         ActivityInstanceState = "dead"
+	ActivityInstanceStateDismissed    ActivityInstanceState = "dismissed"
+	ActivityInstanceStateEnded        ActivityInstanceState = "ended"
+	ActivityInstanceStateNeverStarted ActivityInstanceState = "never-started"
+	ActivityInstanceStateStarting     ActivityInstanceState = "starting"
+)
+
+// Valid indicates whether the value is a known member of the ActivityInstanceState enum.
+func (e ActivityInstanceState) Valid() bool {
+	switch e {
+	case ActivityInstanceStateActive:
+		return true
+	case ActivityInstanceStateDead:
+		return true
+	case ActivityInstanceStateDismissed:
+		return true
+	case ActivityInstanceStateEnded:
+		return true
+	case ActivityInstanceStateNeverStarted:
+		return true
+	case ActivityInstanceStateStarting:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AppriseNotifyFormat.
 const (
 	AppriseNotifyFormatHtml     AppriseNotifyFormat = "html"
@@ -252,6 +321,24 @@ func (e HealthStatus) Valid() bool {
 	}
 }
 
+// Defines values for InstanceReportState.
+const (
+	InstanceReportStateDismissed InstanceReportState = "dismissed"
+	InstanceReportStateEnded     InstanceReportState = "ended"
+)
+
+// Valid indicates whether the value is a known member of the InstanceReportState enum.
+func (e InstanceReportState) Valid() bool {
+	switch e {
+	case InstanceReportStateDismissed:
+		return true
+	case InstanceReportStateEnded:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Kind.
 const (
 	KindCheckin  Kind = "checkin"
@@ -306,6 +393,27 @@ func (e Level) Valid() bool {
 	}
 }
 
+// Defines values for TimelineEntryAction.
+const (
+	TimelineEntryActionEnd    TimelineEntryAction = "end"
+	TimelineEntryActionStart  TimelineEntryAction = "start"
+	TimelineEntryActionUpdate TimelineEntryAction = "update"
+)
+
+// Valid indicates whether the value is a known member of the TimelineEntryAction enum.
+func (e TimelineEntryAction) Valid() bool {
+	switch e {
+	case TimelineEntryActionEnd:
+		return true
+	case TimelineEntryActionStart:
+		return true
+	case TimelineEntryActionUpdate:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Create.
 const (
 	CreateN0 Create = 0
@@ -318,6 +426,24 @@ func (e Create) Valid() bool {
 	case CreateN0:
 		return true
 	case CreateN1:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListActivitiesParamsAll.
+const (
+	ListActivitiesParamsAllN0 ListActivitiesParamsAll = 0
+	ListActivitiesParamsAllN1 ListActivitiesParamsAll = 1
+)
+
+// Valid indicates whether the value is a known member of the ListActivitiesParamsAll enum.
+func (e ListActivitiesParamsAll) Valid() bool {
+	switch e {
+	case ListActivitiesParamsAllN0:
+		return true
+	case ListActivitiesParamsAllN1:
 		return true
 	default:
 		return false
@@ -371,6 +497,74 @@ type ActionMethod string
 
 // ActionType Who handles the tap: open and http run on the device, server runs on heraldo.
 type ActionType string
+
+// Activity The activity on one progress key. A start, or an update on a key with no running
+// activity, begins one; an end, or two hours without an update, ends it.
+type Activity struct {
+	// Content What a Live Activity (kind progress) or widget (kind status) shows. On an update, a field left out keeps its value and a field set to null clears it.
+	Content LiveContent `json:"content"`
+
+	// EndReason sender: an end event. abandoned: no update for two hours. restarted: a start
+	// on the same key began a new activity.
+	EndReason *ActivityEndReason `json:"end_reason,omitempty"`
+	EndedAt   *time.Time         `json:"ended_at,omitempty"`
+
+	// Id act_ plus the id of the event that began it.
+	Id        string             `json:"id"`
+	Instances []ActivityInstance `json:"instances"`
+	Key       string             `json:"key"`
+	Source    string             `json:"source"`
+	StartedAt time.Time          `json:"started_at"`
+	State     ActivityState      `json:"state"`
+
+	// Timeline The sender's progress events since the start, oldest first, at most 500. Only on GET /v1/activities/{key}.
+	Timeline *[]TimelineEntry `json:"timeline,omitempty"`
+
+	// UpdatedAt When the sender's last event on the key arrived.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ActivityEndReason sender: an end event. abandoned: no update for two hours. restarted: a start
+// on the same key began a new activity.
+type ActivityEndReason string
+
+// ActivityState defines model for Activity.State.
+type ActivityState string
+
+// ActivityInstance The activity on one device. An activity runs as a chain of these: one is ended
+// and the next started with the same content before Apple's 8 hour limit.
+type ActivityInstance struct {
+	// Chain 0 for the first link, then 1, 2 and on.
+	Chain       int        `json:"chain"`
+	ConfirmedAt *time.Time `json:"confirmed_at,omitempty"`
+	Device      string     `json:"device"`
+	EndReason   *string    `json:"end_reason,omitempty"`
+	EndedAt     *time.Time `json:"ended_at,omitempty"`
+
+	// Id lai_ plus a ULID. Also in the activity's attributes.
+	Id          string     `json:"id"`
+	LastPushAt  *time.Time `json:"last_push_at,omitempty"`
+	RequestedAt time.Time  `json:"requested_at"`
+
+	// State starting: push-to-start sent, no update token yet. active: the app reported
+	// the update token. ended: the server or the system ended it. dismissed: the
+	// person removed it; never started again. never-started: no update token came
+	// within 15 minutes; a later update tries again, three times at most. dead:
+	// APNs refused its update token; never started again.
+	State ActivityInstanceState `json:"state"`
+}
+
+// ActivityInstanceState starting: push-to-start sent, no update token yet. active: the app reported
+// the update token. ended: the server or the system ended it. dismissed: the
+// person removed it; never started again. never-started: no update token came
+// within 15 minutes; a later update tries again, three times at most. dead:
+// APNs refused its update token; never started again.
+type ActivityInstanceState string
+
+// ActivityList defines model for ActivityList.
+type ActivityList struct {
+	Activities []Activity `json:"activities"`
+}
 
 // AppriseNotify An Apprise API notify request. Fields heraldo does not use are accepted and ignored.
 type AppriseNotify struct {
@@ -450,8 +644,11 @@ type Device struct {
 	Environment DeviceEnvironment `json:"environment"`
 
 	// Id The server's id for the device.
-	Id   string  `json:"id"`
-	Name *string `json:"name,omitempty"`
+	Id string `json:"id"`
+
+	// LiveActivityTokenSuffix The last 8 characters of the push-to-start token, when the app reported one.
+	LiveActivityTokenSuffix *string `json:"live_activity_token_suffix,omitempty"`
+	Name                    *string `json:"name,omitempty"`
 
 	// Permissions Permission health the app reports. A field left out is unknown. false raises an
 	// incident with key device:<id>:<field>; true resolves it.
@@ -486,6 +683,10 @@ type DeviceRegistration struct {
 
 	// Environment The APNs environment the token belongs to. A development build's token is sandbox; TestFlight and App Store tokens are production.
 	Environment DeviceRegistrationEnvironment `json:"environment"`
+
+	// LiveActivityToken The push-to-start token ActivityKit gives the app for its Live Activities, hex.
+	// The server starts an activity on the device with it.
+	LiveActivityToken *string `json:"live_activity_token,omitempty"`
 
 	// Name The device's name, as the person sees it.
 	Name *string `json:"name,omitempty"`
@@ -705,6 +906,19 @@ type HealthPush string
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
 
+// InstanceReport What the app saw. At least one field.
+type InstanceReport struct {
+	// Device The reporting device's id. When set, it must be the instance's device.
+	Device *string              `json:"device,omitempty"`
+	State  *InstanceReportState `json:"state,omitempty"`
+
+	// Token The activity's push token, hex.
+	Token *string `json:"token,omitempty"`
+}
+
+// InstanceReportState defines model for InstanceReport.State.
+type InstanceReportState string
+
 // Kind What the event is. message: a one-off notice. incident: a problem with a lifecycle. digest: a batch summary. progress: a Live Activity. checkin: a job run, as with healthchecks.io. status: a named live value for widgets and the status view; it never sends an alert push, only a widget push. incident, progress, checkin and status need a key.
 type Kind string
 
@@ -814,6 +1028,21 @@ type State struct {
 	Statuses []Event `json:"statuses"`
 }
 
+// TimelineEntry defines model for TimelineEntry.
+type TimelineEntry struct {
+	Action TimelineEntryAction `json:"action"`
+
+	// Content What a Live Activity (kind progress) or widget (kind status) shows. On an update, a field left out keeps its value and a field set to null clears it.
+	Content *LiveContent `json:"content,omitempty"`
+
+	// Id The event id.
+	Id         string    `json:"id"`
+	ReceivedAt time.Time `json:"received_at"`
+}
+
+// TimelineEntryAction defines model for TimelineEntry.Action.
+type TimelineEntryAction string
+
 // Create defines model for Create.
 type Create int
 
@@ -901,6 +1130,15 @@ type PingExitCodeParams struct {
 	Create *Create `form:"create,omitempty" json:"create,omitempty"`
 }
 
+// ListActivitiesParams defines parameters for ListActivities.
+type ListActivitiesParams struct {
+	// All 1 lists ended activities too.
+	All *ListActivitiesParamsAll `form:"all,omitempty" json:"all,omitempty"`
+}
+
+// ListActivitiesParamsAll defines parameters for ListActivities.
+type ListActivitiesParamsAll int
+
 // ListEventsParams defines parameters for ListEvents.
 type ListEventsParams struct {
 	// After Opaque cursor from a previous page. Leave it out to start at the oldest event.
@@ -977,6 +1215,9 @@ type PingFailWithLogTextRequestBody = PingFailWithLogTextBody
 
 // PingLogTextRequestBody defines body for PingLog for text/plain ContentType.
 type PingLogTextRequestBody = PingLogTextBody
+
+// ReportInstanceJSONRequestBody defines body for ReportInstance for application/json ContentType.
+type ReportInstanceJSONRequestBody = InstanceReport
 
 // PutCursorJSONRequestBody defines body for PutCursor for application/json ContentType.
 type PutCursorJSONRequestBody = Cursor

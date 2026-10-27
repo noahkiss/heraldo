@@ -283,8 +283,15 @@ func (p *Pusher) send(ctx context.Context, dev store.Device, body []byte, h Head
 		return answer{status: -1}, err
 	}
 	req.Header.Set("authorization", "bearer "+jwt)
-	req.Header.Set("apns-topic", dev.Topic)
-	req.Header.Set("apns-push-type", "alert")
+	topic, pushType := dev.Topic, "alert"
+	if h.Topic != "" {
+		topic = h.Topic
+	}
+	if h.PushType != "" {
+		pushType = h.PushType
+	}
+	req.Header.Set("apns-topic", topic)
+	req.Header.Set("apns-push-type", pushType)
 	req.Header.Set("apns-priority", strconv.Itoa(h.Priority))
 	// Without apns-expiration, APNs keeps the push for a device that is
 	// offline. 0 would mean "try once, keep nothing".

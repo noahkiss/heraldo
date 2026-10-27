@@ -43,6 +43,7 @@ import (
 	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/auth"
 	"github.com/noahkiss/heraldo/internal/config"
+	"github.com/noahkiss/heraldo/internal/live"
 	"github.com/noahkiss/heraldo/internal/push"
 	"github.com/noahkiss/heraldo/internal/replay"
 	"github.com/noahkiss/heraldo/internal/rules"
@@ -160,12 +161,12 @@ func serve(log *slog.Logger) error {
 		}
 		go rw.Watch(ctx, rules.DefaultInterval)
 	}
-	pusher, pushState := startPush(ctx, cfg, st, log)
+	pusher, lm, pushState := startPush(ctx, cfg, st, log)
 	srv := &http.Server{
 		Addr: cfg.Addr,
 		Handler: server.New(server.Options{
 			Version: version.String(), Store: st, Tokens: tokens, Validator: v, Rules: rw, Logger: log,
-			Done: ctx.Done(), Pusher: pusher, PushState: pushState,
+			Done: ctx.Done(), Pusher: pusher, PushState: pushState, Live: lm,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -196,33 +197,35 @@ func serve(log *slog.Logger) error {
 	return nil
 }
 
-// startPush starts the APNs pusher when HERALDO_PUSH is on and a key loads.
-// A missing or bad key logs an error and leaves push off: ingest keeps
-// working.
-func startPush(ctx context.Context, cfg config.Config, st *store.Store, log *slog.Logger) (server.Pusher, api.HealthPush) {
+// startPush starts the APNs pusher and the Live Activity manager when
+// HERALDO_PUSH is on and a key loads. A missing or bad key logs an error and
+// leaves push off: ingest keeps working.
+func startPush(ctx context.Context, cfg config.Config, st *store.Store, log *slog.Logger) (server.Pusher, server.Live, api.HealthPush) {
 	if !cfg.Push {
 		if cfg.HasAPNsKey() {
 			log.Info("push: an APNs key is set, but HERALDO_PUSH is off; nothing is pushed")
 		}
-		return nil, api.HealthPushOff
+		return nil, nil, api.HealthPushOff
 	}
 	if !cfg.HasAPNsKey() {
 		log.Error("push: HERALDO_PUSH is on, but no APNs key is set; nothing is pushed")
-		return nil, api.HealthPushNoKey
+		return nil, nil, api.HealthPushNoKey
 	}
 	pem, err := cfg.LoadAPNsKey()
 	if err != nil {
 		log.Error("push: the APNs key does not load; nothing is pushed", "err", err)
-		return nil, api.HealthPushNoKey
+		return nil, nil, api.HealthPushNoKey
 	}
 	key, err := push.ParseKey(pem)
 	if err != nil {
 		log.Error("push: the APNs key does not parse; nothing is pushed", "err", err)
-		return nil, api.HealthPushNoKey
+		return nil, nil, api.HealthPushNoKey
 	}
 	p := push.New(push.Config{Key: key, KeyID: cfg.APNsKeyID, TeamID: cfg.APNsTeamID, Store: st, Logger: log})
 	go p.Run(ctx)
-	return p, api.HealthPushOn
+	lm := live.New(live.Config{Store: st, Sender: p, Logger: log})
+	go lm.Run(ctx)
+	return p, lm, api.HealthPushOn
 }
 
 func importTee(dir string, log *slog.Logger) error {

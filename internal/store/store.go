@@ -326,14 +326,7 @@ func derive(ctx context.Context, tx *sql.Tx, ev NewEvent) error {
 			last_event = excluded.last_event`, key, at, state, ev.ID)
 		return err
 	case api.KindProgress:
-		state := "active"
-		if action == "end" {
-			state = "ended"
-		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO activities (key, state, last_event) VALUES (?, ?, ?)
-			ON CONFLICT (key) DO UPDATE SET state = excluded.state, last_event = excluded.last_event`,
-			key, state, ev.ID)
-		return err
+		return deriveActivity(ctx, tx, ev, key, action, at)
 	case api.KindStatus:
 		if action == "clear" {
 			_, err := tx.ExecContext(ctx, `DELETE FROM status WHERE key = ?`, key)

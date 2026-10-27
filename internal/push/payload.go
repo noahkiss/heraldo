@@ -148,6 +148,10 @@ type Headers struct {
 	CollapseID string
 	Priority   int
 	Expiration int64
+	// PushType is apns-push-type; empty means alert.
+	PushType string
+	// Topic replaces the device's topic as apns-topic when set.
+	Topic string
 }
 
 // CollapseID returns the apns-collapse-id for a key: the first 32 hex

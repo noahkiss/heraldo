@@ -57,6 +57,9 @@ func deviceJSON(d store.Device) api.Device {
 		return &s
 	}
 	out.Name, out.Platform, out.AppVersion = str(d.Name), str(d.Platform), str(d.AppVersion)
+	if t := d.LiveActivityToken; t != "" {
+		out.LiveActivityTokenSuffix = str(t[max(0, len(t)-8):])
+	}
 	if !d.Active() {
 		t := d.RetiredAt
 		out.RetiredAt, out.RetiredReason = &t, str(d.RetiredReason)
@@ -103,6 +106,13 @@ func (s *server) readDevice(w http.ResponseWriter, r *http.Request) (store.Devic
 		AppVersion:  opt("app_version", in.AppVersion, 64),
 		UpdatedBy:   tokenFrom(r).Name,
 	}
+	if in.LiveActivityToken != nil {
+		if liveToken.MatchString(*in.LiveActivityToken) {
+			d.LiveActivityToken = strings.ToLower(*in.LiveActivityToken)
+		} else {
+			problems = append(problems, "live_activity_token: want 32 to 400 hex characters")
+		}
+	}
 	if in.Permissions != nil {
 		d.Alerts, d.TimeSensitive, d.LiveActivities = in.Permissions.Alerts, in.Permissions.TimeSensitive, in.Permissions.LiveActivities
 	}
@@ -147,6 +157,7 @@ func (s *server) registerDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.permissionHealth(r.Context(), old, got)
+	s.liveTokenChanged(old, got)
 	status := http.StatusOK
 	if created {
 		status = http.StatusCreated
@@ -165,7 +176,17 @@ func (s *server) updateDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.permissionHealth(r.Context(), &old, got)
+	s.liveTokenChanged(&old, got)
 	writeJSON(w, http.StatusOK, deviceJSON(got))
+}
+
+// liveTokenChanged lets running activities start on a device that reported
+// a new push-to-start token.
+func (s *server) liveTokenChanged(old *store.Device, cur store.Device) {
+	if s.Live == nil || cur.LiveActivityToken == "" || (old != nil && old.Active() && old.LiveActivityToken == cur.LiveActivityToken) {
+		return
+	}
+	s.Live.Enqueue(s.Live.Resync)
 }
 
 // removeDevice retires the device. Its open permission incidents resolve:

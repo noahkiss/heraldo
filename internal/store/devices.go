@@ -32,27 +32,31 @@ type Device struct {
 	// RetiredAt is zero for an active device.
 	RetiredAt     time.Time
 	RetiredReason string
+	// LiveActivityToken is the push-to-start token for Live Activities;
+	// empty when the app has not reported one.
+	LiveActivityToken string
 }
 
 // Active reports whether the device gets pushes.
 func (d Device) Active() bool { return d.RetiredAt.IsZero() }
 
 const deviceCols = `id, token, environment, topic, name, platform, app_version, alerts, time_sensitive,
-	live_activities, registered_at, updated_at, updated_by, retired_at, retired_reason`
+	live_activities, registered_at, updated_at, updated_by, retired_at, retired_reason, live_activity_token`
 
 type scanner interface{ Scan(...any) error }
 
 func scanDevice(r scanner) (Device, error) {
 	var d Device
-	var name, platform, appVersion, retiredAt, retiredReason sql.NullString
+	var name, platform, appVersion, retiredAt, retiredReason, laToken sql.NullString
 	var alerts, ts, la sql.NullBool
 	var registered, updated string
 	if err := r.Scan(&d.ID, &d.Token, &d.Environment, &d.Topic, &name, &platform, &appVersion,
-		&alerts, &ts, &la, &registered, &updated, &d.UpdatedBy, &retiredAt, &retiredReason); err != nil {
+		&alerts, &ts, &la, &registered, &updated, &d.UpdatedBy, &retiredAt, &retiredReason, &laToken); err != nil {
 		return Device{}, err
 	}
 	d.Name, d.Platform, d.AppVersion = name.String, platform.String, appVersion.String
 	d.RetiredReason = retiredReason.String
+	d.LiveActivityToken = laToken.String
 	d.Alerts, d.TimeSensitive, d.LiveActivities = boolPtr(alerts), boolPtr(ts), boolPtr(la)
 	d.RegisteredAt, _ = time.Parse(timeFormat, registered)
 	d.UpdatedAt, _ = time.Parse(timeFormat, updated)
@@ -177,9 +181,9 @@ func (s *Store) UpdateDevice(ctx context.Context, d Device) (Device, Device, err
 func (s *Store) insertDevice(ctx context.Context, tx *sql.Tx, d Device) error {
 	at := s.now().UTC().Format(timeFormat)
 	_, err := tx.ExecContext(ctx, `INSERT INTO devices (`+deviceCols+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`,
 		d.ID, d.Token, d.Environment, d.Topic, nullStr(d.Name), nullStr(d.Platform), nullStr(d.AppVersion),
-		d.Alerts, d.TimeSensitive, d.LiveActivities, at, at, d.UpdatedBy)
+		d.Alerts, d.TimeSensitive, d.LiveActivities, at, at, d.UpdatedBy, nullStr(d.LiveActivityToken))
 	return err
 }
 
@@ -187,9 +191,9 @@ func (s *Store) updateDevice(ctx context.Context, tx *sql.Tx, d Device) error {
 	at := s.now().UTC().Format(timeFormat)
 	_, err := tx.ExecContext(ctx, `UPDATE devices SET token = ?, environment = ?, topic = ?, name = ?,
 		platform = ?, app_version = ?, alerts = ?, time_sensitive = ?, live_activities = ?, updated_at = ?,
-		updated_by = ?, retired_at = NULL, retired_reason = NULL WHERE id = ?`,
+		updated_by = ?, retired_at = NULL, retired_reason = NULL, live_activity_token = ? WHERE id = ?`,
 		d.Token, d.Environment, d.Topic, nullStr(d.Name), nullStr(d.Platform), nullStr(d.AppVersion),
-		d.Alerts, d.TimeSensitive, d.LiveActivities, at, d.UpdatedBy, d.ID)
+		d.Alerts, d.TimeSensitive, d.LiveActivities, at, d.UpdatedBy, nullStr(d.LiveActivityToken), d.ID)
 	return err
 }
 

@@ -48,6 +48,9 @@ type Options struct {
 	Pusher Pusher
 	// PushState is what /healthz reports as push; empty means off.
 	PushState api.HealthPush
+	// Live gets every newly stored progress event; nil drives no Live
+	// Activities.
+	Live Live
 }
 
 // Pusher queues stored events for push. Enqueue must not block.
@@ -78,6 +81,11 @@ func New(o Options) http.Handler {
 		o.PushState = api.HealthPushOff
 	}
 	s := &server{Options: o, hub: newHub()}
+	if e, ok := o.Live.(interface {
+		SetEmit(func(context.Context, map[string]any) error)
+	}); ok {
+		e.SetEmit(s.emit)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("POST /v1/events", s.auth(auth.ScopeWrite, false, s.postEvent))
@@ -93,6 +101,9 @@ func New(o Options) http.Handler {
 	mux.HandleFunc("GET /v1/devices/{id}", s.auth(DeviceScope, false, s.getDevice))
 	mux.HandleFunc("PUT /v1/devices/{id}", s.auth(DeviceScope, false, s.updateDevice))
 	mux.HandleFunc("DELETE /v1/devices/{id}", s.auth(DeviceScope, false, s.removeDevice))
+	mux.HandleFunc("GET /v1/activities", s.auth(auth.ScopeRead, false, s.listActivities))
+	mux.HandleFunc("GET /v1/activities/{key...}", s.auth(auth.ScopeRead, false, s.getActivity))
+	mux.HandleFunc("PUT /v1/activity-instances/{id}", s.auth(DeviceScope, false, s.reportInstance))
 	return s.logRequests(mux)
 }
 
@@ -344,8 +355,26 @@ func (s *server) ingest(ctx context.Context, in *validate.Input, trusted bool) (
 		if s.Pusher != nil {
 			s.Pusher.Enqueue(rec)
 		}
+		if s.Live != nil && in.Typed.Kind != nil && *in.Typed.Kind == api.KindProgress && in.Typed.Key != nil {
+			action := ""
+			if in.Typed.Action != nil {
+				action = string(*in.Typed.Action)
+			}
+			s.Live.Stored(id, *in.Typed.Key, action)
+		}
 	}
 	return rec, created, nil
+}
+
+// emit stores an event the server makes itself, such as an activity's
+// history event.
+func (s *server) emit(ctx context.Context, fields map[string]any) error {
+	in, err := s.Validator.Fields(fields)
+	if err != nil {
+		return err
+	}
+	_, _, err = s.ingest(ctx, in, false)
+	return err
 }
 
 // bridgedHold returns the stored hold for a bridged sender's triage state,

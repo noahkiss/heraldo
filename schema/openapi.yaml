@@ -477,6 +477,98 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /v1/activities:
+    get:
+      operationId: listActivities
+      summary: Live Activities, one per progress key, in key order.
+      description: |
+        Without all=1, only the activities that have not ended. Each comes with its
+        instances, without the timeline.
+      tags: [activities]
+      parameters:
+        - name: all
+          in: query
+          description: 1 lists ended activities too.
+          schema:
+            type: integer
+            enum: [0, 1]
+      responses:
+        "200":
+          description: The activities.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivityList"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/activities/{key}:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        description: The progress key. It may contain slashes.
+        schema:
+          type: string
+    get:
+      operationId: getActivity
+      summary: The current or last activity on a progress key, with its instances and timeline.
+      tags: [activities]
+      responses:
+        "200":
+          description: The activity.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Activity"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/activity-instances/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The instance id from the activity's attributes.
+        schema:
+          type: string
+    put:
+      operationId: reportInstance
+      summary: The app reports an activity's update token, or that it was dismissed or ended.
+      description: |
+        Called with the read token, like device registration. A token makes a starting
+        instance active, and the server pushes the current content to it at once. A
+        state of dismissed means the person removed the activity: the server never
+        starts it again on that device. ended means the system ended it; the server
+        starts the next one while the activity runs.
+      tags: [activities]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstanceReport"
+      responses:
+        "200":
+          description: The instance as stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivityInstance"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
   /ping/{slug}:
     parameters:
       - $ref: "#/components/parameters/Slug"
@@ -828,6 +920,12 @@ components:
           maxLength: 64
         permissions:
           $ref: "#/components/schemas/Permissions"
+        live_activity_token:
+          type: string
+          description: |
+            The push-to-start token ActivityKit gives the app for its Live Activities, hex.
+            The server starts an activity on the device with it.
+          pattern: "^[0-9A-Fa-f]{32,400}$"
     Permissions:
       type: object
       description: |
@@ -883,6 +981,9 @@ components:
         retired_reason:
           type: string
           description: 'removed, or the APNs reason, such as "apns: Unregistered".'
+        live_activity_token_suffix:
+          type: string
+          description: The last 8 characters of the push-to-start token, when the app reported one.
     DeviceList:
       type: object
       required: [devices]
@@ -891,6 +992,126 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Device"
+    Activity:
+      type: object
+      description: |
+        The activity on one progress key. A start, or an update on a key with no running
+        activity, begins one; an end, or two hours without an update, ends it.
+      required: [key, id, state, source, content, started_at, updated_at, instances]
+      properties:
+        key:
+          type: string
+        id:
+          type: string
+          description: act_ plus the id of the event that began it.
+        state:
+          type: string
+          enum: [active, ended]
+        source:
+          type: string
+        content:
+          $ref: "envelope.v1.schema.json#/$defs/LiveContent"
+        started_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+          description: When the sender's last event on the key arrived.
+        ended_at:
+          type: string
+          format: date-time
+        end_reason:
+          type: string
+          enum: [sender, abandoned, restarted]
+          description: |
+            sender: an end event. abandoned: no update for two hours. restarted: a start
+            on the same key began a new activity.
+        instances:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActivityInstance"
+        timeline:
+          type: array
+          description: The sender's progress events since the start, oldest first, at most 500. Only on GET /v1/activities/{key}.
+          items:
+            $ref: "#/components/schemas/TimelineEntry"
+    ActivityInstance:
+      type: object
+      description: |
+        The activity on one device. An activity runs as a chain of these: one is ended
+        and the next started with the same content before Apple's 8 hour limit.
+      required: [id, device, chain, state, requested_at]
+      properties:
+        id:
+          type: string
+          description: lai_ plus a ULID. Also in the activity's attributes.
+        device:
+          type: string
+        chain:
+          type: integer
+          description: 0 for the first link, then 1, 2 and on.
+        state:
+          type: string
+          enum: [starting, active, ended, dismissed, never-started, dead]
+          description: |
+            starting: push-to-start sent, no update token yet. active: the app reported
+            the update token. ended: the server or the system ended it. dismissed: the
+            person removed it; never started again. never-started: no update token came
+            within 15 minutes; a later update tries again, three times at most. dead:
+            APNs refused its update token; never started again.
+        end_reason:
+          type: string
+        requested_at:
+          type: string
+          format: date-time
+        confirmed_at:
+          type: string
+          format: date-time
+        ended_at:
+          type: string
+          format: date-time
+        last_push_at:
+          type: string
+          format: date-time
+    TimelineEntry:
+      type: object
+      required: [id, received_at, action]
+      properties:
+        id:
+          type: string
+          description: The event id.
+        received_at:
+          type: string
+          format: date-time
+        action:
+          type: string
+          enum: [start, update, end]
+        content:
+          $ref: "envelope.v1.schema.json#/$defs/LiveContent"
+    ActivityList:
+      type: object
+      required: [activities]
+      properties:
+        activities:
+          type: array
+          items:
+            $ref: "#/components/schemas/Activity"
+    InstanceReport:
+      type: object
+      description: What the app saw. At least one field.
+      additionalProperties: false
+      properties:
+        device:
+          type: string
+          description: The reporting device's id. When set, it must be the instance's device.
+        token:
+          type: string
+          description: The activity's push token, hex.
+          pattern: "^[0-9A-Fa-f]{32,400}$"
+        state:
+          type: string
+          enum: [dismissed, ended]
     AppriseNotify:
       type: object
       description: An Apprise API notify request. Fields heraldo does not use are accepted and ignored.
