@@ -18,6 +18,9 @@
 #
 # HERALDO_APP picks the app (default /Applications/Heraldo.app).
 # HERALDO_WRITE_TOKEN_CMD is optional; without it the app saves no write token.
+# HERALDO_PROVISION_TIMEOUT is how long to wait for the app's answer, in
+# seconds (default 120). The first launch of a newly downloaded copy waits for
+# the Gatekeeper "Open" click.
 set -eu
 die() { echo "provision: $*" >&2; exit 1; }
 
@@ -69,6 +72,6 @@ while :; do
     case "$line" in *"provision: saved"*) exit 0 ;; *) exit 1 ;; esac
   fi
   i=$((i + 1))
-  [ "$i" -le 30 ] || die "no answer from the app in 30 s; see: log show --last 2m --predicate 'subsystem == \"$bundle_id\"'"
+  [ "$i" -le "${HERALDO_PROVISION_TIMEOUT:-120}" ] || die "no answer from the app; see: log show --last 2m --predicate 'subsystem == \"$bundle_id\"'"
   /bin/sleep 1
 done
