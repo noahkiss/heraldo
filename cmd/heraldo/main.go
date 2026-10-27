@@ -27,12 +27,16 @@ reading (HERALDO_URL, HERALDO_TOKEN):
   show <id>        one event with its full body
   ls               the newest events; --kind --source --host --key --tag -q --open
   held             events held for triage
-  checkins         the last run of every check
+  checkins         every check: state, next due, last run, last log
+  checkins show <slug>
+                   one check with its full last log
   tail             follow new events as they arrive; --exec runs a command per event
 
 writing:
   ack <key>        acknowledge an open incident (HERALDO_WRITE_TOKEN)
   resolve <key>    resolve an open incident (HERALDO_WRITE_TOKEN)
+  checkins create|pause|resume <slug>
+                   add or change a check, pause or resume it (HERALDO_WRITE_TOKEN)
   send             send a notification through HERALDO_SEND_URL or APPRISE_URL
 
   version          print the version

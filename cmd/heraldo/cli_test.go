@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -272,10 +273,57 @@ func TestCheckins(t *testing.T) {
 	f.post(writeTok, `{"source":"cron","kind":"checkin","key":"nightly","action":"success"}`)
 	f.post(writeTok, `{"source":"cron","kind":"checkin","key":"weekly","action":"fail","checkin":{"exit_code":3}}`)
 	r := f.run("checkins")
-	if !strings.Contains(r.stdout, "nightly") || !strings.Contains(r.stdout, "success") || !strings.Contains(r.stdout, "fail (exit 3)") {
+	if !strings.Contains(r.stdout, "nightly") || !strings.Contains(r.stdout, "up") || !strings.Contains(r.stdout, "down (failed)") {
 		t.Fatalf("%+v", r)
 	}
+
+	if r := f.run("checkins", "create", "backup"); r.code != 1 || !strings.Contains(r.stderr, "HERALDO_WRITE_TOKEN is not set") {
+		t.Fatalf("create without a write token: %+v", r)
+	}
+	f.env["HERALDO_WRITE_TOKEN"] = writeTok
+	r = f.run("checkins", "create", "backup", "--period", "24h", "--grace", "2h", "--reminder", "0s", "--host", "box-1")
+	if r.code != 0 || !strings.Contains(r.stdout, "every 24h0m0s, grace 2h0m0s") || !strings.Contains(r.stdout, "state:     new") {
+		t.Fatalf("create: %+v", r)
+	}
+	f.ping("/ping/backup/start?rid=1", "")
+	f.ping("/ping/backup?rid=1", "wrote 12 GB\nall good\n")
+	r = f.run("checkins")
+	if !regexpMatch(`backup +up +\S+ \S+ +\d+m?s +wrote 12 GB\n`, r.stdout) {
+		t.Fatalf("list after a run: %q", r.stdout)
+	}
+	r = f.run("checkins", "show", "backup")
+	if r.code != 0 || !strings.Contains(r.stdout, "wrote 12 GB\nall good") || !strings.Contains(r.stdout, "host:      box-1") {
+		t.Fatalf("show: %+v", r)
+	}
+	if r := f.run("checkins", "pause", "backup"); r.code != 0 || r.stdout != "backup: paused\n" {
+		t.Fatalf("pause: %+v", r)
+	}
+	if r := f.run("checkins", "resume", "backup"); r.code != 0 || r.stdout != "backup: new\n" {
+		t.Fatalf("resume: %+v", r)
+	}
+	if r := f.run("checkins", "pause", "nope"); r.code != 1 || !strings.Contains(r.stderr, "no check") {
+		t.Fatalf("pause unknown: %+v", r)
+	}
+	if r := f.run("checkins", "--json"); r.code != 0 || strings.Count(r.stdout, "\n") != 3 || !strings.Contains(r.stdout, `"key":"backup"`) {
+		t.Fatalf("json: %+v", r)
+	}
 }
+
+func (f *fixture) ping(path, body string) {
+	f.t.Helper()
+	req, _ := http.NewRequest(http.MethodPost, f.srv.URL+path, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+writeTok)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		f.t.Fatalf("%s: %d", path, resp.StatusCode)
+	}
+}
+
+func regexpMatch(pattern, s string) bool { return regexp.MustCompile(pattern).MatchString(s) }
 
 func TestAckResolve(t *testing.T) {
 	f := newFixture(t)
@@ -384,7 +432,7 @@ func TestTailFiltersAndMark(t *testing.T) {
 func (f *fixture) oldServer(t *testing.T) {
 	real := f.srv.Config.Handler
 	old := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/stream" || r.URL.Path == "/v1/state" {
+		if r.URL.Path == "/v1/stream" || r.URL.Path == "/v1/state" || strings.HasPrefix(r.URL.Path, "/v1/checkins") {
 			http.NotFound(w, r)
 			return
 		}

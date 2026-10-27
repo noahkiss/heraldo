@@ -334,47 +334,6 @@ func (a *app) held(ctx context.Context, args []string) error {
 	return nil
 }
 
-// ---- checkins ----------------------------------------------------------
-
-func (a *app) checkins(ctx context.Context, args []string) error {
-	fs := a.flags("checkins", "[--json]")
-	asJSON := fs.Bool("json", false, "print each check's last event as JSON on one line")
-	if pos, err := parse(fs, args); err != nil {
-		return err
-	} else if len(pos) > 0 {
-		fs.Usage()
-		return errUsage
-	}
-	c, err := a.client()
-	if err != nil {
-		return err
-	}
-	st, err := c.State(ctx)
-	if err != nil {
-		return stateErr(err)
-	}
-	if *asJSON {
-		writeJSONLines(a.stdout, st.Checkins)
-		return nil
-	}
-	if len(st.Checkins) == 0 {
-		fmt.Fprintln(a.stderr, "no check-ins")
-		return nil
-	}
-	for _, e := range st.Checkins {
-		action := "ping"
-		if e.Action != nil {
-			action = string(*e.Action)
-		}
-		if e.Checkin != nil && e.Checkin.ExitCode != nil && *e.Checkin.ExitCode != 0 && action != "log" {
-			action = fmt.Sprintf("fail (exit %d)", *e.Checkin.ExitCode)
-		}
-		fmt.Fprintf(a.stdout, "%-32s %-14s %s  %s\n", oneLine(str(e.Key)), action,
-			when(e).Local().Format("01-02 15:04"), oneLine(e.Source))
-	}
-	return nil
-}
-
 // ---- ack and resolve ---------------------------------------------------
 
 func (a *app) ack(ctx context.Context, args []string) error {
