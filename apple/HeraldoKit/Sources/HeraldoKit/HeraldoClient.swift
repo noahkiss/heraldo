@@ -186,7 +186,25 @@ public struct HeraldoClient: Sendable {
         return try await send(r)
     }
 
+    // MARK: Live Activities
+
+    /// The activity on a progress key, with its instances.
+    public func activity(key: String) async throws -> LiveActivityInfo {
+        // request() appends each path segment and encodes it, so the key's
+        // slashes stay path separators, as the server's route expects.
+        try await get("v1/activities/\(key)")
+    }
+
+    /// Reports an activity's update token, or that it was dismissed or ended.
+    @discardableResult
+    public func reportInstance(id: String, _ report: InstanceReport) async throws -> LiveInstance {
+        var r = request("v1/activity-instances/\(escape(id))", method: "PUT", token: readToken)
+        r.httpBody = try JSONEncoder().encode(report)
+        return try await send(r)
+    }
+
     // MARK: Plumbing
+
 
     private func escape(_ s: String) -> String {
         s.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? s

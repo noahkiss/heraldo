@@ -167,14 +167,18 @@ public struct DeviceRegistration: Codable, Hashable, Sendable {
     public var platform: String?
     public var appVersion: String?
     public var permissions: Permissions?
+    /// The push-to-start token for Live Activities, hex.
+    public var liveActivityToken: String?
 
     enum CodingKeys: String, CodingKey {
         case token, environment, topic, name, platform, permissions
         case appVersion = "app_version"
+        case liveActivityToken = "live_activity_token"
     }
 
     public init(token: String, environment: APNsEnvironment, topic: String, name: String?,
-                platform: String?, appVersion: String?, permissions: Permissions?) {
+                platform: String?, appVersion: String?, permissions: Permissions?,
+                liveActivityToken: String? = nil) {
         self.token = token
         self.environment = environment
         self.topic = topic
@@ -182,6 +186,7 @@ public struct DeviceRegistration: Codable, Hashable, Sendable {
         self.platform = platform
         self.appVersion = appVersion
         self.permissions = permissions
+        self.liveActivityToken = liveActivityToken
     }
 }
 
@@ -218,9 +223,12 @@ public struct EventInput: Codable, Hashable, Sendable {
     public var title: String?
     public var body: String?
     public var level: String?
+    /// Live Activity content, for kind progress.
+    public var content: LivePatch?
 
     public init(source: String, kind: String? = nil, key: String? = nil, action: String? = nil,
-                host: String? = nil, title: String? = nil, body: String? = nil, level: String? = nil) {
+                host: String? = nil, title: String? = nil, body: String? = nil, level: String? = nil,
+                content: LivePatch? = nil) {
         self.source = source
         self.kind = kind
         self.key = key
@@ -229,6 +237,73 @@ public struct EventInput: Codable, Hashable, Sendable {
         self.title = title
         self.body = body
         self.level = level
+        self.content = content
+    }
+
+    // Encode only: LivePatch has no decoder.
+    enum CodingKeys: String, CodingKey { case source, kind, key, action, host, title, body, level, content }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(source: try c.decode(String.self, forKey: .source),
+                  kind: try c.decodeIfPresent(String.self, forKey: .kind),
+                  key: try c.decodeIfPresent(String.self, forKey: .key),
+                  action: try c.decodeIfPresent(String.self, forKey: .action),
+                  host: try c.decodeIfPresent(String.self, forKey: .host),
+                  title: try c.decodeIfPresent(String.self, forKey: .title),
+                  body: try c.decodeIfPresent(String.self, forKey: .body),
+                  level: try c.decodeIfPresent(String.self, forKey: .level))
+    }
+}
+
+/// `GET /v1/activities/{key}`: the activity on a progress key.
+public struct LiveActivityInfo: Codable, Hashable, Sendable {
+    public var key: String
+    public var id: String
+    /// active or ended.
+    public var state: String
+    public var source: String
+    public var startedAt: Date?
+    public var updatedAt: Date?
+    public var endedAt: Date?
+    public var endReason: String?
+    public var instances: [LiveInstance]
+
+    enum CodingKeys: String, CodingKey {
+        case key, id, state, source, instances
+        case startedAt = "started_at"
+        case updatedAt = "updated_at"
+        case endedAt = "ended_at"
+        case endReason = "end_reason"
+    }
+}
+
+/// The activity on one device.
+public struct LiveInstance: Codable, Hashable, Sendable {
+    public var id: String
+    public var device: String
+    public var chain: Int
+    /// starting, active, ended, dismissed, never-started or dead.
+    public var state: String
+    public var endReason: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, device, chain, state
+        case endReason = "end_reason"
+    }
+}
+
+/// The body of `PUT /v1/activity-instances/{id}`.
+public struct InstanceReport: Codable, Hashable, Sendable {
+    public var device: String?
+    public var token: String?
+    /// dismissed or ended.
+    public var state: String?
+
+    public init(device: String? = nil, token: String? = nil, state: String? = nil) {
+        self.device = device
+        self.token = token
+        self.state = state
     }
 }
 
