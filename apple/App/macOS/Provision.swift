@@ -62,8 +62,7 @@ enum Provision {
             do { stored = try model.store.read() } catch {
                 throw ProvisionError("cannot read the current settings: \(error.localizedDescription)")
             }
-            if let current = stored?.serverURL, !current.isEmpty,
-               normalized(current) != normalized(url), !replace {
+            if let stored, !stored.isSameServer(as: url), !replace {
                 throw ProvisionError("settings for another server exist; launch with \(replaceFlag) to replace them")
             }
             let new = Credentials(serverURL: url, readToken: input.readToken, writeToken: input.writeToken)
@@ -78,13 +77,6 @@ enum Provision {
         } catch {
             log.error("provision: failed for \(host, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
-    }
-
-    /// The URL as compared for rule 4: no trailing slash, case-insensitive.
-    private static func normalized(_ url: String) -> String {
-        var s = url.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        while s.hasSuffix("/") { s.removeLast() }
-        return s
     }
 
     private static func stdinIsPipe() -> Bool {

@@ -22,6 +22,20 @@ public struct Credentials: Codable, Equatable, Sendable {
     public var isComplete: Bool {
         !(serverURL ?? "").isEmpty && !(readToken ?? "").isEmpty
     }
+
+    /// Whether `url` names the same server as these credentials: equal after
+    /// trimming, lowercasing and dropping trailing slashes. No stored URL
+    /// counts as the same, so a first save needs no confirmation.
+    public func isSameServer(as url: String) -> Bool {
+        guard let current = serverURL, !Self.normalized(current).isEmpty else { return true }
+        return Self.normalized(current) == Self.normalized(url)
+    }
+
+    static func normalized(_ url: String) -> String {
+        var s = url.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        while s.hasSuffix("/") { s.removeLast() }
+        return s
+    }
 }
 
 /// Keeps the credentials in the Keychain as one item.

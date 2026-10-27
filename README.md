@@ -286,7 +286,7 @@ The app keeps six rules for this path:
    which the server refuses with 400 after the token check and before it
    stores anything. On any failure the app saves nothing.
 4. **No silent takeover.** When settings for a different server exist, the app
-   refuses unless it also gets `--replace` (`HERALDO_REPLACE=1`). New tokens
+   refuses unless it also gets `--replace` (`HERALDO_PROVISION_REPLACE=1`). New tokens
    for the same server need no flag.
 5. **Visible.** After a save the app posts a local notification, "Heraldo
    settings were set from the command line", with no values.

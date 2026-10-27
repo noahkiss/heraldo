@@ -22,7 +22,7 @@
 #      other entry point reaches it.
 #   3. The read token must pass the server check and the write token a scope
 #      check that stores nothing. On a failure nothing is saved.
-#   4. Settings for a different server are replaced only with HERALDO_REPLACE=1
+#   4. Settings for a different server are replaced only with HERALDO_PROVISION_REPLACE=1
 #      (the app's --replace). New tokens for the same server need nothing.
 #   5. A save posts a local notification: "Heraldo settings were set from the
 #      command line".
@@ -70,7 +70,7 @@ start=$(date '+%Y-%m-%d %H:%M:%S')
 } | jq -R -n -c --arg url "$HERALDO_URL" \
   '[inputs] as $t | {url: $url, read_token: $t[0], write_token: ($t[1] // "")}' >"$fifo" &
 writer=$!
-if [ "${HERALDO_REPLACE:-}" = 1 ]; then
+if [ "${HERALDO_PROVISION_REPLACE:-}" = 1 ]; then
   open -n "$app" --stdin "$fifo" --args --provision-stdin --replace
 else
   open -n "$app" --stdin "$fifo" --args --provision-stdin

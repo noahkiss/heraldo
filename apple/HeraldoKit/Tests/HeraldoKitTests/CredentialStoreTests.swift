@@ -58,4 +58,14 @@ final class CredentialStoreTests: XCTestCase {
         XCTAssertEqual(obj["server_url"] as? String, "https://example.com")
         XCTAssertEqual(try JSONDecoder().decode(Credentials.self, from: data), c)
     }
+
+    func testSameServerForProvisioning() {
+        let c = Credentials(serverURL: "https://Heraldo.example.com/", readToken: "r")
+        XCTAssertTrue(c.isSameServer(as: "https://heraldo.example.com"))
+        XCTAssertTrue(c.isSameServer(as: " https://heraldo.example.com// "))
+        XCTAssertFalse(c.isSameServer(as: "https://other.example.com"))
+        XCTAssertFalse(c.isSameServer(as: "http://heraldo.example.com"))
+        XCTAssertTrue(Credentials().isSameServer(as: "https://any.example.com"), "nothing stored yet")
+        XCTAssertTrue(Credentials(serverURL: "").isSameServer(as: "https://any.example.com"))
+    }
 }
