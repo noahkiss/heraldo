@@ -100,7 +100,13 @@ def glyph():
 
 
 def rule(x0, x1, cy, thick):
-    """Taper from thin (left) to thick (right); ends cut parallel at CUT_ANGLE."""
+    """Taper from thin (left) to thick (right); ends cut parallel at CUT_ANGLE.
+
+    The uncut taper is intersected with the band between two parallel cut
+    lines: one through the bottom-left corner, one through the top-right
+    corner. Clipping, rather than moving corner points, keeps each end a
+    single clean diagonal however far the cut runs along the edge.
+    """
     top, bot = [], []
     for i in range(SAMPLES + 1):
         u = i / SAMPLES
@@ -108,19 +114,26 @@ def rule(x0, x1, cy, thick):
         x = x0 + (x1 - x0) * u
         top.append((x, cy - t / 2))
         bot.append((x, cy + t / 2))
-    k = 1 / math.tan(CUT_ANGLE)
-    top[0] = (x0 + (bot[0][1] - top[0][1]) * k, top[0][1])
-    bot[-1] = (x1 - (bot[-1][1] - top[-1][1]) * k, bot[-1][1])
-    p = pathops.Path()
-    pen = p.getPen()
+    body = pathops.Path()
+    pen = body.getPen()
     pen.moveTo(bot[0])
     for pt in top:
         pen.lineTo(pt)
     for pt in reversed(bot):
         pen.lineTo(pt)
     pen.closePath()
-    p.simplify()
-    return p
+    # Cut lines run up and to the right at CUT_ANGLE (SVG y grows down).
+    dx, dy = math.cos(CUT_ANGLE), -math.sin(CUT_ANGLE)
+    reach = 4 * thick
+    left, right = bot[0], top[-1]
+    band = pathops.Path()
+    pen = band.getPen()
+    pen.moveTo((left[0] - dx * reach, left[1] - dy * reach))
+    pen.lineTo((left[0] + dx * reach, left[1] + dy * reach))
+    pen.lineTo((right[0] + dx * reach, right[1] + dy * reach))
+    pen.lineTo((right[0] - dx * reach, right[1] - dy * reach))
+    pen.closePath()
+    return pathops.op(body, band, pathops.PathOp.INTERSECTION)
 
 
 def svg(parts, ground=None):

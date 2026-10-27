@@ -1,66 +1,66 @@
 {
  "squircle": {
   "bbox": [
-   219,
-   165,
+   220,
+   166,
    782,
-   878
+   876
   ],
   "centroid": [
    512.0,
-   502.3
+   503.0
   ],
-  "max_radius": 432.2,
+  "max_radius": 433.0,
   "rule_thick": 56.5,
   "rule_thin": 27.1,
-  "rule_area": 17523
+  "rule_area": 17452
  },
  "squircle-small": {
   "bbox": [
    220,
-   160,
+   162,
    782,
-   873
+   869
   ],
   "centroid": [
-   512.1,
-   507.2
+   512.0,
+   508.4
   ],
-  "max_radius": 424.7,
+  "max_radius": 423.5,
   "rule_thick": 81.9,
   "rule_thin": 39.3,
-  "rule_area": 24112
+  "rule_area": 23878
  },
  "circle": {
   "bbox": [
-   230,
-   183,
+   231,
+   184,
    773,
-   862
+   860
   ],
   "centroid": [
-   511.9,
-   501.3
+   512.1,
+   502.1
   ],
-  "max_radius": 392.5,
+  "max_radius": 391.8,
   "rule_thick": 56.5,
   "rule_thin": 27.1,
-  "rule_area": 13084
+  "rule_area": 12951
  },
  "circle-small": {
   "bbox": [
    229,
-   177,
+   179,
    775,
-   862
+   858
   ],
   "centroid": [
-   512.4,
-   504.6
+   512.3,
+   505.9
   ],
-  "max_radius": 392.4,
+  "max_radius": 392.5,
   "rule_thick": 81.9,
   "rule_thin": 39.3,
-  "rule_area": 18002
+  "rule_area": 17728
  }
 }
