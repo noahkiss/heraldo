@@ -1,0 +1,66 @@
+{
+ "squircle": {
+  "bbox": [
+   219,
+   165,
+   782,
+   878
+  ],
+  "centroid": [
+   512.0,
+   502.3
+  ],
+  "max_radius": 432.2,
+  "rule_thick": 56.5,
+  "rule_thin": 27.1,
+  "rule_area": 17523
+ },
+ "squircle-small": {
+  "bbox": [
+   220,
+   160,
+   782,
+   873
+  ],
+  "centroid": [
+   512.1,
+   507.2
+  ],
+  "max_radius": 424.7,
+  "rule_thick": 81.9,
+  "rule_thin": 39.3,
+  "rule_area": 24112
+ },
+ "circle": {
+  "bbox": [
+   230,
+   183,
+   773,
+   862
+  ],
+  "centroid": [
+   511.9,
+   501.3
+  ],
+  "max_radius": 392.5,
+  "rule_thick": 56.5,
+  "rule_thin": 27.1,
+  "rule_area": 13084
+ },
+ "circle-small": {
+  "bbox": [
+   229,
+   177,
+   775,
+   862
+  ],
+  "centroid": [
+   512.4,
+   504.6
+  ],
+  "max_radius": 392.4,
+  "rule_thick": 81.9,
+  "rule_thin": 39.3,
+  "rule_area": 18002
+ }
+}

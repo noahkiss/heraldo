@@ -1,20 +1,92 @@
 {
-  "fill" : {
-    "solid" : "srgb:0.16863,0.18431,0.21176,1.00000"
-  },
-  "groups" : [
+  "fill-specializations": [
     {
-      "name" : "Mark",
-      "layers" : [
-        { "name" : "mark", "image-name" : "mark.svg", "glass" : true }
-      ],
-      "translucency" : { "enabled" : true, "value" : 0.5 },
-      "shadow" : { "kind" : "neutral", "opacity" : 0.5 },
-      "lighting" : "combined",
-      "specular" : true
+      "value": {
+        "solid": "srgb:0.94902,0.92157,0.86667,1"
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "solid": "srgb:0.09020,0.09412,0.11765,1"
+      }
     }
   ],
-  "supported-platforms" : {
-    "squares" : "shared"
+  "groups": [
+    {
+      "name": "Rule",
+      "layers": [
+        {
+          "name": "rule",
+          "glass": true,
+          "image-name-specializations": [
+            {
+              "value": "rule.svg"
+            },
+            {
+              "appearance": "tinted",
+              "value": "rule-cream.svg"
+            }
+          ],
+          "opacity-specializations": [
+            {
+              "value": 1
+            },
+            {
+              "appearance": "tinted",
+              "value": 0.6
+            }
+          ]
+        }
+      ],
+      "shadow": {
+        "kind": "layer-color",
+        "opacity": 0.35
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.2
+      },
+      "lighting": "individual",
+      "specular": true
+    },
+    {
+      "name": "H",
+      "layers": [
+        {
+          "name": "h",
+          "image-name-specializations": [
+            {
+              "value": "h-ink.svg"
+            },
+            {
+              "appearance": "dark",
+              "value": "h-cream.svg"
+            },
+            {
+              "appearance": "tinted",
+              "value": "h-cream.svg"
+            }
+          ],
+          "glass": true
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.35
+      },
+      "lighting": "combined",
+      "specular": true
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared",
+    "circles": [
+      "watchOS"
+    ]
   }
 }
