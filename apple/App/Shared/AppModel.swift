@@ -27,10 +27,12 @@ final class AppModel {
     /// Called after the settings change, so push registration can run again.
     @ObservationIgnored var onCredentialsChanged: (() -> Void)?
 
-    private let store = CredentialStore()
+    let store = CredentialStore()
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
 
     init() {
+        // The first builds kept device-only items; move them to the synced one.
+        if store.migrateLegacy() { log.info("credentials: moved to the synced Keychain item") }
         #if DEBUG
         // Simulator runs: `SIMCTL_CHILD_HERALDO_URL=... xcrun simctl launch` seeds the
         // settings, and HERALDO_OPEN_EVENT opens one event.

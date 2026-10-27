@@ -35,7 +35,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Server")
                 } footer: {
-                    Text("The read token syncs history and registers this device. The write token acknowledges incidents and sends events. Both are kept in the Keychain.")
+                    Text("The read token syncs history and registers this device. The write token acknowledges incidents and sends events. Saved in \(model.store.modeDescription).")
                 }
 
                 #if os(iOS)

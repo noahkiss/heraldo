@@ -213,7 +213,9 @@ No shell runs. The command gets the event's JSON on stdin, and these variables:
 ## iOS app
 
 The app ships no token. In Settings, enter the server URL and the device's
-read and write tokens; the app keeps them in the Keychain.
+read and write tokens. The app keeps them in iCloud Keychain, so they reach
+the person's other devices; the notification extension reads them through the
+app group.
 
 - **Inbox**: history synced by cursor on launch and on foreground, search,
   filters by kind and source. A swipe marks events read up to that one; the
