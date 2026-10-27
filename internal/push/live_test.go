@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"testing"
-	"time"
 )
 
 func TestSendLiveHeaders(t *testing.T) {
@@ -37,24 +36,27 @@ func TestSendLiveAnswers(t *testing.T) {
 		case 0:
 			return http.StatusServiceUnavailable, ""
 		case 1:
+			return http.StatusForbidden, "ExpiredProviderToken"
+		case 2:
 			return http.StatusOK, ""
 		default:
 			return http.StatusGone, "Unregistered"
 		}
 	})
 	lp := LivePush{Environment: "production", Token: prodToken, Topic: topic, Body: []byte(`{}`), Priority: 10}
-	start := time.Now()
-	if res := r.p.SendLive(context.Background(), lp); !res.Sent() {
-		t.Fatalf("a 503 then 200 = %+v", res)
+	// A 503 comes back at once, with no retry: the caller backs off.
+	if res := r.p.SendLive(context.Background(), lp); res.Sent() || res.Gone() || res.Status != http.StatusServiceUnavailable {
+		t.Fatalf("a 503 = %+v", res)
 	}
-	if time.Since(start) > 5*time.Second {
-		t.Error("the retry did not use the configured backoff")
+	// A stale provider token is signed again and sent once more.
+	if res := r.p.SendLive(context.Background(), lp); !res.Sent() {
+		t.Fatalf("ExpiredProviderToken then 200 = %+v", res)
 	}
 	res := r.p.SendLive(context.Background(), lp)
 	if res.Sent() || !res.Gone() || res.Error() != "Unregistered" {
 		t.Fatalf("a 410 = %+v", res)
 	}
-	if n := len(r.prod.requests()); n != 3 {
-		t.Errorf("requests = %d, want 3", n)
+	if n := len(r.prod.requests()); n != 4 {
+		t.Errorf("requests = %d, want 4", n)
 	}
 }

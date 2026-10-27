@@ -23,7 +23,7 @@ import (
 // Defaults for Config.
 const (
 	// DefaultThrottle is the least time between two progress pushes to one
-	// activity. A state change goes out at once.
+	// activity. A start, a catch-up and an end go out at once.
 	DefaultThrottle = 15 * time.Second
 	// DefaultChainAfter is the age at which an activity is ended and
 	// started again. Apple ends one after 8 hours.
@@ -43,6 +43,10 @@ const (
 	// update shows it.
 	defaultInterval = 10 * time.Minute
 	maxInterval     = time.Hour
+	// minBackoff and maxBackoff bound the wait after a push-to-start or an
+	// end push that failed for a passing reason (429, 5xx, no answer).
+	minBackoff = 30 * time.Second
+	maxBackoff = 10 * time.Minute
 )
 
 // Sender sends one Live Activity push. *push.Pusher is one.
@@ -76,9 +80,29 @@ type Manager struct {
 	// when a throttled update is due.
 	lastPush map[string]time.Time
 	pending  map[string]time.Time
-	// status is the status text each activity last pushed, to tell a
-	// state change from progress.
-	status map[string]string
+	// startBackoff holds back push-to-starts per activity and device after
+	// one failed for a reason other than a dead token.
+	startBackoff map[string]backoff
+	// endRetry holds end pushes that failed for a passing reason, by
+	// instance id. Tick sends them again.
+	endRetry map[string]endRetry
+}
+
+type backoff struct {
+	next  time.Time
+	delay time.Duration
+}
+
+// grow returns the backoff after one more failure at now: 30 s, doubling
+// to 10 minutes.
+func (b backoff) grow(now time.Time) backoff {
+	d := min(max(b.delay*2, minBackoff), maxBackoff)
+	return backoff{next: now.Add(d), delay: d}
+}
+
+type endRetry struct {
+	backoff
+	dismissal time.Time
 }
 
 // New returns a Manager. Start it with Run.
@@ -112,7 +136,9 @@ func New(cfg Config) *Manager {
 		jobs:     make(chan func(context.Context), 256),
 		lastPush: map[string]time.Time{},
 		pending:  map[string]time.Time{},
-		status:   map[string]string{},
+
+		startBackoff: map[string]backoff{},
+		endRetry:     map[string]endRetry{},
 	}
 }
 
@@ -158,7 +184,9 @@ func (m *Manager) Run(ctx context.Context) {
 }
 
 // Resync brings every active activity up to date on every device: it starts
-// what is missing and pushes the current content.
+// what is missing, silently, and pushes the current content. An activity
+// silent for AbandonAfter is abandoned instead, so a new push-to-start token
+// or a restart after downtime does not put up stale activities.
 func (m *Manager) Resync(ctx context.Context) {
 	acts, err := m.cfg.Store.Activities(ctx, true)
 	if err != nil {
@@ -167,8 +195,13 @@ func (m *Manager) Resync(ctx context.Context) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	now := m.cfg.Now()
 	for _, a := range acts {
-		m.sync(ctx, a, false, true)
+		if now.Sub(a.UpdatedAt) >= m.cfg.AbandonAfter {
+			m.abandon(ctx, a)
+			continue
+		}
+		m.sync(ctx, a, false, true, false)
 	}
 }
 
@@ -189,7 +222,7 @@ func (m *Manager) Handle(ctx context.Context, eventID, key, action string) {
 		}
 		return
 	}
-	m.sync(ctx, a, action == "start", false)
+	m.sync(ctx, a, action == "start", false, true)
 }
 
 // Tick runs the timers: throttled updates that are due, push-to-starts that
@@ -203,17 +236,10 @@ func (m *Manager) Tick(ctx context.Context) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.retryEnds(ctx)
 	for _, a := range acts {
 		if now.Sub(a.UpdatedAt) >= m.cfg.AbandonAfter {
-			ok, err := m.cfg.Store.EndActivity(ctx, a.Key, a.ID, store.EndAbandoned)
-			if err != nil {
-				m.cfg.Logger.Error("live: end abandoned", "key", a.Key, "err", err)
-				continue
-			}
-			if ok {
-				a.State, a.EndedAt, a.EndReason = "ended", now, store.EndAbandoned
-				m.finish(ctx, a)
-			}
+			m.abandon(ctx, a)
 			continue
 		}
 		insts, err := m.cfg.Store.Instances(ctx, a.ID)
@@ -229,7 +255,7 @@ func (m *Manager) Tick(ctx context.Context) {
 		}
 		if due, ok := m.pending[a.ID]; ok && !now.Before(due) {
 			delete(m.pending, a.ID)
-			m.sync(ctx, a, false, true)
+			m.sync(ctx, a, false, true, false)
 			continue
 		}
 		m.chain(ctx, a, insts)
@@ -246,7 +272,10 @@ func (m *Manager) Confirm(ctx context.Context, id, token string) error {
 		return err
 	}
 	late := in.State == store.InstanceNeverStarted
-	if !in.Open() && !late {
+	// The server ended it while it was starting: an end, an abandon, a
+	// restart. The activity is on the device all the same; end it there.
+	ghost := in.State == store.InstanceEnded && in.UpdateToken == ""
+	if !in.Open() && !late && !ghost {
 		return nil
 	}
 	a, err := m.cfg.Store.GetActivity(ctx, in.Key)
@@ -256,6 +285,15 @@ func (m *Manager) Confirm(ctx context.Context, id, token string) error {
 	dev, err := m.cfg.Store.GetDevice(ctx, in.DeviceID)
 	if err != nil {
 		return err
+	}
+	if ghost {
+		in.UpdateToken = token
+		if in.ConfirmedAt.IsZero() {
+			in.ConfirmedAt = m.cfg.Now()
+		}
+		m.sendEnd(ctx, a, dev, &in, m.cfg.Now())
+		m.save(ctx, in)
+		return nil
 	}
 	if late {
 		// The activity came up after the server gave up on it. Keep it when
@@ -320,14 +358,13 @@ func (m *Manager) Report(ctx context.Context, id, state string) error {
 // ---- work, with m.mu held ---------------------------------------------
 
 // sync starts the activity on each device that lacks it and pushes the
-// content to each instance that is open. A start or a new status is a state
-// change: priority 10, never throttled. Progress goes at priority 5, at most
-// once per Throttle unless now is set.
-func (m *Manager) sync(ctx context.Context, a store.Activity, start, now bool) {
-	content := contentMap(a.Content)
-	status, _ := content["status"].(string)
+// content to each instance that is open. A start goes at priority 10, never
+// throttled. Every other update, a new status or tint included, goes at
+// priority 5, at most once per Throttle unless now is set. loud lets the
+// first start on a device sound; Resync and timers start silently.
+func (m *Manager) sync(ctx context.Context, a store.Activity, start, now, loud bool) {
 	prio := 5
-	if _, seen := m.status[a.ID]; start || !seen || status != m.status[a.ID] {
+	if start {
 		prio = 10
 	}
 	if prio == 5 && !now {
@@ -353,7 +390,7 @@ func (m *Manager) sync(ctx context.Context, a store.Activity, start, now bool) {
 		latest := lastOf(mine)
 		switch {
 		case latest == nil:
-			pushed = m.start(ctx, a, dev, 0, true) || pushed
+			pushed = m.start(ctx, a, dev, 0, loud) || pushed
 		case latest.State == store.InstanceActive:
 			pushed = m.update(ctx, a, dev, latest, prio) || pushed
 		case latest.State == store.InstanceStarting:
@@ -371,7 +408,6 @@ func (m *Manager) sync(ctx context.Context, a store.Activity, start, now bool) {
 	}
 	if pushed {
 		m.lastPush[a.ID] = m.cfg.Now()
-		m.status[a.ID] = status
 	}
 }
 
@@ -408,6 +444,10 @@ func (m *Manager) start(ctx context.Context, a store.Activity, dev store.Device,
 		return false
 	}
 	now := m.cfg.Now()
+	bk := a.ID + "/" + dev.ID
+	if b, ok := m.startBackoff[bk]; ok && now.Before(b.next) {
+		return false
+	}
 	content := contentMap(a.Content)
 	in := store.Instance{
 		ID: "lai_" + ids.New(now), ActivityID: a.ID, Key: a.Key, DeviceID: dev.ID, Chain: chain,
@@ -439,6 +479,9 @@ func (m *Manager) start(ctx context.Context, a store.Activity, dev store.Device,
 		Priority: 10, Expiration: now.Add(m.cfg.StartTimeout).Unix(),
 	})
 	in.LastPushAt = now
+	if r.Sent() || r.Gone() {
+		delete(m.startBackoff, bk)
+	}
 	switch {
 	case r.Sent():
 	case r.Gone():
@@ -450,7 +493,9 @@ func (m *Manager) start(ctx context.Context, a store.Activity, dev store.Device,
 			m.cfg.Logger.Error("live: clear push-to-start token", "device", dev.ID, "err", err)
 		}
 	default:
-		m.cfg.Logger.Warn("live: push-to-start not sent", "device", dev.ID, "key", a.Key, "error", r.Error())
+		m.startBackoff[bk] = m.startBackoff[bk].grow(now)
+		m.cfg.Logger.Warn("live: push-to-start not sent", "device", dev.ID, "key", a.Key, "error", r.Error(),
+			"retry_in", m.startBackoff[bk].delay)
 		return false
 	}
 	m.save(ctx, in)
@@ -462,7 +507,8 @@ func (m *Manager) start(ctx context.Context, a store.Activity, dev store.Device,
 func (m *Manager) update(ctx context.Context, a store.Activity, dev store.Device, in *store.Instance, prio int) bool {
 	now := m.cfg.Now()
 	content := contentMap(a.Content)
-	body, err := payload{event: "update", now: now, content: content, stale: m.staleDate(a, content)}.marshal()
+	stamp := nextStamp(now, in.LastPushAt)
+	body, err := payload{event: "update", now: now, stamp: stamp, content: content, stale: m.staleDate(a, content)}.marshal()
 	if err != nil {
 		m.cfg.Logger.Error("live: payload", "err", err)
 		return false
@@ -471,10 +517,15 @@ func (m *Manager) update(ctx context.Context, a store.Activity, dev store.Device
 		Environment: dev.Environment, Token: in.UpdateToken, Topic: dev.Topic, Body: body, Priority: prio,
 		Expiration: m.staleDate(a, content).Unix(),
 	})
-	in.LastPushAt = now
+	in.LastPushAt = time.Unix(stamp, 0)
 	if r.Gone() {
 		in.State, in.EndReason, in.EndedAt = store.InstanceDead, "update token refused: "+r.Error(), now
 	} else if !r.Sent() {
+		// The next update carries the same content; send it after the
+		// throttle when none comes sooner.
+		if _, ok := m.pending[a.ID]; !ok {
+			m.pending[a.ID] = now.Add(m.cfg.Throttle)
+		}
 		m.cfg.Logger.Warn("live: update not sent", "device", dev.ID, "key", a.Key, "error", r.Error())
 	}
 	m.save(ctx, *in)
@@ -487,19 +538,90 @@ func (m *Manager) update(ctx context.Context, a store.Activity, dev store.Device
 func (m *Manager) end(ctx context.Context, a store.Activity, dev store.Device, in store.Instance, dismissal time.Time, state, reason string) {
 	now := m.cfg.Now()
 	if in.State == store.InstanceActive && in.UpdateToken != "" {
-		body, err := payload{event: "end", now: now, content: contentMap(a.Content), dismissal: dismissal}.marshal()
-		if err == nil {
-			r := m.cfg.Sender.SendLive(ctx, push.LivePush{
-				Environment: dev.Environment, Token: in.UpdateToken, Topic: dev.Topic, Body: body, Priority: 10,
-			})
-			if !r.Sent() && !r.Gone() {
-				m.cfg.Logger.Warn("live: end not sent", "device", dev.ID, "key", a.Key, "error", r.Error())
-			}
-		}
-		in.LastPushAt = now
+		m.sendEnd(ctx, a, dev, &in, dismissal)
 	}
 	in.State, in.EndReason, in.EndedAt = state, reason, now
 	m.save(ctx, in)
+}
+
+// sendEnd sends the end push to in's update token. Its timestamp is later
+// than any push before it, so the device does not drop it as old. A passing
+// failure queues it for retryEnds. It does not save in.
+func (m *Manager) sendEnd(ctx context.Context, a store.Activity, dev store.Device, in *store.Instance, dismissal time.Time) bool {
+	now := m.cfg.Now()
+	stamp := nextStamp(now, in.LastPushAt)
+	body, err := payload{event: "end", now: now, stamp: stamp, content: contentMap(a.Content), dismissal: dismissal}.marshal()
+	if err != nil {
+		m.cfg.Logger.Error("live: payload", "err", err)
+		return false
+	}
+	r := m.cfg.Sender.SendLive(ctx, push.LivePush{
+		Environment: dev.Environment, Token: in.UpdateToken, Topic: dev.Topic, Body: body, Priority: 10,
+	})
+	in.LastPushAt = time.Unix(stamp, 0)
+	if r.Sent() || r.Gone() {
+		delete(m.endRetry, in.ID)
+		return r.Sent()
+	}
+	er := m.endRetry[in.ID]
+	if er.delay >= maxBackoff {
+		delete(m.endRetry, in.ID)
+		m.cfg.Logger.Warn("live: end not sent; giving up", "device", dev.ID, "key", a.Key, "error", r.Error())
+		return false
+	}
+	m.endRetry[in.ID] = endRetry{backoff: er.backoff.grow(now), dismissal: dismissal}
+	m.cfg.Logger.Warn("live: end not sent", "device", dev.ID, "key", a.Key, "error", r.Error())
+	return false
+}
+
+// retryEnds sends again the end pushes that are due.
+func (m *Manager) retryEnds(ctx context.Context) {
+	now := m.cfg.Now()
+	for id, er := range m.endRetry {
+		if now.Before(er.next) {
+			continue
+		}
+		in, err := m.cfg.Store.GetInstance(ctx, id)
+		if err != nil || in.UpdateToken == "" {
+			delete(m.endRetry, id)
+			continue
+		}
+		dev, err := m.cfg.Store.GetDevice(ctx, in.DeviceID)
+		if err != nil {
+			delete(m.endRetry, id)
+			continue
+		}
+		a, err := m.cfg.Store.GetActivity(ctx, in.Key)
+		if err != nil {
+			delete(m.endRetry, id)
+			continue
+		}
+		m.sendEnd(ctx, a, dev, &in, er.dismissal)
+		m.save(ctx, in)
+	}
+}
+
+// abandon ends a, silent for AbandonAfter, and its instances.
+func (m *Manager) abandon(ctx context.Context, a store.Activity) {
+	ok, err := m.cfg.Store.EndActivity(ctx, a.Key, a.ID, store.EndAbandoned)
+	if err != nil {
+		m.cfg.Logger.Error("live: end abandoned", "key", a.Key, "err", err)
+		return
+	}
+	if ok {
+		a.State, a.EndedAt, a.EndReason = "ended", m.cfg.Now(), store.EndAbandoned
+		m.finish(ctx, a)
+	}
+}
+
+// nextStamp is the timestamp for a push at now: now in Unix seconds, or one
+// second past the last push to the same instance, whichever is later.
+func nextStamp(now, last time.Time) int64 {
+	s := now.Unix()
+	if !last.IsZero() && s <= last.Unix() {
+		s = last.Unix() + 1
+	}
+	return s
 }
 
 // endOthers ends the open instances on a's key that belong to an earlier
@@ -546,7 +668,11 @@ func (m *Manager) finish(ctx context.Context, a store.Activity) {
 	}
 	delete(m.lastPush, a.ID)
 	delete(m.pending, a.ID)
-	delete(m.status, a.ID)
+	for k := range m.startBackoff {
+		if strings.HasPrefix(k, a.ID+"/") {
+			delete(m.startBackoff, k)
+		}
+	}
 	if m.cfg.Emit == nil {
 		return
 	}

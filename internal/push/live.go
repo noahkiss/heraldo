@@ -60,36 +60,15 @@ func (r LiveResult) Error() string {
 }
 
 // SendLive sends one Live Activity push now. It signs a new provider token
-// and tries again once when APNs refuses the old one, and retries a
-// throttled or failed push once after the first backoff step. It does not
-// queue: a later update replaces a lost one.
+// and tries again once when APNs refuses the old one. It never waits to
+// retry: the caller holds its own backoff, and a later update replaces a
+// lost one.
 func (p *Pusher) SendLive(ctx context.Context, lp LivePush) LiveResult {
 	dev := store.Device{Token: lp.Token, Environment: lp.Environment, Topic: lp.Topic}
 	h := Headers{Priority: lp.Priority, Expiration: lp.Expiration, PushType: "liveactivity", Topic: lp.Topic + LiveTopicSuffix}
-	var stale time.Time
-	refreshed, retried := false, false
-	for {
-		a, err := p.send(ctx, dev, lp.Body, h, stale)
-		r := LiveResult{Status: a.status, Reason: a.reason, Err: err}
-		switch {
-		case err == nil && a.staleToken() && !refreshed:
-			refreshed, stale = true, p.cfg.Now()
-			continue
-		case (err != nil && a.status == 0 || err == nil && a.transient()) && !retried && ctx.Err() == nil:
-			retried = true
-			wait := time.Second
-			if len(p.cfg.Backoff) > 0 {
-				wait = p.cfg.Backoff[0]
-			}
-			t := time.NewTimer(wait)
-			select {
-			case <-ctx.Done():
-				t.Stop()
-				return r
-			case <-t.C:
-			}
-			continue
-		}
-		return r
+	a, err := p.send(ctx, dev, lp.Body, h, time.Time{})
+	if err == nil && a.staleToken() {
+		a, err = p.send(ctx, dev, lp.Body, h, p.cfg.Now())
 	}
+	return LiveResult{Status: a.status, Reason: a.reason, Err: err}
 }

@@ -39,8 +39,10 @@ type liveAlert struct {
 
 // payload is one liveactivity push body.
 type payload struct {
-	event     string // start, update or end
-	now       time.Time
+	event string // start, update or end
+	now   time.Time
+	// stamp replaces now as the timestamp when set.
+	stamp     int64
 	content   map[string]any
 	stale     time.Time
 	dismissal time.Time
@@ -54,6 +56,9 @@ func (p payload) marshal() ([]byte, error) {
 		Event:        p.event,
 		ContentState: ContentState(p.content),
 		Alert:        p.alert,
+	}
+	if p.stamp != 0 {
+		a.Timestamp = p.stamp
 	}
 	if !p.stale.IsZero() {
 		a.StaleDate = p.stale.Unix()

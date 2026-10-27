@@ -314,14 +314,18 @@ ActivityKit activity, with its own id (`lai_` plus a ULID) in its attributes:
   with the next registration, starts every running activity on that device.
 - An update token that comes after `never-started` revives the instance when
   it is still the newest on the device. Otherwise the server ends it.
+- An update token for an instance the server ended while it was starting (an
+  end, an abandon or a restart before the app reported) gets the end push at
+  once, with `dismissal-date` now. The activity came up on the device anyway,
+  and would stay there without it.
 
 Pushes:
 
 | Push | When | apns-priority | Notes |
 |---|---|---|---|
-| start | A new activity or a new link | 10 | To the push-to-start token. `alert` with the title and the body or status; the first start on a device sounds when the start's `level` is set and not `passive`; a chain link or a retry has no sound. Expires after 15 minutes. |
-| update, state change | The app reported a token (catch-up), or `status` changed | 10 | At once. |
-| update, progress | Any other update | 5 | At most one per 15 seconds per activity. Updates in between merge; the last content goes out when the 15 seconds are up. |
+| start | A new activity or a new link | 10 | To the push-to-start token. `alert` with the title and the body or status; the first start on a device sounds when the start's `level` is set and not `passive`. A chain link, a retry, and a start from a resync (a new push-to-start token, a server restart) have no sound. Expires after 15 minutes. |
+| update, catch-up | The app reported a token | 10 | At once, to that instance. |
+| update | Any other update, a new `status` or `tint` included | 5 | At most one per 15 seconds per activity. Updates in between merge; the last content goes out when the 15 seconds are up. A changing status text, such as a layer counter, cannot raise the rate or the priority. |
 | end | The activity ended, a link was handed over, or a start replaced it | 10 | `dismissal-date` is now plus `keep_for` when set, now on a hand-off, else the system default. |
 
 - Headers: `apns-push-type: liveactivity`, `apns-topic: <bundle id>.push-type.liveactivity`.
@@ -330,11 +334,22 @@ Pushes:
   minutes before there are two). An update push expires at its stale date.
 - Chain: Apple ends an activity after 8 hours. At 7.5 hours the server starts
   the next link with the same content, then ends the old one with
-  `dismissal-date` now. A failed start leaves the old link up; the next check
-  tries again. Without a push-to-start token there is no next link.
-- APNs gets one try and one retry after 1 second for 429, 5xx or no answer.
-  A later update replaces a lost one. On a restart the server pushes the
-  current content of every running activity.
+  `dismissal-date` now. A failed start leaves the old link up. Without a
+  push-to-start token there is no next link.
+- Retries: APNs gets one try per push; the server never sleeps on a retry.
+  After a push-to-start fails with 429, 5xx or no answer, the server waits
+  30 seconds before the next one to that device for that activity, doubling to
+  10 minutes. A failed update goes again with the next update, or after 15
+  seconds. A failed end goes again after 30 seconds, doubling, until 10
+  minutes. A refused token (410, `BadDeviceToken`, `ExpiredToken`) is never
+  retried.
+- `timestamp` is the push time in Unix seconds, and always later than the
+  last push to the same instance: an end in the same second as an update gets
+  the next second, so the device does not drop it as old.
+- Resync: on a restart, and when a device reports a new push-to-start token,
+  the server pushes the current content of every running activity and starts
+  it, silently, where it is missing. An activity with no event for two hours
+  is abandoned instead of started.
 
 The payload, a start:
 
@@ -374,6 +389,9 @@ The app's side:
 - `PUT` answers the instance. 400 for a bad body or another device's
   instance, 404 for an unknown id, 503 with push off. A report on an instance
   the server already closed changes nothing.
+- A read token is not bound to a device, and `device` is optional. Any read
+  token can report on any instance, and so can mark it dismissed or replace
+  its token. Every token belongs to the owner, so this is an accepted limit.
 
 `GET /v1/activities/{key}` answers an `Activity`: `key`, `id`, `state`
 (`active` or `ended`), `source`, `content` (merged), `started_at`,

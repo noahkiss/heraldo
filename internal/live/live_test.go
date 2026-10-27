@@ -332,19 +332,25 @@ func TestThrottleAndPriority(t *testing.T) {
 		t.Errorf("stale-date = %d, want now + 30 s", got[0].num("stale-date"))
 	}
 
-	// A new status is a state change: priority 10, at once.
+	// A new status is not a state change: it waits out the 15 s, at
+	// priority 5, like progress.
 	r.clk.add(time.Second)
 	r.post(t, `{"source":"printer","kind":"progress","key":"print/42","action":"update","content":{"status":"Paused","tint":"orange"}}`)
+	if got := r.apns.take(); len(got) != 0 {
+		t.Fatalf("status change pushed at once: %+v", got)
+	}
+	r.clk.add(15 * time.Second)
+	r.tick()
 	got = r.apns.take()
-	if len(got) != 1 || got[0].Priority != 10 || got[0].state()["status"] != "Paused" || got[0].state()["progress"] != 0.3 {
-		t.Fatalf("state change = %+v", got)
+	if len(got) != 1 || got[0].Priority != 5 || got[0].state()["status"] != "Paused" || got[0].state()["progress"] != 0.3 {
+		t.Fatalf("status change = %+v", got)
 	}
 
-	// Updates a minute apart: stale after two minutes.
+	// Sender events 75 s apart (the status, then this): stale after 150 s.
 	r.clk.add(time.Minute)
 	r.post(t, update(0.5))
 	got = r.apns.take()
-	if len(got) != 1 || got[0].Priority != 5 || got[0].num("stale-date") != r.clk.now().Add(2*time.Minute).Unix() {
+	if len(got) != 1 || got[0].Priority != 5 || got[0].num("stale-date") != r.clk.now().Add(150*time.Second).Unix() {
 		t.Fatalf("minute update = %+v", got)
 	}
 	if got[0].Expiration != got[0].num("stale-date") {
@@ -836,5 +842,185 @@ func TestOnlyTheFirstStartSounds(t *testing.T) {
 	r.post(t, update(0.5))
 	if got := r.apns.take(); len(got) != 1 || got[0].event() != "start" || sound(got[0]) != "" {
 		t.Fatalf("next link = %+v", got)
+	}
+}
+
+// instanceOf returns the instance id in a start push.
+func instanceOf(p sent) string {
+	attrs, _ := p.APS["attributes"].(map[string]any)
+	id, _ := attrs["instance"].(string)
+	return id
+}
+
+func TestTokenAfterEndGetsTheEnd(t *testing.T) {
+	for _, c := range []struct {
+		name, ender string
+	}{
+		{"end", `{"source":"printer","kind":"progress","key":"print/42","action":"end","content":{"status":"Done"}}`},
+		{"restart", start},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := newRig(t)
+			r.phone(t)
+			r.post(t, start)
+			id := instanceOf(r.apns.take()[0])
+			r.clk.add(3 * time.Second)
+			r.post(t, c.ender)
+			r.apns.take()
+			r.clk.add(2 * time.Second)
+			r.report(t, id, fmt.Sprintf(`{"token":%q}`, updateToken(1)))
+			got := r.apns.take()
+			if len(got) != 1 || got[0].event() != "end" || got[0].Token != updateToken(1) {
+				t.Fatalf("pushes after the late token = %+v", got)
+			}
+			if got[0].num("dismissal-date") > r.clk.now().Unix() {
+				t.Errorf("dismissal-date = %d, want now", got[0].num("dismissal-date"))
+			}
+			// The same token again sends nothing more.
+			r.report(t, id, fmt.Sprintf(`{"token":%q}`, updateToken(1)))
+			if got := r.apns.take(); len(got) != 0 {
+				t.Errorf("pushes after a repeated token = %+v", got)
+			}
+		})
+	}
+}
+
+func TestChainStartBacksOff(t *testing.T) {
+	r := newRig(t)
+	r.phone(t)
+	r.begin(t, 1)
+	for e := time.Duration(0); e < 7*time.Hour; e += 30 * time.Minute {
+		r.clk.add(30 * time.Minute)
+		r.post(t, update(0.1))
+		r.tick()
+	}
+	r.apns.take()
+	r.apns.reply = func(tok string) push.LiveResult {
+		if tok == startToken {
+			return push.LiveResult{Status: http.StatusTooManyRequests, Reason: "TooManyRequests"}
+		}
+		return push.LiveResult{Status: http.StatusOK}
+	}
+	r.clk.add(30 * time.Minute) // past 7.5 h
+	r.post(t, update(0.2))
+	var at []time.Duration
+	begin := r.clk.now()
+	for i := 0; i < 12*20; i++ { // 20 minutes of 5 s ticks
+		r.clk.add(5 * time.Second)
+		r.tick()
+		for _, p := range r.apns.take() {
+			if p.event() == "start" {
+				at = append(at, r.clk.now().Sub(begin))
+			}
+			if p.event() == "end" {
+				t.Fatal("the old link ended although no new one started")
+			}
+		}
+	}
+	// 30 s, then 1, 2, 4, 8 minutes apart: 6 tries in 20 minutes, not 240.
+	if len(at) < 4 || len(at) > 7 {
+		t.Fatalf("push-to-start tries in 20 minutes = %d at %v", len(at), at)
+	}
+	for i := 1; i < len(at); i++ {
+		if gap := at[i] - at[i-1]; gap < 30*time.Second || (i > 1 && gap < at[i-1]-at[i-2]) {
+			t.Fatalf("tries at %v do not back off", at)
+		}
+	}
+	// When APNs takes it again, the hand-off goes through.
+	r.apns.reply = nil
+	r.clk.add(10 * time.Minute)
+	r.tick()
+	var events []string
+	for _, p := range r.apns.take() {
+		events = append(events, p.event())
+	}
+	if strings.Join(events, ",") != "start,end" {
+		t.Fatalf("hand-off after recovery = %v", events)
+	}
+}
+
+func TestEndRetriesAfterPassingFailure(t *testing.T) {
+	r := newRig(t)
+	r.phone(t)
+	r.begin(t, 1)
+	r.apns.reply = func(string) push.LiveResult { return push.LiveResult{Status: http.StatusServiceUnavailable} }
+	r.clk.add(time.Minute)
+	r.post(t, `{"source":"printer","kind":"progress","key":"print/42","action":"end","content":{"status":"Done"}}`)
+	if got := r.apns.take(); len(got) != 1 || got[0].event() != "end" {
+		t.Fatalf("end = %+v", got)
+	}
+	r.clk.add(10 * time.Second)
+	r.tick()
+	if got := r.apns.take(); len(got) != 0 {
+		t.Fatalf("retried before the backoff: %+v", got)
+	}
+	r.apns.reply = nil
+	r.clk.add(30 * time.Second)
+	r.tick()
+	if got := r.apns.take(); len(got) != 1 || got[0].event() != "end" {
+		t.Fatalf("retry = %+v", got)
+	}
+	r.clk.add(time.Hour)
+	r.tick()
+	if got := r.apns.take(); len(got) != 0 {
+		t.Fatalf("pushes after a sent end = %+v", got)
+	}
+}
+
+func TestResyncAbandonsStaleAndStartsSilently(t *testing.T) {
+	r := newRig(t)
+	r.post(t, start) // no devices yet
+	r.clk.add(5 * time.Hour)
+	r.post(t, `{"source":"backup","kind":"progress","key":"backup/1","action":"start","level":"active","content":{"title":"Backup"}}`)
+	r.phone(t) // the new push-to-start token resyncs
+	got := r.apns.take()
+	if len(got) != 1 || got[0].event() != "start" {
+		t.Fatalf("pushes = %+v", got)
+	}
+	if attrs, _ := got[0].APS["attributes"].(map[string]any); attrs["key"] != "backup/1" {
+		t.Errorf("started %v, want only the fresh activity", attrs["key"])
+	}
+	if sound(got[0]) != "" {
+		t.Errorf("a resync start sounds")
+	}
+	if a := r.activity(t, "print/42"); a.State != "ended" || *a.EndReason != "abandoned" {
+		t.Errorf("stale activity = %s", a.State)
+	}
+}
+
+func TestStatusCountersAreThrottled(t *testing.T) {
+	r := newRig(t)
+	r.phone(t)
+	r.begin(t, 1)
+	n := 0
+	for i := 0; i < 20; i++ {
+		r.clk.add(time.Second)
+		r.post(t, fmt.Sprintf(`{"source":"printer","kind":"progress","key":"print/42","action":"update","content":{"status":"Layer %d"}}`, i))
+		r.tick()
+		for _, p := range r.apns.take() {
+			if p.Priority != 5 {
+				t.Fatalf("a status change went at priority %d", p.Priority)
+			}
+			n++
+		}
+	}
+	if n > 2 {
+		t.Fatalf("20 status changes in 20 s gave %d pushes, want at most 2", n)
+	}
+}
+
+func TestEndTimestampFollowsUpdate(t *testing.T) {
+	r := newRig(t)
+	r.phone(t)
+	r.begin(t, 1)
+	r.clk.add(time.Minute)
+	r.post(t, update(0.9))
+	r.post(t, `{"source":"printer","kind":"progress","key":"print/42","action":"end","content":{"status":"Done"}}`)
+	got := r.apns.take()
+	if len(got) != 2 || got[0].event() != "update" || got[1].event() != "end" {
+		t.Fatalf("pushes = %+v", got)
+	}
+	if got[1].num("timestamp") <= got[0].num("timestamp") {
+		t.Errorf("end timestamp %d is not after the update's %d", got[1].num("timestamp"), got[0].num("timestamp"))
 	}
 }
