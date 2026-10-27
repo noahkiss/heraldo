@@ -1,5 +1,6 @@
 #!/bin/sh
-# Notarize and staple the Release build that scripts/build.sh made.
+# Notarize and staple the Release build that scripts/build.sh made, then zip
+# it for a GitHub release: build/Heraldo-<version>-macos.zip.
 # Needs a Developer ID build (Config/Local.xcconfig) and notarytool credentials
 # stored once in the Keychain under a profile name:
 #
@@ -32,3 +33,8 @@ xcrun notarytool submit "$zip" --keychain-profile "$NOTARY_PROFILE" --wait
 rm -f "$zip"
 xcrun stapler staple "$app"
 spctl -a -vv -t exec "$app"
+version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
+out="$here/build/$(basename "$app" .app)-$version-macos.zip"
+/bin/rm -f "$out"
+ditto -c -k --keepParent "$app" "$out"
+echo "release zip: $out"

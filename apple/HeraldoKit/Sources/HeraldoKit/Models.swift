@@ -24,10 +24,11 @@ public struct Event: Codable, Hashable, Identifiable, Sendable {
     public var actions: [EventAction]?
     public var hold: Hold?
     public var delivery: [Delivery]?
+    public var checkin: Checkin?
 
     enum CodingKeys: String, CodingKey {
         case id, ts, source, kind, key, action, host, title, summary, body, level, thread
-        case url, image, icon, tags, actions, hold, delivery
+        case url, image, icon, tags, actions, hold, delivery, checkin
         case receivedAt = "received_at"
     }
 
@@ -56,6 +57,34 @@ public struct Event: Codable, Hashable, Identifiable, Sendable {
     /// An incident event that is open, updated or untyped: Ack applies.
     public var isOpenIncident: Bool {
         kind == "incident" && (action == nil || action == "open" || action == "update")
+    }
+
+    /// A check-in whose last run failed: `fail`, or a non-zero exit code on
+    /// anything but `log` (the push table's rule, docs/api.md).
+    public var isFailingCheckin: Bool {
+        guard kind == "checkin" else { return false }
+        if action == "fail" { return true }
+        if action == "log" { return false }
+        return (checkin?.exitCode ?? 0) != 0
+    }
+}
+
+/// Run details of a check-in (docs/api.md, "Checkin").
+public struct Checkin: Codable, Hashable, Sendable {
+    public var rid: String?
+    public var exitCode: Int?
+    public var durationMs: Int?
+    public var schedule: String?
+
+    enum CodingKeys: String, CodingKey {
+        case rid, schedule
+        case exitCode = "exit_code"
+        case durationMs = "duration_ms"
+    }
+
+    public init(rid: String? = nil, exitCode: Int? = nil) {
+        self.rid = rid
+        self.exitCode = exitCode
     }
 }
 

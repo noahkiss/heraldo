@@ -63,8 +63,8 @@ final class ModelTests: XCTestCase {
     }
 
     func testAPNsEnvironment() {
-        func profile(_ env: String?) -> Data {
-            let ent = env.map { "<key>aps-environment</key><string>\($0)</string>" } ?? ""
+        func profile(_ env: String?, key: String = "aps-environment") -> Data {
+            let ent = env.map { "<key>\(key)</key><string>\($0)</string>" } ?? ""
             let plist = """
             <?xml version="1.0" encoding="UTF-8"?>
             <plist version="1.0"><dict><key>Entitlements</key><dict>\(ent)</dict></dict></plist>
@@ -74,9 +74,28 @@ final class ModelTests: XCTestCase {
         }
         XCTAssertEqual(APNs.environment(profile: profile("development"), simulator: false), .sandbox)
         XCTAssertEqual(APNs.environment(profile: profile("production"), simulator: false), .production)
+        XCTAssertEqual(APNs.environment(profile: profile("production", key: "com.apple.developer.aps-environment"),
+                                        simulator: false), .production, "a macOS profile")
+        XCTAssertEqual(APNs.environment(profile: profile("development", key: "com.apple.developer.aps-environment"),
+                                        simulator: false), .sandbox)
         XCTAssertEqual(APNs.environment(profile: nil, simulator: false), .production, "TestFlight has no profile")
         XCTAssertEqual(APNs.environment(profile: nil, simulator: true), .sandbox)
         XCTAssertEqual(APNs.hex(Data([0x0a, 0xff])), "0aff")
+    }
+
+    func testFailingCheckin() throws {
+        func checkin(_ action: String, _ exit: Int? = nil) throws -> Event {
+            let code = exit.map { #","checkin":{"rid":"r1","exit_code":\#($0)}"# } ?? ""
+            let json = #"{"id":"01","source":"cron","kind":"checkin","key":"backup","action":"\#(action)"\#(code)}"#
+            return try JSON.decoder.decode(Event.self, from: Data(json.utf8))
+        }
+        XCTAssertTrue(try checkin("fail").isFailingCheckin)
+        XCTAssertTrue(try checkin("success", 2).isFailingCheckin)
+        XCTAssertEqual(try checkin("success", 2).checkin?.exitCode, 2)
+        XCTAssertFalse(try checkin("success", 0).isFailingCheckin)
+        XCTAssertFalse(try checkin("start").isFailingCheckin)
+        XCTAssertFalse(try checkin("log", 1).isFailingCheckin)
+        XCTAssertFalse(Event(id: "x", source: "s", kind: "incident").isFailingCheckin)
     }
 
     func testCacheMergeDropsCopies() {

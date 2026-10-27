@@ -242,7 +242,7 @@ struct KindIcon: View {
             default: return "exclamationmark.triangle"
             }
         case "digest": return "list.bullet.rectangle"
-        case "checkin": return "clock.badge.checkmark"
+        case "checkin": return event.isFailingCheckin ? "clock.badge.xmark" : "clock.badge.checkmark"
         case "progress": return "gauge.with.dots.needle.33percent"
         case "status": return "chart.bar"
         default: return "bell"
@@ -251,6 +251,7 @@ struct KindIcon: View {
 
     private var color: Color {
         if event.kind == "incident" && event.action == "resolve" { return .green }
+        if event.isFailingCheckin { return .red }
         switch event.level {
         case "critical": return .red
         case "time-sensitive": return .orange

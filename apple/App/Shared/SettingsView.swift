@@ -38,9 +38,7 @@ struct SettingsView: View {
                     Text("The read token syncs history and registers this device. The write token acknowledges incidents and sends events. Saved in \(model.store.modeDescription).")
                 }
 
-                #if os(iOS)
                 PushSection()
-                #endif
 
                 Section("Sync") {
                     LabeledContent("Events kept", value: "\(model.cache.events.count)")

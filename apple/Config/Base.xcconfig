@@ -22,6 +22,14 @@ CODE_SIGN_IDENTITY = -
 DEVELOPMENT_TEAM =
 
 APP_MAC_PROFILE =
+
+// The Mac app's push, app group and synced Keychain need its Developer ID
+// profile. Without one the Mac build keeps only the sandbox, and the
+// credentials stay in this Mac's login keychain. Local.xcconfig switches both.
+APP_MAC_ENTITLEMENTS = App/macOS/Unsigned.entitlements
+APP_MAC_KEYCHAIN_GROUP =
+// A Developer ID profile carries production APNs only, in Debug too.
+APS_ENVIRONMENT[sdk=macosx*] = production
 APP_IOS_PROFILE =
 APP_NSE_IOS_PROFILE =
 APP_WIDGETS_IOS_PROFILE =

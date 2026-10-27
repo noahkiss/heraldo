@@ -41,15 +41,17 @@ public enum APNs {
     /// The APNs environment of this build, from the aps-environment
     /// entitlement in its embedded provisioning profile. A TestFlight or App
     /// Store build has no embedded profile and is production; a simulator
-    /// build is sandbox.
+    /// build is sandbox. A Mac app embeds its profile too.
     public static func environment(profile: Data?, simulator: Bool) -> APNsEnvironment {
         if simulator { return .sandbox }
         guard let profile, let value = apsEnvironment(profile: profile) else { return .production }
         return value == "development" ? .sandbox : .production
     }
 
-    /// The aps-environment entitlement of a provisioning profile. The profile
-    /// is a CMS envelope around a property list; this reads the plist out of it.
+    /// The aps-environment entitlement of a provisioning profile: an iOS
+    /// `.mobileprovision` or a macOS `.provisionprofile`, whose key carries the
+    /// `com.apple.developer.` prefix. The profile is a CMS envelope around a
+    /// property list; this reads the plist out of it.
     public static func apsEnvironment(profile: Data) -> String? {
         guard let start = profile.range(of: Data("<?xml".utf8)),
               let end = profile.range(of: Data("</plist>".utf8), in: start.lowerBound..<profile.endIndex) else {
@@ -58,7 +60,7 @@ public enum APNs {
         let plist = profile[start.lowerBound..<end.upperBound]
         guard let dict = try? PropertyListSerialization.propertyList(from: plist, format: nil) as? [String: Any],
               let ent = dict["Entitlements"] as? [String: Any] else { return nil }
-        return ent["aps-environment"] as? String
+        return (ent["aps-environment"] ?? ent["com.apple.developer.aps-environment"]) as? String
     }
 
     /// The hex form of an APNs device token.

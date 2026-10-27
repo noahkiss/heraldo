@@ -1,11 +1,15 @@
-import ActivityKit
 import HeraldoKit
 import Observation
 import SwiftUI
-import UIKit
 import UserNotifications
+#if os(iOS)
+import ActivityKit
+import UIKit
+#else
+import AppKit
+#endif
 
-/// Push on iOS: the notification categories, the APNs token, and the device
+/// Push on iOS and macOS: the notification categories, the APNs token, and the device
 /// registration with its permission health. It registers on every launch, and
 /// again on foreground when a permission changed since the last report.
 @MainActor
@@ -41,8 +45,12 @@ final class PushManager {
         #else
         let simulator = false
         #endif
-        let profile = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision")
-            .flatMap { try? Data(contentsOf: $0) }
+        #if os(iOS)
+        let profileURL = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision")
+        #else
+        let profileURL: URL? = Bundle.main.bundleURL.appending(path: "Contents/embedded.provisionprofile")
+        #endif
+        let profile = profileURL.flatMap { try? Data(contentsOf: $0) }
         environment = APNs.environment(profile: profile, simulator: simulator)
     }
 
@@ -52,7 +60,11 @@ final class PushManager {
         center.setNotificationCategories(Self.categories)
         // The token does not wait for the answer; the registration reports the
         // permissions as they are and again once the person answers.
+        #if os(iOS)
         UIApplication.shared.registerForRemoteNotifications()
+        #else
+        NSApplication.shared.registerForRemoteNotifications()
+        #endif
         Task {
             await readPermissions()
             _ = try? await center.requestAuthorization(options: [.alert, .badge, .sound])
@@ -76,11 +88,13 @@ final class PushManager {
 
     func didRegister(token: Data) {
         apnsToken = APNs.hex(token)
+        log.info("push: APNs token received")
         Task { await register(force: !registeredThisLaunch) }
     }
 
     func didFail(_ error: Error) {
         lastError = "APNs: \(error.localizedDescription)"
+        log.error("push: APNs registration failed: \(error.localizedDescription, privacy: .public)")
     }
 
     /// On foreground: report permissions again when they changed.
@@ -105,7 +119,9 @@ final class PushManager {
                 p.timeSensitive = s.timeSensitiveSetting == .enabled
             }
         }
+        #if os(iOS)
         p.liveActivities = ActivityAuthorizationInfo().areActivitiesEnabled
+        #endif
         permissions = p
     }
 
@@ -115,7 +131,7 @@ final class PushManager {
         guard let token = apnsToken, model.isConfigured, let client = try? model.client() else { return }
         let reg = DeviceRegistration(
             token: token, environment: environment, topic: Bundle.main.bundleIdentifier ?? "",
-            name: UIDevice.current.name, platform: "iOS", appVersion: AppInfo.version(),
+            name: Self.deviceName, platform: Self.platform, appVersion: AppInfo.version(),
             permissions: permissions)
         let last = reported
         guard force || last != reg else { return }
@@ -135,10 +151,20 @@ final class PushManager {
             reported = reg
             registeredThisLaunch = true
             lastError = nil
+            log.info("push: registered device \(dev.id, privacy: .public) (\(self.environment.rawValue, privacy: .public))")
         } catch {
             lastError = "Registration: \(error.localizedDescription)"
+            log.error("push: registration failed: \(error.localizedDescription, privacy: .public)")
         }
     }
+
+    #if os(iOS)
+    static var deviceName: String { UIDevice.current.name }
+    static let platform = "iOS"
+    #else
+    static var deviceName: String { Host.current().localizedName ?? "Mac" }
+    static let platform = "macOS"
+    #endif
 
     /// Settings changed: register with the (maybe new) server now.
     func credentialsChanged() {
@@ -147,7 +173,12 @@ final class PushManager {
     }
 
     func setBadge(_ n: Int) {
+        #if os(iOS)
         UNUserNotificationCenter.current().setBadgeCount(n)
+        #else
+        // The Dock tile shows the count whether or not notifications are allowed.
+        NSApp.dockTile.badgeLabel = n > 0 ? "\(n)" : nil
+        #endif
     }
 
     // MARK: Notification responses
@@ -161,12 +192,16 @@ final class PushManager {
             await ack(info)
         case PushCategory.openAction:
             if let url = info.url.flatMap(URL.init(string:)) {
+                #if os(iOS)
                 await UIApplication.shared.open(url)
+                #else
+                NSWorkspace.shared.open(url)
+                #endif
             } else {
-                model.openEventID = info.id
+                model.openEvent(info.id)
             }
         case UNNotificationDefaultActionIdentifier:
-            model.openEventID = info.id
+            model.openEvent(info.id)
         default:
             break
         }
@@ -192,41 +227,6 @@ final class PushManager {
     }
 }
 
-final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
-    func application(_ application: UIApplication,
-                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        UNUserNotificationCenter.current().delegate = self
-        let push = PushManager.shared
-        AppModel.shared.onBadge = { push.setBadge($0) }
-        AppModel.shared.onCredentialsChanged = { push.credentialsChanged() }
-        push.start()
-        return true
-    }
-
-    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        PushManager.shared.didRegister(token: deviceToken)
-    }
-
-    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        PushManager.shared.didFail(error)
-    }
-
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
-                                            withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        // A push in the foreground: show it, and sync, since it means something new.
-        Task { @MainActor in await AppModel.shared.refresh() }
-        completionHandler([.banner, .list, .sound])
-    }
-
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
-                                            withCompletionHandler completionHandler: @escaping () -> Void) {
-        Task { @MainActor in
-            await PushManager.shared.handle(response)
-            completionHandler()
-        }
-    }
-}
-
 /// The notifications part of Settings.
 struct PushSection: View {
     @State private var push = PushManager.shared
@@ -239,12 +239,14 @@ struct PushSection: View {
                 Button("Allow notifications") { push.start() }
             } else if push.authorization == .denied || push.permissions.timeSensitive == false {
                 Button("Open notification settings") {
-                    if let url = URL(string: UIApplication.openNotificationSettingsURLString) { openURL(url) }
+                    if let url = Self.notificationSettingsURL { openURL(url) }
                 }
             }
             permission("Alerts", push.permissions.alerts)
             permission("Time Sensitive", push.permissions.timeSensitive)
+            #if os(iOS)
             permission("Live Activities", push.permissions.liveActivities)
+            #endif
             LabeledContent("APNs", value: push.environment.rawValue)
             if let d = push.device {
                 LabeledContent("Device", value: d.id)
@@ -263,6 +265,13 @@ struct PushSection: View {
             Text("Push")
         }
     }
+
+    #if os(iOS)
+    private static let notificationSettingsURL = URL(string: UIApplication.openNotificationSettingsURLString)
+    #else
+    private static let notificationSettingsURL = URL(
+        string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(Bundle.main.bundleIdentifier ?? "")")
+    #endif
 
     private var authorization: String {
         switch push.authorization {

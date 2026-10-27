@@ -17,6 +17,10 @@ OTHER_CODE_SIGN_FLAGS[sdk=macosx*] = --timestamp
 // APP_NSE_IOS_PROFILE = match AppStore com.nkmkdigital.heraldo.nse
 // APP_WIDGETS_IOS_PROFILE = match AppStore com.nkmkdigital.heraldo.widgets
 
-// 3. macOS: a Developer ID profile, only when an entitlement needs one
-//    (keychain groups, iCloud). Plain Developer ID signing needs none.
-// APP_MAC_PROFILE = <macOS app profile name>
+// 3. macOS: the Developer ID profile for the app's bundle ID, with push and
+//    the app group. fastlane match (developer_id, platform macos) names it:
+// APP_MAC_PROFILE = match Direct com.nkmkdigital.heraldo macos
+//    With the profile, sign with the full entitlements and keep the
+//    credentials in the synced, app-group Keychain item the iOS app uses:
+// APP_MAC_ENTITLEMENTS = App/macOS/App.entitlements
+// APP_MAC_KEYCHAIN_GROUP = $(APP_GROUP_ID)

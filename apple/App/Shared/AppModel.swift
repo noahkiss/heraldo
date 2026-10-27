@@ -16,6 +16,8 @@ final class AppModel {
     private(set) var cache: HistoryCache
     private(set) var unread = UnreadState(cursor: nil, ids: [])
     private(set) var incidents: [Event] = []
+    /// Check-ins whose last run failed.
+    private(set) var failingCheckins: [Event] = []
     private(set) var isSyncing = false
     private(set) var lastSync: Date?
     var lastError: String?
@@ -26,6 +28,8 @@ final class AppModel {
     @ObservationIgnored var onBadge: ((Int) -> Void)?
     /// Called after the settings change, so push registration can run again.
     @ObservationIgnored var onCredentialsChanged: (() -> Void)?
+    /// Brings the history window up. The Mac app sets it; iOS has one window.
+    @ObservationIgnored var showMain: (() -> Void)?
 
     let store = CredentialStore()
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
@@ -41,14 +45,35 @@ final class AppModel {
             try? store.save(Credentials(serverURL: url, readToken: read, writeToken: env["HERALDO_WRITE_TOKEN"]))
         }
         #endif
-        credentials = store.load()
+        var loadError: Error?
+        do {
+            credentials = try store.read() ?? Credentials()
+        } catch {
+            credentials = Credentials()
+            loadError = error
+        }
         cache = Self.loadCache()
+        if let loadError {
+            lastError = loadError.localizedDescription
+            log.error("credentials: \(loadError.localizedDescription, privacy: .public)")
+        } else {
+            log.info("credentials: \(self.isConfigured ? "found" : "none", privacy: .public) in \(self.store.modeDescription, privacy: .public)")
+        }
         #if DEBUG
         openEventID = env["HERALDO_OPEN_EVENT"]
         #endif
     }
 
     var isConfigured: Bool { credentials.isComplete }
+
+    /// Open incidents not yet acknowledged.
+    var unackedIncidents: Int { incidents.filter { $0.action != "ack" }.count }
+
+    /// Shows one event, from a notification or a heraldo:// link.
+    func openEvent(_ id: String) {
+        openEventID = id
+        showMain?()
+    }
 
     func client() throws -> HeraldoClient { try HeraldoClient(credentials: credentials) }
 
@@ -96,8 +121,10 @@ final class AppModel {
             cache = try await sync.sync(cache)
             saveCache()
             unread = try await sync.unread()
-            incidents = try await sync.client.state().incidents
-                .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+            let state = try await sync.client.state()
+            let newest: (Event, Event) -> Bool = { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+            incidents = state.incidents.sorted(by: newest)
+            failingCheckins = (state.checkins ?? []).filter(\.isFailingCheckin).sorted(by: newest)
             lastSync = .now
             lastError = nil
             onBadge?(unread.badge)

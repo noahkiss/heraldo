@@ -232,6 +232,32 @@ app group.
 - **Shortcuts**: Send Event (with the write token) and Get Recent History (JSON).
 - `heraldo://event/<id>` opens one event.
 
+## Mac app
+
+The same app for macOS 15 or later, signed with Developer ID and notarized.
+A GitHub release carries it as `Heraldo-<version>-macos.zip`; the Homebrew
+cask installs it:
+
+```sh
+brew install --cask noahkiss/tap/heraldo-app
+```
+
+- **Menu bar**: the unread count, the open incidents with Ack, and the failing
+  check-ins. A click on one opens it in the history window.
+- **History window**: the inbox and incidents of the iOS app. Settings is in
+  the app menu (Command-comma).
+- **Credentials**: the same iCloud Keychain item as the iPhone, so tokens saved
+  on one device reach the other.
+- **Push**: the Mac registers its own APNs token with `platform` `macOS` and
+  environment `production`, and reports the same permission health. The Dock
+  icon shows the `unread` badge.
+- The app syncs every minute, on wake and on a push. Closing the window keeps
+  the menu bar item.
+
+A Mac build without a Developer ID profile signs ad hoc. It has no push, and it
+keeps the credentials in this Mac's login keychain. See
+`apple/Config/Local.example.xcconfig`, step 3.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
