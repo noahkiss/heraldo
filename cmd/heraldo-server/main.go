@@ -13,6 +13,7 @@
 //	heraldo-server import-tee <dir>   backfill an apprise-tee catalogue
 //	heraldo-server backup <path>      online backup of the database to path
 //	heraldo-server hash-token         print the SHA-256 of a token read from stdin
+//	heraldo-server healthcheck        exit 0 when the local /healthz answers ok
 //	heraldo-server version            print the version
 package main
 
@@ -23,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -46,6 +48,7 @@ commands:
   import-tee <dir>   backfill an apprise-tee catalogue directory
   backup <path>      copy the database to path with SQLite's online backup
   hash-token         print the SHA-256 of a token read from stdin
+  healthcheck        exit 0 when this server's /healthz answers ok (for Docker)
   version            print the version
 `
 
@@ -87,6 +90,8 @@ func run(args []string, stdin io.Reader, stdout io.Writer, log *slog.Logger) err
 		}
 		fmt.Fprintln(stdout, auth.Hash(tok))
 		return nil
+	case "healthcheck":
+		return healthcheck()
 	case "version", "--version", "-v":
 		fmt.Fprintln(stdout, "heraldo-server", version.String())
 		return nil
@@ -202,5 +207,28 @@ func backup(dst string, log *slog.Logger) error {
 		return fmt.Errorf("backup: %w", err)
 	}
 	log.Info("backup", "path", dst, "ms", time.Since(start).Milliseconds())
+	return nil
+}
+
+// healthcheck asks the server on HERALDO_ADDR for /healthz. The image has no
+// shell or curl, so Docker's HEALTHCHECK runs this.
+func healthcheck() error {
+	cfg, err := config.FromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
+	host, port, _ := net.SplitHostPort(cfg.Addr)
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	c := &http.Client{Timeout: 5 * time.Second}
+	resp, err := c.Get("http://" + net.JoinHostPort(host, port) + "/healthz")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("healthz: %s", resp.Status)
+	}
 	return nil
 }

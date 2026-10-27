@@ -1,14 +1,16 @@
-# Go gate: gofmt, generated code up to date, vet, tests.
-# apple/ is not built in CI yet: macOS minutes cost 10x on a private repo.
-# Run apple/scripts/check.sh locally instead.
+# Go gate: gofmt, generated code up to date, vet, tests. Then, on a push to
+# main or a v* tag, build the server image and push it to GHCR (amd64 only).
+# Pull requests run the gate only.
+# apple/ is not built in CI yet. Run apple/scripts/check.sh locally instead.
 name: CI
 
 on:
   push:
     branches: [main]
-    paths-ignore: ['**/*.md', 'docs/**', 'apple/**', 'LICENSE']
+    tags: ['v*']
+    paths-ignore: ['**/*.md', 'docs/**', 'apple/**', 'design/**', 'LICENSE']
   pull_request:
-    paths-ignore: ['**/*.md', 'docs/**', 'apple/**', 'LICENSE']
+    paths-ignore: ['**/*.md', 'docs/**', 'apple/**', 'design/**', 'LICENSE']
   workflow_dispatch:
 
 concurrency:
@@ -23,3 +25,17 @@ jobs:
     with:
       go-version-file: .go-version
       generate-check: true
+
+  image:
+    needs: go
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+    uses: noahkiss/workflows/.github/workflows/ghcr-build-push.yml@main
+    with:
+      image: ghcr.io/noahkiss/heraldo
+      platforms: linux/amd64
+      build_args: |
+        VERSION=${{ github.ref_type == 'tag' && github.ref_name || format('main-{0}', github.sha) }}
+      smoke_command: docker run --rm "$IMAGE" version

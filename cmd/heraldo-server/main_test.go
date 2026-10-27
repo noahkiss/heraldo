@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -52,5 +54,25 @@ func TestBackupNeedsDatabase(t *testing.T) {
 func TestUnknownCommand(t *testing.T) {
 	if err := run([]string{"nope"}, nil, io.Discard, quiet); err == nil {
 		t.Fatal("want an error")
+	}
+}
+
+func TestHealthcheck(t *testing.T) {
+	status := http.StatusOK
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/healthz" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(status)
+	}))
+	defer ts.Close()
+	t.Setenv("HERALDO_ADDR", strings.TrimPrefix(ts.URL, "http://"))
+	if err := run([]string{"healthcheck"}, nil, io.Discard, quiet); err != nil {
+		t.Fatal(err)
+	}
+	status = http.StatusServiceUnavailable
+	if err := run([]string{"healthcheck"}, nil, io.Discard, quiet); err == nil {
+		t.Fatal("want an error on 503")
 	}
 }
