@@ -176,6 +176,15 @@ func (p *Pusher) handle(ctx context.Context, rec store.Record) {
 	if !d.Push {
 		return
 	}
+	if d.Replace {
+		ok, err := p.cfg.Store.ReplacesVisible(ctx, *ev.Key, rec.Seq)
+		if err != nil {
+			log.Error("push: earlier pushes", "err", err)
+		}
+		if !ok {
+			return
+		}
+	}
 	p.push(ctx, log, &ev, d, 0)
 }
 

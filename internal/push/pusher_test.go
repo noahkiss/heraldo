@@ -476,8 +476,8 @@ func TestBadgeRuleMatchesDecide(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got != c.push {
-			t.Errorf("%s: SQL says push %v, Decide says %v", c.name, got, c.push)
+		if want := c.push && !c.replace; got != want {
+			t.Errorf("%s: SQL says badge %v, Decide says %v", c.name, got, want)
 		}
 	}
 }
@@ -507,6 +507,38 @@ func TestResolveReplacesOpen(t *testing.T) {
 	}
 	if p := payloadOf(t, q[1]); p.APS.Alert.Body != "Resolved after 12 min" || p.APS.InterruptionLevel != "passive" || p.APS.Sound != "" {
 		t.Fatalf("resolve payload %s", q[1].Body)
+	}
+}
+
+// TestPassiveIsInboxOnly: a passive event pushes nothing and does not count
+// in the badge, unless it replaces a visible push of its key.
+func TestPassiveIsInboxOnly(t *testing.T) {
+	r := newRig(t, 0)
+	r.register(t, prodToken, "production")
+	r.post(t, writeTok, `{"source":"s","title":"quiet","level":"passive"}`)
+	r.post(t, writeTok, `{"source":"s","kind":"digest","title":"nightly digest"}`)
+	// An incident that opened passive never showed, so its resolve has
+	// nothing to replace.
+	r.post(t, writeTok, `{"source":"s","kind":"incident","key":"quiet","action":"open","level":"passive"}`)
+	r.post(t, writeTok, `{"source":"s","kind":"incident","key":"quiet","action":"resolve"}`)
+	if n := len(r.prod.requests()); n != 0 {
+		t.Fatalf("%d pushes, want 0", n)
+	}
+	// A visible open, then its resolve: both push, and the resolve does not
+	// raise the badge.
+	r.post(t, writeTok, `{"source":"s","kind":"incident","key":"loud","action":"open","title":"down"}`)
+	r.post(t, writeTok, `{"source":"s","kind":"incident","key":"loud","action":"resolve"}`)
+	q := r.prod.requests()
+	if len(q) != 2 || q[0].CollapseID != q[1].CollapseID {
+		t.Fatalf("requests %+v", q)
+	}
+	if p := payloadOf(t, q[1]); p.APS.Badge == nil || *p.APS.Badge != 1 {
+		t.Fatalf("badge %v, want 1", p.APS.Badge)
+	}
+	// A second resolve replaces nothing: the last one already did.
+	r.post(t, writeTok, `{"source":"s","kind":"incident","key":"loud","action":"resolve"}`)
+	if n := len(r.prod.requests()); n != 2 {
+		t.Fatalf("%d pushes after a second resolve, want 2", n)
 	}
 }
 

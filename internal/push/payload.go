@@ -25,6 +25,10 @@ type Decision struct {
 	// Downgraded is set when the event asked for critical and the push
 	// carries time-sensitive: the app has no critical-alerts entitlement.
 	Downgraded bool
+	// Replace is set on a passive push. It goes out only to replace an
+	// earlier visible push of the event's key, by collapse id; the pusher
+	// checks that. It never counts toward the badge.
+	Replace bool
 }
 
 // Decide applies the push table to a stored event at time now.
@@ -41,8 +45,12 @@ type Decision struct {
 //	status    any                     no     (widgets)
 //
 // Before the table: a store-only or held event, and one past expires_at,
-// never pushes. critical goes out as time-sensitive. store.pushedWhere is
-// the same table in SQL; keep them together.
+// never pushes. After it: a passive event is inbox-only, like Pushover's
+// quiet priority. It pushes only when it has a key, as a Replace decision:
+// the pusher sends it when an earlier push of that key was visible, so the
+// open alert on the lock screen gives way to "Resolved after 12 min".
+// critical goes out as time-sensitive. store.pushedWhere is the same table
+// in SQL, for the badge; keep them together.
 func Decide(ev *api.Event, now time.Time) Decision {
 	if ev.Hold != nil {
 		h := *ev.Hold
@@ -83,6 +91,12 @@ func Decide(ev *api.Event, now time.Time) Decision {
 		}
 	default:
 		return Decision{Reason: string(ev.Kind) + " sends no alert"}
+	}
+	if level == api.LevelPassive {
+		if ev.Key == nil || *ev.Key == "" {
+			return Decision{Reason: "passive"}
+		}
+		return Decision{Push: true, Level: level, Replace: true}
 	}
 	d := Decision{Push: true, Level: level}
 	if level == api.LevelCritical {

@@ -336,16 +336,19 @@ func withField(obj json.RawMessage, name string, v any) (json.RawMessage, error)
 	return json.RawMessage(body + sep + `"` + name + `":` + string(b) + "}"), nil
 }
 
-// pushedWhere is the SQL form of push.Decide's "does this event push an
-// alert" rule by kind, action and hold, for the badge count. It leaves out
-// expiry, which depends on when the push goes out. push's tests check that
-// the two agree. An event a mute or an inhibit rule held back has a skipped
-// delivery and does not count either.
+// pushedWhere is the SQL form of push.Decide's "does this event push a
+// visible alert" rule by kind, action, level and hold, for the badge count.
+// Passive events never count: digests, incident resolves and passive
+// levels, the replacing pushes included. It leaves out expiry, which
+// depends on when the push goes out. push's tests check that the two agree.
+// An event a mute or an inhibit rule held back has a skipped delivery and
+// does not count either.
 const pushedWhere = `json_extract(event, '$.hold.store_only') IS NOT 1
 	AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.event_id = events.id AND d.outcome = 'skipped')
 	AND coalesce(json_extract(event, '$.hold.state'), '') != 'held'
-	AND (kind IN ('message', 'digest')
-	  OR (kind = 'incident' AND coalesce(action, '') != 'ack')
+	AND coalesce(level, '') != 'passive'
+	AND (kind = 'message'
+	  OR (kind = 'incident' AND coalesce(action, '') NOT IN ('ack', 'resolve'))
 	  OR (kind = 'checkin' AND (action = 'fail'
 	        OR (coalesce(action, '') != 'log' AND coalesce(json_extract(event, '$.checkin.exit_code'), 0) != 0))))`
 
@@ -372,6 +375,18 @@ func (s *Store) Pushes(ctx context.Context, seq int64) (bool, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM events WHERE seq = ? AND `+pushedWhere, seq).Scan(&n)
 	return n == 1, err
+}
+
+// ReplacesVisible reports whether the event seq of key would replace a
+// visible push: an event of key since its last resolve before seq was sent
+// to some device at a level other than passive.
+func (s *Store) ReplacesVisible(ctx context.Context, key string, seq int64) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM events e JOIN deliveries d ON d.event_id = e.id
+		WHERE e.key = ? AND e.seq < ? AND d.outcome = 'sent' AND coalesce(d.level, '') != 'passive'
+		AND e.seq > coalesce((SELECT max(seq) FROM events WHERE key = ? AND seq < ? AND action = 'resolve'), 0)`,
+		key, seq, key, seq).Scan(&n)
+	return n > 0, err
 }
 
 // DeliveryAttempts returns the attempts of each push of the event, in

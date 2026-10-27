@@ -22,38 +22,43 @@ func event(t *testing.T, js string) *api.Event {
 }
 
 // decideCases is the push table, by example. The pusher test runs the same
-// cases through the store's SQL form of it.
+// cases through the store's SQL form of it. replace marks a passive push
+// that goes out only over an earlier visible push of its key.
 var decideCases = []struct {
-	name  string
-	ev    string
-	push  bool
-	level api.Level
+	name    string
+	ev      string
+	push    bool
+	level   api.Level
+	replace bool
 }{
-	{"message", `{"source":"s","kind":"message"}`, true, api.LevelActive},
-	{"message passive", `{"source":"s","kind":"message","level":"passive"}`, true, api.LevelPassive},
-	{"message time-sensitive", `{"source":"s","kind":"message","level":"time-sensitive"}`, true, api.LevelTimeSensitive},
-	{"critical downgraded", `{"source":"s","kind":"message","level":"critical"}`, true, api.LevelTimeSensitive},
-	{"digest silent", `{"source":"s","kind":"digest","level":"active"}`, true, api.LevelPassive},
-	{"incident open", `{"source":"s","kind":"incident","key":"k","action":"open","level":"time-sensitive"}`, true, api.LevelTimeSensitive},
-	{"incident update", `{"source":"s","kind":"incident","key":"k","action":"update"}`, true, api.LevelActive},
-	{"incident resolve", `{"source":"s","kind":"incident","key":"k","action":"resolve","level":"active"}`, true, api.LevelPassive},
-	{"incident ack", `{"source":"s","kind":"incident","key":"k","action":"ack"}`, false, ""},
-	{"checkin fail", `{"source":"s","kind":"checkin","key":"k","action":"fail"}`, true, api.LevelActive},
-	{"checkin exit code", `{"source":"s","kind":"checkin","key":"k","action":"success","checkin":{"exit_code":2}}`, true, api.LevelActive},
-	{"checkin log with exit code", `{"source":"s","kind":"checkin","key":"k","action":"log","checkin":{"exit_code":2}}`, false, ""},
-	{"checkin success", `{"source":"s","kind":"checkin","key":"k","action":"success"}`, false, ""},
-	{"checkin start", `{"source":"s","kind":"checkin","key":"k","action":"start"}`, false, ""},
-	{"progress", `{"source":"s","kind":"progress","key":"k","action":"start"}`, false, ""},
-	{"status", `{"source":"s","kind":"status","key":"k","action":"set","content":{"title":"t"}}`, false, ""},
-	{"held", `{"source":"s","kind":"message","hold":{"state":"held"}}`, false, ""},
-	{"store-only", `{"source":"s","kind":"message","hold":{"state":"released","store_only":true}}`, false, ""},
-	{"other hold state pushes", `{"source":"s","kind":"message","hold":{"state":"open"}}`, true, api.LevelActive},
+	{"message", `{"source":"s","kind":"message"}`, true, api.LevelActive, false},
+	{"message passive", `{"source":"s","kind":"message","level":"passive"}`, false, "", false},
+	{"message passive with key", `{"source":"s","kind":"message","key":"k","level":"passive"}`, true, api.LevelPassive, true},
+	{"message time-sensitive", `{"source":"s","kind":"message","level":"time-sensitive"}`, true, api.LevelTimeSensitive, false},
+	{"critical downgraded", `{"source":"s","kind":"message","level":"critical"}`, true, api.LevelTimeSensitive, false},
+	{"digest inbox-only", `{"source":"s","kind":"digest","level":"active"}`, false, "", false},
+	{"incident open", `{"source":"s","kind":"incident","key":"k","action":"open","level":"time-sensitive"}`, true, api.LevelTimeSensitive, false},
+	{"incident update", `{"source":"s","kind":"incident","key":"k","action":"update"}`, true, api.LevelActive, false},
+	{"incident resolve", `{"source":"s","kind":"incident","key":"k","action":"resolve","level":"active"}`, true, api.LevelPassive, true},
+	{"incident open passive", `{"source":"s","kind":"incident","key":"k","action":"open","level":"passive"}`, true, api.LevelPassive, true},
+	{"checkin fail passive", `{"source":"s","kind":"checkin","action":"fail","level":"passive"}`, false, "", false},
+	{"incident ack", `{"source":"s","kind":"incident","key":"k","action":"ack"}`, false, "", false},
+	{"checkin fail", `{"source":"s","kind":"checkin","key":"k","action":"fail"}`, true, api.LevelActive, false},
+	{"checkin exit code", `{"source":"s","kind":"checkin","key":"k","action":"success","checkin":{"exit_code":2}}`, true, api.LevelActive, false},
+	{"checkin log with exit code", `{"source":"s","kind":"checkin","key":"k","action":"log","checkin":{"exit_code":2}}`, false, "", false},
+	{"checkin success", `{"source":"s","kind":"checkin","key":"k","action":"success"}`, false, "", false},
+	{"checkin start", `{"source":"s","kind":"checkin","key":"k","action":"start"}`, false, "", false},
+	{"progress", `{"source":"s","kind":"progress","key":"k","action":"start"}`, false, "", false},
+	{"status", `{"source":"s","kind":"status","key":"k","action":"set","content":{"title":"t"}}`, false, "", false},
+	{"held", `{"source":"s","kind":"message","hold":{"state":"held"}}`, false, "", false},
+	{"store-only", `{"source":"s","kind":"message","hold":{"state":"released","store_only":true}}`, false, "", false},
+	{"other hold state pushes", `{"source":"s","kind":"message","hold":{"state":"open"}}`, true, api.LevelActive, false},
 }
 
 func TestDecide(t *testing.T) {
 	for _, c := range decideCases {
 		d := Decide(event(t, c.ev), testNow)
-		if d.Push != c.push || (c.push && d.Level != c.level) {
+		if d.Push != c.push || (c.push && d.Level != c.level) || d.Replace != c.replace {
 			t.Errorf("%s: got %+v, want push %v level %q", c.name, d, c.push, c.level)
 		}
 		if !d.Push && d.Reason == "" {
@@ -112,9 +117,11 @@ func TestBuildIncident(t *testing.T) {
 }
 
 func TestBuildQuietAndThread(t *testing.T) {
-	p, h, _ := build(t, `{"id":"x","ts":"2026-10-27T12:00:00Z","source":"backup","kind":"digest",
+	// A keyed digest pushes only to replace a visible push of its key; when
+	// it does, it is quiet.
+	p, h, _ := build(t, `{"id":"x","ts":"2026-10-27T12:00:00Z","source":"backup","kind":"digest","key":"nightly",
 		"thread":"nightly","body":"three jobs ran","sound":"chime"}`, nil)
-	if p.APS.InterruptionLevel != "passive" || p.APS.Sound != "" || h.Priority != 5 || h.CollapseID != "" {
+	if p.APS.InterruptionLevel != "passive" || p.APS.Sound != "" || h.Priority != 5 || h.CollapseID != CollapseID("nightly") {
 		t.Errorf("digest: aps %+v headers %+v", p.APS, h)
 	}
 	if p.APS.ThreadID != "nightly" || p.APS.Alert.Title != "backup" || p.APS.Alert.Body != "three jobs ran" ||

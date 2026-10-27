@@ -100,9 +100,10 @@ Read cursors:
   cursor never move it back. A cursor past the newest event gets 400.
 - `GET` answers 404 for a name with no cursor.
 - Every answer carries `unread`: the events after the cursor that push an
-  alert (see "Push"). It is the app's badge. Held and store-only events,
-  incident acks, progress, status and passing check-ins do not count, nor
-  does an event a mute or an inhibit rule held back.
+  alert (see "Push"). It is the app's badge. Held, store-only and passive
+  events (digests and incident resolves among them), incident acks,
+  progress, status and passing check-ins do not count, nor does an event a
+  mute or an inhibit rule held back.
 
 Event stream:
 
@@ -191,9 +192,9 @@ Which events push, and how loud:
 | kind | action | Push | interruption-level |
 |---|---|---|---|
 | `message` | none | yes | the event's `level`, default `active` |
-| `digest` | none | yes | `passive` (silent) |
+| `digest` | none | inbox only (`passive`) | |
 | `incident` | `open`, `update`, none | yes | the event's `level` |
-| `incident` | `resolve` | yes | `passive` |
+| `incident` | `resolve` | only to replace a visible open (`passive`) | |
 | `incident` | `ack` | no | |
 | `checkin` | `fail`, or any but `log` with a non-zero `exit_code` | yes | the event's `level` |
 | `checkin` | `start`, `success`, `log` | no | |
@@ -206,11 +207,21 @@ Which events push, and how loud:
   back an event that would push. `delivery` records `skipped` per device, with
   the reason in `error`, such as `muted by mute_01J...` or
   `inhibited by host-down: host:web-1 is open`.
-- A quiet message is one with `level: passive`. An ingest rule can set it.
+- After the table: a `passive` event is inbox-only. It is stored and listed,
+  but it shows no notification and does not count in the badge, like
+  Pushover's priority -2. A quiet message is one with `level: passive`. An
+  ingest rule can set it.
+- One exception: a passive event with a `key` pushes when an earlier event
+  of that key, since its last resolve, went out visibly (`sent` at a level
+  other than `passive`). It carries the same `apns-collapse-id`, so it
+  replaces that notification. An incident resolve ("Resolved after 12 min")
+  is the usual case. A resolve of an incident that opened passive, or whose
+  open a mute held back, pushes nothing.
 - `critical` goes out as `time-sensitive`: the app has no critical-alerts
   entitlement. `delivery` records `level: time-sensitive` and the note
   `critical sent as time-sensitive` in `error`.
-- A passive push has no sound and `apns-priority` 5; the others have 10.
+- A replacing passive push has no sound and `apns-priority` 5; the others
+  have 10.
 
 Answers from APNs:
 
@@ -446,7 +457,8 @@ event, in the server field `incident`.
 - A resolve pushes `Resolved after 12 min` (from `incident.opened_at` and
   `resolved_at`), passive, with the same `apns-collapse-id` as the open. The
   phone replaces the incident's notification with it, so a failure and its
-  recovery show as one notification.
+  recovery show as one notification. When the open never showed (it was
+  passive, or held back), the resolve is inbox-only.
 
 Re-alerts:
 
@@ -744,7 +756,7 @@ Sender fields:
 | `title` | string, 256 | Notification title. |
 | `summary` | string, 178 | The one-line push text. A digest pushes only this. |
 | `body` | markdown, 256 KiB | Stored in full; a push carries the summary or a truncated copy. |
-| `level` | `passive`, `active`, `time-sensitive`, `critical` | Interruption level. Default `active`. |
+| `level` | `passive`, `active`, `time-sensitive`, `critical` | Interruption level. Default `active`. `passive` is inbox-only (see "Push"). |
 | `thread` | string, 128 | Notification thread. Defaults to the source. |
 | `url`, `image` | URI | Tap target and attached image. |
 | `icon` | string, 512 | Source icon: an `https` URL, or a name in the icon registry. |
