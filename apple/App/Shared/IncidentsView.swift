@@ -1,10 +1,19 @@
 import HeraldoKit
 import SwiftUI
 
-/// Open incidents: the latest event of every incident key not resolved.
+/// Incidents: open ones first, then acknowledged ones, from `/v1/state`; then
+/// the ones resolved in the last day, from the synced history.
 struct IncidentsView: View {
     @Environment(AppModel.self) private var model
     @State private var error: String?
+
+    private var open: [Event] { model.incidents.filter { !$0.isAcked } }
+    private var acked: [Event] { model.incidents.filter(\.isAcked) }
+    private var resolved: [Event] {
+        let current = Set(model.incidents.compactMap(\.key))
+        return model.cache.resolvedIncidents(since: .now.addingTimeInterval(-86_400))
+            .filter { !current.contains($0.key ?? "") }
+    }
 
     var body: some View {
         NavigationStack {
@@ -12,17 +21,53 @@ struct IncidentsView: View {
                 if let error {
                     Text(error).font(.footnote).foregroundStyle(.red)
                 }
-                ForEach(model.incidents) { e in
+                section("Open", open)
+                section("Acknowledged", acked)
+                if !resolved.isEmpty {
+                    Section("Resolved today") {
+                        ForEach(resolved) { e in
+                            NavigationLink(value: e) {
+                                HStack {
+                                    EventRow(event: e)
+                                    if let d = e.incident?.openFor {
+                                        Text("after \(Duration.seconds(d).formatted(.units(allowed: [.days, .hours, .minutes], width: .narrow, maximumUnitCount: 2)))")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .navigationTitle("Incidents")
+            .navigationDestination(for: Event.self) { EventDetailView(event: $0) }
+            .refreshable { await model.refresh() }
+            .overlay {
+                if model.incidents.isEmpty && resolved.isEmpty {
+                    ContentUnavailableView("No open incidents", systemImage: "checkmark.seal")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func section(_ title: String, _ events: [Event]) -> some View {
+        if !events.isEmpty {
+            Section(title) {
+                ForEach(events) { e in
                     NavigationLink(value: e) {
                         HStack {
                             EventRow(event: e)
-                            if e.action == "ack" {
-                                Text("Acked").font(.caption).foregroundStyle(.secondary)
+                            if let opened = e.incident?.openedAt {
+                                Text(opened, format: .relative(presentation: .numeric, unitsStyle: .narrow))
+                                    .font(.caption).foregroundStyle(.secondary)
+                                    .accessibilityLabel(Text("Opened \(opened, format: .relative(presentation: .named))"))
                             }
                         }
                     }
                     .swipeActions {
-                        if e.action != "ack" && !(model.credentials.writeToken?.isEmpty ?? true) {
+                        if !e.isAcked && !(model.credentials.writeToken?.isEmpty ?? true) {
                             Button {
                                 Task {
                                     do { try await model.ack(e); error = nil } catch { self.error = error.localizedDescription }
@@ -33,15 +78,6 @@ struct IncidentsView: View {
                             .tint(.orange)
                         }
                     }
-                }
-            }
-            .listStyle(.plain)
-            .navigationTitle("Incidents")
-            .navigationDestination(for: Event.self) { EventDetailView(event: $0) }
-            .refreshable { await model.refresh() }
-            .overlay {
-                if model.incidents.isEmpty {
-                    ContentUnavailableView("No open incidents", systemImage: "checkmark.seal")
                 }
             }
         }

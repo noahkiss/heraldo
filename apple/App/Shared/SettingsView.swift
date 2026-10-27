@@ -40,6 +40,8 @@ struct SettingsView: View {
 
                 PushSection()
 
+                MutesSection()
+
                 Section("Sync") {
                     LabeledContent("Events kept", value: "\(model.cache.events.count)")
                     LabeledContent("Unread", value: "\(model.unread.badge)")
@@ -79,6 +81,60 @@ struct SettingsView: View {
         } catch {
             failed = true
             result = error.localizedDescription
+        }
+    }
+}
+
+/// The mutes in force, with End.
+struct MutesSection: View {
+    @Environment(AppModel.self) private var model
+    @State private var mutes: [Mute] = []
+    @State private var error: String?
+
+    var body: some View {
+        Section("Mutes") {
+            if mutes.isEmpty {
+                Text("None").foregroundStyle(.secondary)
+            }
+            ForEach(mutes) { m in
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text(m.key ?? m.source ?? m.id)
+                        if m.key != nil, let source = m.source {
+                            Text(source).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    Text(m.until, format: .relative(presentation: .named)).font(.caption).foregroundStyle(.secondary)
+                    Button("End") { Task { await end(m) } }
+                        .disabled(model.credentials.writeToken?.isEmpty ?? true)
+                }
+            }
+            if let error {
+                Text(error).font(.footnote).foregroundStyle(.red)
+            }
+        }
+        .task(id: model.lastSync) { await load() }
+    }
+
+    private func load() async {
+        guard model.isConfigured, let client = try? model.client(), client.writeToken != nil else { return }
+        do {
+            mutes = try await client.mutes()
+            error = nil
+        } catch let e as HeraldoError where e.status == 404 {
+            mutes = [] // a server before stage 5
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func end(_ m: Mute) async {
+        do {
+            try await model.client().endMute(id: m.id)
+            await load()
+        } catch {
+            self.error = error.localizedDescription
         }
     }
 }

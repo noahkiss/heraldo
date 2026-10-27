@@ -8,12 +8,14 @@ struct InboxView: View {
     @State private var query = ""
     @State private var kind: String?
     @State private var source: String?
+    /// A hold state, such as held: the triage filter.
+    @State private var hold: String?
     @State private var results: [Event]?
     @State private var resultsCursor: String?
     @State private var searching = false
 
     private var filtering: Bool {
-        !query.trimmingCharacters(in: .whitespaces).isEmpty || kind != nil || source != nil
+        !query.trimmingCharacters(in: .whitespaces).isEmpty || kind != nil || source != nil || hold != nil
     }
 
     /// Progress updates stay out of the plain list: the Live Activity shows
@@ -28,7 +30,7 @@ struct InboxView: View {
                 .navigationDestination(for: Event.self) { EventDetailView(event: $0) }
                 .searchable(text: $query, prompt: "Search title and body")
                 .onSubmit(of: .search) { Task { await search() } }
-                .task(id: SearchKey(query: query, kind: kind, source: source)) {
+                .task(id: SearchKey(query: query, kind: kind, source: source, hold: hold)) {
                     // Debounce typing; a filter change searches at once too.
                     try? await Task.sleep(for: .milliseconds(350))
                     guard !Task.isCancelled else { return }
@@ -93,8 +95,12 @@ struct InboxView: View {
                     Text("All sources").tag(String?.none)
                     ForEach(model.cache.sources, id: \.self) { Text($0).tag(String?.some($0)) }
                 }
+                Picker("Hold", selection: $hold) {
+                    Text("Any hold").tag(String?.none)
+                    ForEach(model.cache.holdStates, id: \.self) { Text($0.capitalized).tag(String?.some($0)) }
+                }
             } label: {
-                Label("Filter", systemImage: kind == nil && source == nil
+                Label("Filter", systemImage: kind == nil && source == nil && hold == nil
                       ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
             }
         }
@@ -142,7 +148,7 @@ struct InboxView: View {
         defer { searching = false }
         let q = query.trimmingCharacters(in: .whitespaces)
         do {
-            let page = try await sync.search(q: q.isEmpty ? nil : q, kind: kind, source: source)
+            let page = try await sync.search(q: q.isEmpty ? nil : q, kind: kind, source: source, hold: hold)
             results = page.events
             resultsCursor = page.events.count < sync.pageSize ? nil : page.nextCursor
         } catch {
@@ -155,7 +161,8 @@ struct InboxView: View {
             guard let sync = try? model.sync(), let before = resultsCursor else { return }
             let q = query.trimmingCharacters(in: .whitespaces)
             do {
-                let page = try await sync.search(q: q.isEmpty ? nil : q, kind: kind, source: source, before: before)
+                let page = try await sync.search(q: q.isEmpty ? nil : q, kind: kind, source: source, hold: hold,
+                                                 before: before)
                 results = (results ?? []) + page.events
                 resultsCursor = page.events.count < sync.pageSize ? nil : page.nextCursor
             } catch {
@@ -181,6 +188,7 @@ struct InboxView: View {
         var query: String
         var kind: String?
         var source: String?
+        var hold: String?
     }
 }
 
@@ -212,6 +220,15 @@ struct EventRow: View {
                 Text([event.source, event.host].compactMap { $0 }.joined(separator: " · "))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
+                if let hold = event.hold, !hold.label.isEmpty {
+                    Label(hold.label, systemImage: "tray.full")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if event.wasHeldBack {
+                    Label("Not pushed", systemImage: "bell.slash")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(.vertical, 2)

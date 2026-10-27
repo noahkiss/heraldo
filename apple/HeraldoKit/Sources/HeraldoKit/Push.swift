@@ -9,6 +9,10 @@ public struct PushInfo: Equatable, Sendable {
     public var action: String?
     public var url: String?
     public var image: String?
+    /// The registry icon's name, for `GET /v1/icons/{name}`.
+    public var icon: String?
+    /// An https icon the event links to.
+    public var iconURL: String?
     public var truncated: Bool
 
     public init?(userInfo: [AnyHashable: Any]) {
@@ -22,19 +26,34 @@ public struct PushInfo: Equatable, Sendable {
         action = h["action"] as? String
         url = h["url"] as? String
         image = h["image"] as? String
+        icon = h["icon"] as? String
+        iconURL = h["icon_url"] as? String
         truncated = (h["truncated"] as? Bool) ?? ((h["truncated"] as? NSNumber)?.boolValue ?? false)
     }
 }
 
 /// The notification categories and actions, as the server sets `category`.
 public enum PushCategory {
-    /// An incident open, update or untyped: Ack and Open.
+    /// An incident open, update or untyped: Ack, Mute 1 h and Open.
     public static let incident = "incident"
-    /// Everything else: Open.
+    /// Everything else: Mute 1 h and Open.
     public static let event = "event"
 
     public static let ackAction = "ack"
+    public static let muteAction = "mute"
     public static let openAction = "open"
+
+    /// How long Mute lasts, as the server reads it.
+    public static let muteFor = "1h"
+
+    /// What Mute 1 h holds back: an incident's key, else the event's source.
+    public static func muteInput(_ info: PushInfo) -> MuteInput? {
+        if info.kind == "incident", let key = info.key, !key.isEmpty {
+            return MuteInput(source: nil, key: key, for: muteFor)
+        }
+        guard let source = info.source, !source.isEmpty else { return nil }
+        return MuteInput(source: source, for: muteFor)
+    }
 }
 
 public enum APNs {

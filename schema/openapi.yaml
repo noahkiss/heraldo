@@ -25,6 +25,12 @@ tags:
   - name: health
   - name: devices
     description: Devices the apps register for push.
+  - name: mutes
+    description: Hold back pushes for a while. Events are still stored.
+  - name: icons
+    description: The icon registry. Pushes name an icon; the apps fetch it.
+  - name: checkins
+    description: Checks that expect pings on a schedule, and the ping API.
 paths:
   /healthz:
     get:
@@ -253,8 +259,8 @@ paths:
       description: |
         Flat arrays of the latest event per key: open incidents, running progress,
         check-ins and status values. The shape is a stand-in until stage 12. An
-        incident's last event shows whether it is acked: its action is ack until a
-        later event.
+        incident's last event carries the incident's state in its incident field:
+        open or acked, with the time it opened.
       tags: [state]
       responses:
         "200":
@@ -688,34 +694,215 @@ paths:
                 type: object
         "400":
           $ref: "#/components/responses/Error"
+  /v1/mutes:
+    get:
+      operationId: listMutes
+      summary: The mutes in force, soonest to end first. Needs a write token.
+      tags: [mutes]
+      responses:
+        "200":
+          description: The mutes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MuteList"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: createMute
+      summary: Hold back the pushes of a source, a key, or both, until a time.
+      description: |
+        A mute holds back pushes only: matching events are stored, listed and
+        counted as usual, and their delivery records outcome skipped. Re-alerts are
+        held back too. A mute with source and key matches only events with both.
+        Give until or for, not both. Needs a write token.
+      tags: [mutes]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MuteInput"
+      responses:
+        "201":
+          description: The mute.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Mute"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/mutes/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      operationId: endMute
+      summary: End a mute now. Needs a write token.
+      tags: [mutes]
+      responses:
+        "200":
+          description: The ended mute. A mute that had already ended is returned as it is.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Mute"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/icons:
+    get:
+      operationId: listIcons
+      summary: The icon registry, by name, without the images.
+      tags: [icons]
+      responses:
+        "200":
+          description: The icons.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IconInfoList"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/icons/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        description: 1 to 128 of A-Z a-z 0-9 . _ -, starting with a letter or digit.
+        schema:
+          type: string
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    get:
+      operationId: getIcon
+      summary: The icon image.
+      description: The ETag is the image's SHA-256; If-None-Match answers 304.
+      tags: [icons]
+      responses:
+        "200":
+          description: The image.
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        "304":
+          description: The image has not changed.
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    put:
+      operationId: putIcon
+      summary: Store or replace an icon. Needs an admin token.
+      description: |
+        The body is the image: PNG or JPEG, up to 256 KiB. The server checks the
+        bytes, not the Content-Type header. A square image of 256 by 256 pixels or
+        more shows best.
+      tags: [icons]
+      requestBody:
+        required: true
+        content:
+          image/png:
+            schema:
+              type: string
+              format: binary
+          image/jpeg:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "201":
+          description: A new icon.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IconInfo"
+        "200":
+          description: The icon, replaced.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IconInfo"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "413":
+          $ref: "#/components/responses/Error"
+        "415":
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteIcon
+      summary: Remove an icon. Needs an admin token.
+      tags: [icons]
+      responses:
+        "204":
+          description: Removed.
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
   /ping/{slug}:
     parameters:
       - $ref: "#/components/parameters/Slug"
       - $ref: "#/components/parameters/Rid"
       - $ref: "#/components/parameters/Create"
+      - $ref: "#/components/parameters/PingSource"
+      - $ref: "#/components/parameters/PingHost"
     get:
       operationId: pingSuccess
       summary: Record a successful run (healthchecks.io shape).
-      x-stage: 6
-      tags: [compat]
+      tags: [checkins]
       responses:
         "200":
           $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
         "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
     post:
       operationId: pingSuccessWithLog
       summary: Record a successful run with a log in the body.
-      x-stage: 6
-      tags: [compat]
+      tags: [checkins]
       requestBody:
         $ref: "#/components/requestBodies/PingLog"
       responses:
         "200":
           $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
         "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
@@ -724,15 +911,37 @@ paths:
       - $ref: "#/components/parameters/Slug"
       - $ref: "#/components/parameters/Rid"
       - $ref: "#/components/parameters/Create"
+      - $ref: "#/components/parameters/PingSource"
+      - $ref: "#/components/parameters/PingHost"
     get:
       operationId: pingStart
       summary: Record the start of a run.
-      x-stage: 6
-      tags: [compat]
+      tags: [checkins]
       responses:
         "200":
           $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
         "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: pingStartWithLog
+      summary: Record the start of a run with a log in the body.
+      tags: [checkins]
+      requestBody:
+        $ref: "#/components/requestBodies/PingLog"
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
@@ -741,29 +950,37 @@ paths:
       - $ref: "#/components/parameters/Slug"
       - $ref: "#/components/parameters/Rid"
       - $ref: "#/components/parameters/Create"
+      - $ref: "#/components/parameters/PingSource"
+      - $ref: "#/components/parameters/PingHost"
     get:
       operationId: pingFail
       summary: Record a failed run.
-      x-stage: 6
-      tags: [compat]
+      tags: [checkins]
       responses:
         "200":
           $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
         "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
     post:
       operationId: pingFailWithLog
       summary: Record a failed run with a log in the body.
-      x-stage: 6
-      tags: [compat]
+      tags: [checkins]
       requestBody:
         $ref: "#/components/requestBodies/PingLog"
       responses:
         "200":
           $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
         "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
@@ -772,17 +989,37 @@ paths:
       - $ref: "#/components/parameters/Slug"
       - $ref: "#/components/parameters/Rid"
       - $ref: "#/components/parameters/Create"
+      - $ref: "#/components/parameters/PingSource"
+      - $ref: "#/components/parameters/PingHost"
+    get:
+      operationId: pingLogGet
+      summary: Record a ping that changes nothing but the last ping time.
+      tags: [checkins]
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
     post:
       operationId: pingLog
-      summary: Attach a log line without changing the check's state.
-      x-stage: 6
-      tags: [compat]
+      summary: Attach a log without changing the check's state.
+      tags: [checkins]
       requestBody:
         $ref: "#/components/requestBodies/PingLog"
       responses:
         "200":
           $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
         "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
@@ -799,15 +1036,394 @@ paths:
           maximum: 255
       - $ref: "#/components/parameters/Rid"
       - $ref: "#/components/parameters/Create"
+      - $ref: "#/components/parameters/PingSource"
+      - $ref: "#/components/parameters/PingHost"
     get:
       operationId: pingExitCode
       summary: Record a run by its exit code.
-      x-stage: 6
-      tags: [compat]
+      tags: [checkins]
       responses:
         "200":
           $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
         "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: pingExitCodeWithLog
+      summary: Record a run by its exit code, with a log in the body.
+      tags: [checkins]
+      requestBody:
+        $ref: "#/components/requestBodies/PingLog"
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /p/{key}:
+    parameters:
+      - $ref: "#/components/parameters/PingKeyPath"
+      - $ref: "#/components/parameters/Rid"
+      - $ref: "#/components/parameters/PingSource"
+      - $ref: "#/components/parameters/PingHost"
+    get:
+      operationId: keyPingSuccess
+      summary: Record a successful run (healthchecks.io shape).
+      tags: [checkins]
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: keyPingSuccessWithLog
+      summary: Record a successful run with a log in the body.
+      tags: [checkins]
+      security: []
+      requestBody:
+        $ref: "#/components/requestBodies/PingLog"
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /p/{key}/start:
+    parameters:
+      - $ref: "#/components/parameters/PingKeyPath"
+      - $ref: "#/components/parameters/Rid"
+      - $ref: "#/components/parameters/PingSource"
+      - $ref: "#/components/parameters/PingHost"
+    get:
+      operationId: keyPingStart
+      summary: Record the start of a run.
+      tags: [checkins]
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: keyPingStartWithLog
+      summary: Record the start of a run with a log in the body.
+      tags: [checkins]
+      security: []
+      requestBody:
+        $ref: "#/components/requestBodies/PingLog"
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /p/{key}/fail:
+    parameters:
+      - $ref: "#/components/parameters/PingKeyPath"
+      - $ref: "#/components/parameters/Rid"
+      - $ref: "#/components/parameters/PingSource"
+      - $ref: "#/components/parameters/PingHost"
+    get:
+      operationId: keyPingFail
+      summary: Record a failed run.
+      tags: [checkins]
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: keyPingFailWithLog
+      summary: Record a failed run with a log in the body.
+      tags: [checkins]
+      security: []
+      requestBody:
+        $ref: "#/components/requestBodies/PingLog"
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /p/{key}/log:
+    parameters:
+      - $ref: "#/components/parameters/PingKeyPath"
+      - $ref: "#/components/parameters/Rid"
+      - $ref: "#/components/parameters/PingSource"
+      - $ref: "#/components/parameters/PingHost"
+    get:
+      operationId: keyPingLogGet
+      summary: Record a ping that changes nothing but the last ping time.
+      tags: [checkins]
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: keyPingLog
+      summary: Attach a log without changing the check's state.
+      tags: [checkins]
+      security: []
+      requestBody:
+        $ref: "#/components/requestBodies/PingLog"
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /p/{key}/{exit_code}:
+    parameters:
+      - $ref: "#/components/parameters/PingKeyPath"
+      - name: exit_code
+        in: path
+        required: true
+        description: The job's exit code. 0 records success, anything else records a failure.
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 255
+      - $ref: "#/components/parameters/Rid"
+      - $ref: "#/components/parameters/PingSource"
+      - $ref: "#/components/parameters/PingHost"
+    get:
+      operationId: keyPingExitCode
+      summary: Record a run by its exit code.
+      tags: [checkins]
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: keyPingExitCodeWithLog
+      summary: Record a run by its exit code, with a log in the body.
+      tags: [checkins]
+      security: []
+      requestBody:
+        $ref: "#/components/requestBodies/PingLog"
+      responses:
+        "200":
+          $ref: "#/components/responses/PingOK"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/checkins:
+    get:
+      operationId: listCheckins
+      summary: Every check with its schedule, state, next due time, last duration and last log.
+      tags: [checkins]
+      responses:
+        "200":
+          description: The checks, in key order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckList"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/checkins/{slug}:
+    parameters:
+      - $ref: "#/components/parameters/Slug"
+    get:
+      operationId: getCheckin
+      summary: One check.
+      tags: [checkins]
+      responses:
+        "200":
+          description: The check.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Check"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    put:
+      operationId: putCheckin
+      summary: Create a check, or replace a known check's host and schedule.
+      description: |
+        Every field is replaced: a field left out takes its default. A changed schedule
+        moves the next due time from the last run, and a check that is late or down for
+        a missed ping is judged again under the new schedule.
+      tags: [checkins]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckConfig"
+      responses:
+        "200":
+          description: The check, updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Check"
+        "201":
+          description: The check, created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Check"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/checkins/{slug}/pause:
+    parameters:
+      - $ref: "#/components/parameters/Slug"
+    post:
+      operationId: pauseCheckin
+      summary: Stop judging a check. Pings are still recorded; an open incident resolves.
+      tags: [checkins]
+      responses:
+        "200":
+          description: The check, paused.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Check"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/checkins/{slug}/key:
+    parameters:
+      - $ref: "#/components/parameters/Slug"
+    post:
+      operationId: mintPingKey
+      summary: Mint the check's ping key, replacing the old one.
+      description: |
+        The answer is the only time the server shows the key; it stores the SHA-256.
+        The key in /p/{key} pings this one check and does nothing else.
+      tags: [checkins]
+      responses:
+        "201":
+          description: The new key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PingKey"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: removePingKey
+      summary: Remove the check's ping key. /p/ pings with it get 404.
+      tags: [checkins]
+      responses:
+        "200":
+          description: The check.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Check"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/checkins/{slug}/resume:
+    parameters:
+      - $ref: "#/components/parameters/Slug"
+    post:
+      operationId: resumeCheckin
+      summary: Judge a paused check again. It is new until its next ping.
+      tags: [checkins]
+      responses:
+        "200":
+          description: The check, resumed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Check"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
@@ -863,10 +1479,11 @@ components:
         One token per sender for writes, one per client for reads. An app holds a pair: a
         read token (history, cursors, device registration) and a write token (notification
         actions, sending). Each token has a
-        scope: write (POST /v1/events, GET /v1/send), read (GET /v1/events,
-        /v1/events/{id}, /v1/state, /v1/stream, the read cursors and /v1/devices), or
-        admin (both). A missing or unknown token gets 401; a
-        token without the scope gets 403.
+        scope: write (POST /v1/events, GET /v1/send, /v1/mutes), read
+        (GET /v1/events, /v1/events/{id}, /v1/state, /v1/stream, the read cursors,
+        /v1/devices and GET /v1/icons), or admin (both, and PUT and
+        DELETE /v1/icons). A missing or unknown token gets 401; a token without the
+        scope gets 403.
 
         A write token can carry the trusted-ingest capability, for a bridge such as
         apprise-tee. The server copies its details.tee.hold object into hold, marked
@@ -884,9 +1501,10 @@ components:
       name: slug
       in: path
       required: true
-      description: The check's name, the same as the checkin key.
+      description: "The check's name, the same as the checkin key: 1 to 200 of A-Z a-z 0-9 and . _ : -"
       schema:
         type: string
+        pattern: "^[A-Za-z0-9._:-]{1,200}$"
     Rid:
       name: rid
       in: query
@@ -896,13 +1514,38 @@ components:
     Create:
       name: create
       in: query
-      description: Set to 1 to create the check when the server does not know the slug.
+      description: |
+        Set to 1 to create the check when the server does not know the slug. A new check
+        takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+        or a Go duration such as 1h30m. These parameters are ignored for a known check.
       schema:
         type: integer
         enum: [0, 1]
+    PingKeyPath:
+      name: key
+      in: path
+      required: true
+      description: A check's ping key, from POST /v1/checkins/{slug}/key. 32 characters, base64url.
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9_-]{32}$"
+    PingSource:
+      name: source
+      in: query
+      description: The event's source. Default checkin.
+      schema:
+        type: string
+        maxLength: 128
+    PingHost:
+      name: host
+      in: query
+      description: The event's host, and the host of a check that this ping creates.
+      schema:
+        type: string
+        maxLength: 128
   requestBodies:
     PingLog:
-      description: Log text for the run.
+      description: Log text for the run, stored as the event's body. The server keeps the first 100 kB.
       content:
         text/plain:
           schema:
@@ -1231,6 +1874,213 @@ components:
         state:
           type: string
           enum: [dismissed, ended]
+    MuteInput:
+      type: object
+      description: A new mute. Give source, key or both, and until or for.
+      additionalProperties: false
+      properties:
+        source:
+          type: string
+          maxLength: 128
+          description: Mute events from this source.
+        key:
+          type: string
+          maxLength: 255
+          description: Mute events with this key, such as one incident.
+        until:
+          type: string
+          format: date-time
+          description: When the mute ends, RFC 3339. In the future, at most 366 days ahead.
+        for:
+          type: string
+          description: How long the mute lasts, a Go duration such as 1h or 90m, instead of until.
+    Mute:
+      type: object
+      required: [id, until, created_at, active]
+      properties:
+        id:
+          type: string
+          description: mute_ plus a ULID.
+        source:
+          type: string
+        key:
+          type: string
+        until:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        ended_at:
+          type: string
+          format: date-time
+          description: Set when DELETE ended the mute early.
+        active:
+          type: boolean
+          description: The mute holds back pushes now.
+    MuteList:
+      type: object
+      required: [mutes]
+      properties:
+        mutes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Mute"
+    IconInfo:
+      type: object
+      required: [name, content_type, bytes, sha256, updated_at]
+      properties:
+        name:
+          type: string
+        content_type:
+          type: string
+          enum: [image/png, image/jpeg]
+        bytes:
+          type: integer
+        sha256:
+          type: string
+          description: Hex SHA-256 of the image, also its ETag.
+        updated_at:
+          type: string
+          format: date-time
+    IconInfoList:
+      type: object
+      required: [icons]
+      properties:
+        icons:
+          type: array
+          items:
+            $ref: "#/components/schemas/IconInfo"
+    CheckSchedule:
+      type: object
+      description: When a check expects pings. Set period_s, or cron with an optional tz, or neither for an unscheduled check that only a failed or overrun run takes down.
+      properties:
+        period_s:
+          type: integer
+          minimum: 1
+        cron:
+          type: string
+          maxLength: 128
+        tz:
+          type: string
+          maxLength: 64
+          description: IANA time zone for cron. Default UTC.
+        grace_s:
+          type: integer
+          minimum: 0
+          description: Seconds a ping may be late before the check goes down. Default 3600.
+        max_runtime_s:
+          type: integer
+          minimum: 1
+          description: Seconds a started run may take before the check goes down.
+        reminder_s:
+          type: integer
+          minimum: 0
+          description: "Seconds between reminders while the check's incident is open and not acked. Default 86400; 0 sends none."
+    CheckConfig:
+      type: object
+      additionalProperties: false
+      properties:
+        host:
+          type: string
+          maxLength: 128
+        period_s:
+          type: integer
+          minimum: 1
+        cron:
+          type: string
+          maxLength: 128
+        tz:
+          type: string
+          maxLength: 64
+        grace_s:
+          type: integer
+          minimum: 0
+        max_runtime_s:
+          type: integer
+          minimum: 1
+        reminder_s:
+          type: integer
+          minimum: 0
+    Check:
+      type: object
+      required: [key, state, state_since, created_at, schedule]
+      properties:
+        key:
+          type: string
+          description: The check's slug, the key of its check-in events.
+        host:
+          type: string
+        state:
+          type: string
+          enum: [new, up, started, late, down, paused]
+        state_since:
+          type: string
+          format: date-time
+        down_reason:
+          type: string
+          enum: [failed, missed, overran]
+        schedule:
+          $ref: "#/components/schemas/CheckSchedule"
+        created_at:
+          type: string
+          format: date-time
+        last_ping:
+          type: string
+          format: date-time
+        last_event:
+          type: string
+          description: The id of the last check-in event.
+        started_at:
+          type: string
+          format: date-time
+          description: The start of the run in progress.
+        last_success:
+          type: string
+          format: date-time
+        last_duration_ms:
+          type: integer
+          description: The last measured run, from a start to its end or as the sender measured it.
+        next_due:
+          type: string
+          format: date-time
+          description: When the next ping is due. The check turns late then.
+        down_after:
+          type: string
+          format: date-time
+          description: next_due plus the grace. The check goes down then without a ping.
+        last_log:
+          type: string
+          description: The body of the last ping that carried a log.
+        last_log_at:
+          type: string
+          format: date-time
+        ping_key_at:
+          type: string
+          format: date-time
+          description: When the check's ping key was minted. Missing when it has none.
+        incident:
+          type: string
+          enum: [open, acked, resolved]
+          description: "The state of the check's incident, checkin:<key>. Missing when it never had one."
+    PingKey:
+      type: object
+      required: [key, path]
+      properties:
+        key:
+          type: string
+          description: The ping key. Shown once; the server keeps its SHA-256.
+        path:
+          type: string
+          description: The ping path, /p/<key>. Append /start, /fail, /log or an exit code.
+    CheckList:
+      type: object
+      required: [checkins]
+      properties:
+        checkins:
+          type: array
+          items:
+            $ref: "#/components/schemas/Check"
     AppriseNotify:
       type: object
       description: An Apprise API notify request. Fields heraldo does not use are accepted and ignored.

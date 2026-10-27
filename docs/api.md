@@ -17,7 +17,12 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `GET /v1/events?after=&before=&order=&limit=&source=&kind=&host=&key=&tag=&q=&hold=` | Lists events after a cursor, in arrival order. `q` is full-text search over title, summary and body. `order=desc` lists newest first. `hold` keeps events whose `hold.state` matches. | served |
 | `GET /v1/events/{id}` | Returns one event with its full body. | served |
 | `GET /v1/send?source=&kind=&...` | Same as `POST /v1/events` for GET-only clients. Scalar fields and `tags` (repeat the parameter) only. | served |
-| `GET /ping/{slug}`, `/start`, `/fail`, `/log`, `/{exit_code}` | Check-in pings in the healthchecks.io shape. `?rid=` pairs runs; `?create=1` creates an unknown check. | 6 |
+| `GET` or `POST /ping/{slug}`, `/start`, `/fail`, `/log`, `/{exit_code}` | Check-in pings in the healthchecks.io shape, with a write token. `?rid=` pairs runs; `?create=1` creates an unknown check. Answers `OK`. See "Check-ins". | served |
+| `GET` or `POST /p/{key}`, `/start`, `/fail`, `/log`, `/{exit_code}` | The same pings with a check's ping key and no bearer token. | served |
+| `GET /v1/checkins`, `GET /v1/checkins/{slug}` | Every check, or one: schedule, state, next due time, last run length, last log. | served |
+| `PUT /v1/checkins/{slug}` | Creates a check, or replaces a known check's host and schedule. | served |
+| `POST /v1/checkins/{slug}/pause`, `/resume` | Pauses or resumes a check. | served |
+| `POST`, `DELETE /v1/checkins/{slug}/key` | Mints a check's ping key (replacing the old one), or removes it. | served |
 | `POST /notify/apprise`, `POST /notify/{key}` | Apprise-compatible ingest. Answers 200 with `Sent`. | 11 |
 | `GET /v1/state` | Flat arrays of the latest event per key: incidents not resolved, progress not ended, every check-in, set statuses. The shape is a stand-in until stage 12. | served |
 | `GET /v1/stream` | Server-sent events: one `poke` per stored event, with the newest cursor. | served |
@@ -28,20 +33,30 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `GET /v1/activities/{key}` | One activity, with its instances on each device and its timeline. The key may hold slashes. | served |
 | `PUT /v1/activity-instances/{id}` | The app reports an activity's update token, or that it was dismissed or ended. | served |
 | `POST`, `DELETE`, `GET /live-activity/{id}`, `GET /link`, `POST /notify-json/{id}` | Notify! compatibility, for senders written for Notify!. Write token as `?token=`. | served |
+| `GET /v1/mutes`, `POST /v1/mutes`, `DELETE /v1/mutes/{id}` | Mutes in force; mute a source or key for a while; end a mute. | served |
+| `GET /v1/icons`, `GET`, `PUT`, `DELETE /v1/icons/{name}` | The icon registry: list, fetch an image, store one, remove one. | served |
 
 Auth:
 
-- Every call except `/healthz` takes a bearer token. Each token has a scope:
-  `write` (post and send), `read` (list, get, state, stream, the read
-  cursors and devices), or `admin` (both).
+- Every call except `/healthz` and `/p/{key}` takes a bearer token. Each
+  token has a scope: `write` (post and send, and the mutes), `read` (list,
+  get, state, stream, the read cursors, devices, and the icons), or `admin`
+  (both, and storing and removing icons).
 - A `read` token may register, update and remove devices, as it may move the
   read cursors. The apps hold a token pair, like the CLI: a `read` token for
   history, cursors and device registration, and a `write` token for the
-  notification actions (Ack) and for sending an event.
+  notification actions (Ack, Mute 1 h) and for sending an event.
 - A missing or unknown token gets 401. A token without the scope gets 403.
-- `GET /v1/send` also takes the token as a `token` query parameter. A token in
-  the URL ends up in access logs, proxy logs and browser history. Use the header
-  when the client can set one. Other calls refuse the parameter.
+- `GET /v1/send` and the Notify! compatibility paths (`/live-activity/{id}`,
+  `/link`, `/notify-json/{id}`) also take the token as a `token` query
+  parameter, since Notify! senders put it there. A token in the URL ends up in
+  access logs, proxy logs and browser history. Use the header when the client
+  can set one. Other calls refuse the parameter; the server never logs query
+  strings.
+- `/ping/{slug}` takes a `write` token in the header, as any post does.
+  `/p/{key}` takes a check's ping key instead (see "Ping keys"). Reading
+  checks takes a `read` token; `PUT`, pause, resume and the ping key calls
+  take a `write` token.
 - The server stores each token's SHA-256 only. The README shows the token file.
 - A write token with the `trusted-ingest` capability is a bridge, such as
   apprise-tee. Its events get two extras:
@@ -86,7 +101,8 @@ Read cursors:
 - `GET` answers 404 for a name with no cursor.
 - Every answer carries `unread`: the events after the cursor that push an
   alert (see "Push"). It is the app's badge. Held and store-only events,
-  incident acks, progress, status and passing check-ins do not count.
+  incident acks, progress, status and passing check-ins do not count, nor
+  does an event a mute or an inhibit rule held back.
 
 Event stream:
 
@@ -186,6 +202,10 @@ Which events push, and how loud:
 
 - Before the table: a held event (`hold.state` is `held`), a store-only event
   (`hold.store_only`), and an event past `expires_at` never push.
+- After the table: a mute ("Mutes") or an inhibit rule ("Inhibit rules") holds
+  back an event that would push. `delivery` records `skipped` per device, with
+  the reason in `error`, such as `muted by mute_01J...` or
+  `inhibited by host-down: host:web-1 is open`.
 - A quiet message is one with `level: passive`. An ingest rule can set it.
 - `critical` goes out as `time-sensitive`: the app has no critical-alerts
   entitlement. `delivery` records `level: time-sensitive` and the note
@@ -228,6 +248,7 @@ event that did not push has no `delivery`.
     "action": "open",
     "url": "https://example.com/status",
     "image": "https://example.com/graph.png",
+    "icon": "uptime",
     "truncated": true
   }
 }
@@ -236,14 +257,16 @@ event that did not push has no `delivery`.
 | Payload | From |
 |---|---|
 | `alert.title` | `title`, else `source` |
-| `alert.body` | `summary`, else `body`. A body is cut at a character boundary, with `…`, so the payload fits 4 KB. |
+| `alert.body` | `summary`, else `body`. A body is cut at a character boundary, with `…`, so the payload fits 4 KB. An incident resolve says `Resolved after 12 min` instead; a re-alert starts with `Still open after 30 min.`; a digest without a summary shows the first line of its body. |
 | `badge` | `unread` of the `inbox` cursor when the push goes out |
 | `sound` | `sound`, default `default`; none for `passive` or `sound: none` |
 | `thread-id` | `thread`, else `source` |
-| `category` | `incident` for an incident `open`, `update` or no action; `event` for the rest. The app registers both: `incident` has Ack and Open; `event` has Open. Mute waits for a server-side mute. |
+| `category` | `incident` for an incident `open`, `update` or no action; `event` for the rest. The app registers both: `incident` has Ack, Mute 1 h and Open; `event` has Mute 1 h and Open. Mute 1 h on an incident mutes its key; on an event, its source. |
 | `mutable-content` | Always 1, so the notification service extension runs. |
 | `interruption-level` | The table above. |
 | `relevance-score` | `relevance` |
+| `heraldo.icon` | The registry icon for the event: its `icon` when the registry has that name, else the icon named after its `source`. The extension fetches `GET /v1/icons/{name}` and attaches it as the thumbnail when the event has no `image`. |
+| `heraldo.icon_url` | The event's `icon`, when it is an `https` URL. The extension fetches it without a token. |
 | `heraldo.truncated` | The alert does not carry the full text: the body was cut, or the alert shows the summary of an event that also has a body. The extension fetches `GET /v1/events/{id}`. |
 
 Headers: `apns-push-type: alert`; `apns-topic` from the device; `apns-collapse-id`
@@ -388,13 +411,276 @@ Field mapping, Notify! to LiveContent: `progress` 0–100 to 0–1; `steps` and
   one itself, so the sender must not roll it over.
 - A missing or unknown token answers 401, not Notify!'s 403.
 
+## Incidents
+
+An incident is the events that share a `key` with kind `incident`. The
+server keeps one row per key and stores a snapshot of it on each incident
+event, in the server field `incident`.
+
+| Event | Incident after it |
+|---|---|
+| `open`, `update`, no action | A new or resolved incident opens at this event. An acked one stays acked; an open one stays open. |
+| `ack` | An open incident is acked. A resolved one stays resolved. |
+| `resolve` | The incident resolves at this event. A resolved one keeps its first resolve. A resolve with no open before it opens and resolves at once. |
+
+- `GET /v1/state` lists the incidents that are not resolved, each as its
+  latest event; its `incident.state` says open or acked.
+- A resolve pushes `Resolved after 12 min` (from `incident.opened_at` and
+  `resolved_at`), passive, with the same `apns-collapse-id` as the open. The
+  phone replaces the incident's notification with it, so a failure and its
+  recovery show as one notification.
+
+Re-alerts:
+
+- An incident `open`, `update` or untyped event at level `time-sensitive` or
+  `critical`, with `details.heraldo.realert_s` of 60 or more, schedules a
+  re-alert. An ingest rule sets `realert_s` with `set.realert` (see "Ingest
+  rules").
+- A key that starts with `checkin:` never re-alerts: check-in incidents send
+  their own reminders (see "Incidents and reminders").
+- While the incident is open, the server pushes that event again every
+  `realert_s` seconds, with `Still open after 30 min.` before the text and the
+  same collapse id. No event is stored; the re-alert's outcome replaces the
+  event's `delivery`.
+- An ack or a resolve ends the re-alerts. A later open or update with an
+  interval starts them again; one without an interval keeps the schedule.
+- The server checks every 30 seconds. After downtime it sends one re-alert,
+  not one per missed interval. Only a server with push on sends re-alerts.
+- A mute or an inhibit rule holds a re-alert back, and the schedule moves on.
+
+## Mutes
+
+A mute holds back pushes for a while. Matching events are stored, listed and
+synced as usual; only the push is skipped. The app's Mute 1 h action makes one.
+
+`POST /v1/mutes` takes a write token and a `MuteInput`:
+
+| Field | Meaning |
+|---|---|
+| `source` | Mute events from this source. 128 bytes. |
+| `key` | Mute events with this key, such as one incident. 255 bytes. |
+| `until` | When the mute ends, RFC 3339. |
+| `for` | How long the mute lasts, a Go duration such as `1h` or `90m`, instead of `until`. |
+
+- Give `source`, `key` or both. With both, an event must match both.
+- Give `until` or `for`, not both. The end is in the future, at most 366 days
+  ahead. Otherwise 400.
+- The answer, 201, is a `Mute`: `id` (`mute_` plus a ULID), `source`, `key`,
+  `until`, `created_at`, `ended_at` and `active`.
+- `GET /v1/mutes` takes a write token and lists the mutes in force, soonest
+  to end first.
+- `DELETE /v1/mutes/{id}` takes a write token and ends the mute now. A mute
+  that already ended is returned as it is. 404 for an unknown id.
+- Mutes hold back pushes and re-alerts, not storage, the event stream, or the
+  read cursors.
+
+## Icons
+
+The icon registry maps a name to an image. An admin token writes it; there
+are no open uploads.
+
+- `PUT /v1/icons/{name}` with the image as the body stores or replaces the
+  icon: 201 new, 200 replaced. PNG or JPEG, up to 256 KiB; the server checks
+  the bytes, not the header. A square image of 256 by 256 pixels or more shows
+  best. `name` is 1 to 128 of `A-Z a-z 0-9 . _ -`, starting with a letter or
+  digit. Other types get 415.
+- `GET /v1/icons/{name}` (read) returns the image. Its `ETag` is the image's
+  SHA-256; `If-None-Match` answers 304.
+- `GET /v1/icons` (read) lists `{name, content_type, bytes, sha256, updated_at}`.
+- `DELETE /v1/icons/{name}` (admin) removes it: 204.
+- An event names its icon in `icon`. Without one, an icon named after the
+  event's `source` is used. The push carries the name in `heraldo.icon`.
+
+```sh
+curl -X PUT --data-binary @backup.png -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "$HERALDO_URL/v1/icons/backup"
+```
+
 ## Input and stored events
 
 - **`EventInput`** is what a sender posts. It is the schema root.
 - **`Event`** is what the read API returns: `$defs/Event` in the schema.
-- The server owns `id`, `received_at`, `hold` and `delivery`. An input that sets
-  any of them is rejected. `ts` stays the sender's; the server fills it with the
+- The server owns `id`, `received_at`, `hold`, `delivery` and `incident`. An
+  input that sets any of them is rejected. `ts` stays the sender's; the server fills it with the
   arrival time when it is missing.
+
+## Check-ins
+
+A check is a job that pings heraldo when it runs. When the pings stop, or a
+run fails or takes too long, the check goes down and an incident opens. A
+check's slug is the key of its check-in events: `/ping/nightly-db` and a
+`POST /v1/events` with `kind: checkin, key: nightly-db` feed the same check.
+A slug is 1 to 200 of `A-Z a-z 0-9 . _ : -`.
+
+### Pings
+
+The pings follow healthchecks.io. `GET` and `POST` both work; a `POST` body is
+the run's log.
+
+| Path | Records |
+|---|---|
+| `/ping/{slug}` | A successful run |
+| `/ping/{slug}/start` | The start of a run |
+| `/ping/{slug}/fail` | A failed run |
+| `/ping/{slug}/log` | A log; the check's state does not change |
+| `/ping/{slug}/{exit_code}` | A run by exit code, 0 to 255: 0 is success, the rest fail |
+
+| Parameter | Meaning |
+|---|---|
+| `rid` | Run id, up to 64 characters. Pairs a start with its end, so runs that overlap are measured apart. |
+| `create=1` | Creates the check when the slug is unknown. Without it, an unknown slug gets 404. |
+| `period`, `cron`, `tz`, `grace`, `max_runtime`, `reminder` | The schedule of a check that `create=1` makes. A duration is seconds or a Go duration such as `90m`. Ignored for a known check. |
+| `source`, `host` | The event's `source` (default `checkin`) and `host`. |
+
+`/p/{key}` takes the same paths after the key, and the same parameters but
+`create` (400): a ping key pings a known check only.
+
+```sh
+# Once, with a write token: create the check and get its ping URL.
+heraldo checkins create nightly-db --cron '0 3 * * *' --tz Europe/Madrid --grace 1h
+heraldo checkins key nightly-db   # prints https://heraldo.example.net/p/<key>
+
+# In the job. PING_URL is that URL, kept in the job's env file.
+curl -fsS -m 10 "$PING_URL/start?rid=$$"
+out=$(run-backup 2>&1); code=$?
+printf '%s' "$out" | curl -fsS -m 10 --data-binary @- "$PING_URL/$code?rid=$$"
+```
+
+- Each ping stores one event: `kind: checkin`, `key` the slug, `action`
+  `start`, `success`, `fail` or `log`, `checkin.rid` and `checkin.exit_code`
+  when given. A log is the event's `body`.
+- The server keeps the first 100 kB of a body, cut at a character boundary.
+  A cut log has `details.heraldo.log_truncated: true`.
+- A failed run's event has the title `<slug> failed` or
+  `<slug> failed (exit <code>)`, and pushes as the push table says.
+- The answer is `200` with `OK`.
+
+### Ping keys
+
+A ping key lets a job ping one check with no bearer token. It is for the
+URL that a cron line, a systemd unit or a device webhook carries, where a
+token would leak into shell history, process lists and logs.
+
+- `POST /v1/checkins/{slug}/key` (write token) mints a key and answers
+  `{"key": "...", "path": "/p/<key>"}` with 201. A key is 24 random bytes,
+  base64url: 32 characters.
+- The server stores only the key's SHA-256, as it does for tokens. The
+  answer is the only time it shows the key. `Check.ping_key_at` says when
+  the key was minted.
+- Minting again replaces the key; the old one gets 404 at once. That is the
+  rotation. `DELETE /v1/checkins/{slug}/key` removes the key.
+- A key does one thing: ping its own check. It cannot create a check, read
+  anything, or post other events. A leaked cron line can fake runs of that
+  one check, and nothing else. Rotate the key to end that.
+- An unknown or malformed key gets 404, the same answer, so a probe learns
+  nothing.
+- The request log shows the path as `/p/<key>/...` and the caller as
+  `ping-key:<slug>`, never the key.
+- Any write token may mint a key for any check. That grants nothing new: a
+  write token can already ping any check through `/ping/{slug}`.
+- A check has no key until one is minted. `/ping/{slug}` with a write token
+  in the header always works.
+
+Why a key per check, and not the write token in the URL: a write token posts
+any event and pings every check, so one leaked cron line would expose all of
+them. A per-check key bounds the damage to one check, needs no change to the
+token list, and rotates with one call.
+
+### Schedule
+
+| Field | Meaning | Default |
+|---|---|---|
+| `period_s` | Seconds between pings | |
+| `cron`, `tz` | A five-field cron expression and its IANA time zone. Not with `period_s`. | `tz` UTC |
+| `grace_s` | How late a ping may be before the check goes down | 3600 |
+| `max_runtime_s` | How long a started run may take | none |
+| `reminder_s` | Seconds between reminders while the check's incident is open and not acked; 0 sends none | 86400 |
+
+A check with neither `period_s` nor `cron` is unscheduled: time never takes
+it down, only a failed or overrun run does. A check that a check-in event
+creates takes the event's `checkin.schedule`, or none. After that, the
+schedule lives on the server: `PUT /v1/checkins/{slug}` changes it.
+
+### States
+
+| State | Means | Next |
+|---|---|---|
+| `new` | Known; no ping yet. Time does not judge it. | Any ping |
+| `up` | The last run succeeded. | `late` at `next_due` |
+| `started` | A run started and has not ended. | `down` past `max_runtime_s`, or like `up` |
+| `late` | The ping is due; the grace has not run out. | `down` at `down_after` (`next_due` plus `grace_s`) |
+| `down` | A run failed (`failed`), ran too long (`overran`), or no ping came (`missed`). `down_reason` says which. | `up` on the next success |
+| `paused` | Not judged. Pings are still stored and update the times. | `new` on resume |
+
+- `next_due` is the time after the last ended run: plus `period_s`, or the
+  next cron time. A failed run counts as a run, so a failing job does not
+  also go late.
+- A run's length is the time from its start to its end: with `rid`, the
+  start with the same `rid`. A sender's `checkin.duration_ms` takes
+  precedence.
+- The scheduler judges the checks every 15 seconds. All its state is in the
+  database, so a restart picks up where it left off.
+- After the server starts, a check goes down for a missed ping only once
+  its grace has passed since the start. Pings sent while the server was down
+  were lost; this keeps them from raising false alarms.
+
+### Incidents and reminders
+
+A check's incident has the key `checkin:<slug>` and the source `heraldo`.
+
+| When | Event | Level |
+|---|---|---|
+| The check goes down for `missed` or `overran` | incident `open` | `active` |
+| A scheduled check goes down for `failed` | incident `open` | `passive`: the failed run's event already pushed |
+| The incident is open, not acked, and `reminder_s` passed since it opened or last reminded | incident `update`, "`<slug>` is still down" | `active` |
+| The check is up again, or paused | incident `resolve` | `passive` |
+
+- An unscheduled check's failed run opens no incident. Its event is the
+  alert; nothing would resolve an incident. Rule-typed failure posts, such as
+  systemd `OnFailure` messages, are such checks.
+- `late` raises nothing. The app and CLI show it.
+- A ping to a paused check is stored; a failed run's event is `passive`.
+  Pausing resolves an open incident.
+- An acked incident gets no reminders. It still resolves on the next success.
+
+### Jobs on a Mac that sleeps
+
+The server judges arrival times only. It cannot tell a sleeping laptop from
+a dead job, so the sender owns sleep:
+
+- launchd runs a `StartCalendarInterval` job once at wake when its time
+  passed during sleep. The ping comes late, not never.
+- Set `grace_s` to the longest sleep that should raise nothing. A daily job
+  on a laptop that sleeps overnight and on weekends: `period_s` 86400,
+  `grace_s` 259200 (three days).
+- Use `period_s` rather than `cron` for such a job. With `period_s`, the next
+  due time counts from the run that came at wake. With `cron`, it stays on the
+  clock, so a run that came hours late is due again sooner.
+- Pause the check before a long trip, and resume it after: `heraldo checkins
+  pause <slug>`.
+- Send `/start` only from the job itself. A run cut off by sleep then shows as
+  `started`; set `max_runtime_s` above the job's longest run plus a sleep, or
+  leave it out.
+
+### Checks API
+
+`GET /v1/checkins` answers `{"checkins": [Check]}` in key order.
+`GET /v1/checkins/{slug}` answers one `Check`, or 404.
+
+`Check`: `key`, `host`, `state`, `state_since`, `down_reason`, `schedule`
+(the table above, with defaults filled in), `created_at`, `last_ping`,
+`last_event` (the id of the last check-in event), `started_at` (the run in
+progress), `last_success`, `last_duration_ms`, `next_due`, `down_after`,
+`last_log` (the body of the last ping that had one), `last_log_at`,
+`ping_key_at` (when the ping key was minted; never the key), and `incident` (`open`, `acked` or `resolved`, when the check ever had one).
+
+`PUT /v1/checkins/{slug}` takes a `CheckConfig`: `host` and the schedule
+fields. Every field is replaced; a field left out takes its default. It
+answers 201 for a new check and 200 for a known one. A changed schedule moves
+`next_due` from the last run. A check that is `late`, or `down` for `missed`,
+is judged again under the new schedule.
+
+`POST /v1/checkins/{slug}/pause` and `/resume` answer the check, or 404.
 
 ## Envelope v1
 
@@ -430,7 +716,7 @@ Sender fields:
 | `level` | `passive`, `active`, `time-sensitive`, `critical` | Interruption level. Default `active`. |
 | `thread` | string, 128 | Notification thread. Defaults to the source. |
 | `url`, `image` | URI | Tap target and attached image. |
-| `icon` | string, 512 | Source icon: a URL or a symbol name. |
+| `icon` | string, 512 | Source icon: an `https` URL, or a name in the icon registry. |
 | `sound` | string, 64 | `default`, `none`, or a sound bundled with the app. |
 | `tags` | up to 16 strings of 64 | Labels for rule matching, such as Apprise tags. |
 | `dedup` | string, 128 | Idempotency id. A repeat within 24 hours is dropped. |
@@ -478,7 +764,7 @@ field left out keeps its value and a field set to `null` clears it.
 `{rid, exit_code, duration_ms, schedule}`. `rid` pairs a start with its end.
 `schedule` is `{period_s}` or `{cron, tz}`, plus `grace_s` and `max_runtime_s`.
 The server uses `schedule` only to create a check it does not know yet; after
-that, the check's config lives on the server.
+that, the check's config lives on the server. See "Check-ins".
 
 ### Server fields
 
@@ -487,7 +773,8 @@ that, the check's config lives on the server.
 | `id` | Event id: a ULID (26 characters, sortable by time). Live events get the arrival time. |
 | `received_at` | When the server stored the event. |
 | `hold` | Triage state. |
-| `delivery` | Per-device outcome: `sent` or `failed`, with the level the push carried. `skipped` is reserved for device settings. See "Push". |
+| `delivery` | Per-device outcome: `sent`, `failed`, or `skipped` (a mute or an inhibit rule held it back), with the level the push carried. See "Push". |
+| `incident` | On an incident event: the incident after this event, `{state, opened_at, resolved_at}`. `state` is `open`, `acked` or `resolved`. See "Incidents". |
 
 ## APNs mapping
 
@@ -586,6 +873,9 @@ rules:
   `checkin`), `key`, `action`, `level`, `thread` and `host`. `incident` and
   `checkin` need a `key`. A field the rule leaves out keeps the sender's
   value. A value longer than the envelope allows is cut.
+- An `incident` rule may also set `realert`, a Go duration of a minute or
+  more, such as `15m`. The event stores it as `details.heraldo.realert_s`. It
+  re-alerts only a `time-sensitive` or `critical` incident (see "Incidents").
 - The stored event records the rule in `details.heraldo.rule`.
 - When a rule's result is not a valid envelope (a capture came out empty, so
   an incident has no key), the server logs a warning and stores the event as
@@ -597,6 +887,31 @@ rules:
 An incident's recovery pairs with its failure only when both rules build the
 same key. One event carries one key, so a post that lists several items
 (units, containers) can key on one of them only.
+
+### Inhibit rules
+
+An `inhibit` list beside `rules` holds back the pushes of child incidents
+while a parent incident is open, such as a host that is down muting its
+units and containers.
+
+```yaml
+inhibit:
+  - name: host-down
+    parent: '^host:(?P<host>[\w.-]+)$'
+    children: '^(unit|container):{host}:'
+```
+
+- `parent` is a regular expression on an incident key. `children` is one
+  too; `{name}` in it is replaced with the parent's capture, quoted, so a dot
+  in a host name matches a dot only.
+- While an incident whose key matches `parent` is open or acked, an event
+  whose key matches `children` is stored but not pushed. Its `delivery` says
+  `skipped` and names the rule and the parent.
+- The parent's own events are never held back by its own rule.
+- A resolve of the parent ends the hold. A child still open then re-alerts
+  on its schedule, if it has one.
+- A placeholder that names no capture in `parent` is an error when the file
+  loads.
 
 `heraldo-server replay-tee -rules <file> <dir>` runs a catalogue through a
 rules file in memory, with no database, and prints:

@@ -1,12 +1,12 @@
 import HeraldoKit
-import Intents
 import UniformTypeIdentifiers
 import UserNotifications
 
 /// Rewrites a push before it is shown: fetches the full event by `heraldo.id`
 /// with the read token the app shares through the app group Keychain, puts
-/// in the full text when the push carried a cut copy, attaches the image, and
-/// shows the source's icon as a sender avatar when the event has one.
+/// in the full text when the push carried a cut copy, and attaches the image,
+/// else the source's icon, as the thumbnail. A digest keeps its one line; the
+/// full text is in the app.
 final class NotificationService: UNNotificationServiceExtension {
     private var contentHandler: ((UNNotificationContent) -> Void)?
     private var bestAttempt: UNMutableNotificationContent?
@@ -53,7 +53,7 @@ final class NotificationService: UNNotificationServiceExtension {
         let event = try? await client?.event(id: info.id)
 
         if let event {
-            if info.truncated, let body = event.body, !body.isEmpty {
+            if info.truncated, info.kind != "digest", let body = event.body, !body.isEmpty {
                 let text = Markdown.plainText(body)
                 content.body = text.count > maxBody ? String(text.prefix(maxBody)) + "…" : text
             }
@@ -64,15 +64,22 @@ final class NotificationService: UNNotificationServiceExtension {
         let imageURL = (info.image ?? event?.image).flatMap(URL.init(string:))
         if let imageURL, !Task.isCancelled, let attachment = await attachment(from: imageURL, id: "image") {
             content.attachments = [attachment]
-        }
-
-        if let event, let icon = event.icon.flatMap(URL.init(string:)), icon.scheme?.hasPrefix("http") == true,
-           !Task.isCancelled, let avatar = await download(icon) {
-            if let updated = communication(content, event: event, avatar: avatar.data) {
-                return updated
-            }
+        } else if !Task.isCancelled, let icon = await icon(info, client: client) {
+            content.attachments = [icon]
         }
         return content
+    }
+
+    /// The source's icon: the registry icon by name, with the read token,
+    /// else an https icon URL.
+    private static func icon(_ info: PushInfo, client: HeraldoClient?) async -> UNNotificationAttachment? {
+        if let name = info.icon, let client, let (data, mime) = try? await client.icon(name: name) {
+            return attachment(data: data, type: mime.flatMap { UTType(mimeType: $0) } ?? .png, id: "icon")
+        }
+        if let url = info.iconURL.flatMap(URL.init(string:)), url.scheme == "https" {
+            return await attachment(from: url, id: "icon")
+        }
+        return nil
     }
 
     private static let session: URLSession = {
@@ -94,7 +101,13 @@ final class NotificationService: UNNotificationServiceExtension {
     /// The image as a thumbnail attachment, in a file with the right extension.
     private static func attachment(from url: URL, id: String) async -> UNNotificationAttachment? {
         guard let (data, type) = await download(url) else { return nil }
-        let ext = type?.preferredFilenameExtension ?? (url.pathExtension.isEmpty ? "png" : url.pathExtension)
+        return attachment(data: data, type: type, id: id,
+                          fallbackExtension: url.pathExtension.isEmpty ? "png" : url.pathExtension)
+    }
+
+    private static func attachment(data: Data, type: UTType?, id: String,
+                                   fallbackExtension: String = "png") -> UNNotificationAttachment? {
+        let ext = type?.preferredFilenameExtension ?? fallbackExtension
         let file = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).\(ext)")
         do {
             try data.write(to: file)
@@ -104,25 +117,5 @@ final class NotificationService: UNNotificationServiceExtension {
         } catch {
             return nil
         }
-    }
-
-    /// The communication notification style: the source as the sender, with
-    /// its icon as the avatar. Needs the communication notifications
-    /// entitlement on the app; without it iOS refuses and the plain content stays.
-    private static func communication(_ content: UNMutableNotificationContent, event: Event,
-                                      avatar: Data) -> UNNotificationContent? {
-        let handle = INPersonHandle(value: event.source, type: .unknown)
-        let sender = INPerson(personHandle: handle, nameComponents: nil, displayName: event.source,
-                              image: INImage(imageData: avatar), contactIdentifier: nil,
-                              customIdentifier: "source:\(event.source)")
-        let intent = INSendMessageIntent(recipients: nil, outgoingMessageType: .outgoingMessageText,
-                                         content: content.body, speakableGroupName: nil,
-                                         conversationIdentifier: content.threadIdentifier,
-                                         serviceName: nil, sender: sender, attachments: nil)
-        intent.setImage(INImage(imageData: avatar), forParameterNamed: \.sender)
-        let interaction = INInteraction(intent: intent, response: nil)
-        interaction.direction = .incoming
-        interaction.donate(completion: nil)
-        return try? content.updating(from: intent)
     }
 }

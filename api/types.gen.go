@@ -162,6 +162,78 @@ func (e AppriseNotifyType) Valid() bool {
 	}
 }
 
+// Defines values for CheckDownReason.
+const (
+	CheckDownReasonFailed  CheckDownReason = "failed"
+	CheckDownReasonMissed  CheckDownReason = "missed"
+	CheckDownReasonOverran CheckDownReason = "overran"
+)
+
+// Valid indicates whether the value is a known member of the CheckDownReason enum.
+func (e CheckDownReason) Valid() bool {
+	switch e {
+	case CheckDownReasonFailed:
+		return true
+	case CheckDownReasonMissed:
+		return true
+	case CheckDownReasonOverran:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CheckIncident.
+const (
+	CheckIncidentAcked    CheckIncident = "acked"
+	CheckIncidentOpen     CheckIncident = "open"
+	CheckIncidentResolved CheckIncident = "resolved"
+)
+
+// Valid indicates whether the value is a known member of the CheckIncident enum.
+func (e CheckIncident) Valid() bool {
+	switch e {
+	case CheckIncidentAcked:
+		return true
+	case CheckIncidentOpen:
+		return true
+	case CheckIncidentResolved:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CheckState.
+const (
+	CheckStateDown    CheckState = "down"
+	CheckStateLate    CheckState = "late"
+	CheckStateNew     CheckState = "new"
+	CheckStatePaused  CheckState = "paused"
+	CheckStateStarted CheckState = "started"
+	CheckStateUp      CheckState = "up"
+)
+
+// Valid indicates whether the value is a known member of the CheckState enum.
+func (e CheckState) Valid() bool {
+	switch e {
+	case CheckStateDown:
+		return true
+	case CheckStateLate:
+		return true
+	case CheckStateNew:
+		return true
+	case CheckStatePaused:
+		return true
+	case CheckStateStarted:
+		return true
+	case CheckStateUp:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DeliveryOutcome.
 const (
 	DeliveryOutcomeFailed  DeliveryOutcome = "failed"
@@ -213,6 +285,27 @@ func (e DeviceRegistrationEnvironment) Valid() bool {
 	case DeviceRegistrationEnvironmentProduction:
 		return true
 	case DeviceRegistrationEnvironmentSandbox:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EventIncidentState.
+const (
+	EventIncidentStateAcked    EventIncidentState = "acked"
+	EventIncidentStateOpen     EventIncidentState = "open"
+	EventIncidentStateResolved EventIncidentState = "resolved"
+)
+
+// Valid indicates whether the value is a known member of the EventIncidentState enum.
+func (e EventIncidentState) Valid() bool {
+	switch e {
+	case EventIncidentStateAcked:
+		return true
+	case EventIncidentStateOpen:
+		return true
+	case EventIncidentStateResolved:
 		return true
 	default:
 		return false
@@ -315,6 +408,24 @@ func (e HealthStatus) Valid() bool {
 	case HealthStatusError:
 		return true
 	case HealthStatusOk:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IconInfoContentType.
+const (
+	IconInfoContentTypeImagejpeg IconInfoContentType = "image/jpeg"
+	IconInfoContentTypeImagepng  IconInfoContentType = "image/png"
+)
+
+// Valid indicates whether the value is a known member of the IconInfoContentType enum.
+func (e IconInfoContentType) Valid() bool {
+	switch e {
+	case IconInfoContentTypeImagejpeg:
+		return true
+	case IconInfoContentTypeImagepng:
 		return true
 	default:
 		return false
@@ -598,6 +709,91 @@ type AppriseNotifyFormat string
 // AppriseNotifyType defines model for AppriseNotify.Type.
 type AppriseNotifyType string
 
+// Check defines model for Check.
+type Check struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// DownAfter next_due plus the grace. The check goes down then without a ping.
+	DownAfter  *time.Time       `json:"down_after,omitempty"`
+	DownReason *CheckDownReason `json:"down_reason,omitempty"`
+	Host       *string          `json:"host,omitempty"`
+
+	// Incident The state of the check's incident, checkin:<key>. Missing when it never had one.
+	Incident *CheckIncident `json:"incident,omitempty"`
+
+	// Key The check's slug, the key of its check-in events.
+	Key string `json:"key"`
+
+	// LastDurationMs The last measured run, from a start to its end or as the sender measured it.
+	LastDurationMs *int `json:"last_duration_ms,omitempty"`
+
+	// LastEvent The id of the last check-in event.
+	LastEvent *string `json:"last_event,omitempty"`
+
+	// LastLog The body of the last ping that carried a log.
+	LastLog     *string    `json:"last_log,omitempty"`
+	LastLogAt   *time.Time `json:"last_log_at,omitempty"`
+	LastPing    *time.Time `json:"last_ping,omitempty"`
+	LastSuccess *time.Time `json:"last_success,omitempty"`
+
+	// NextDue When the next ping is due. The check turns late then.
+	NextDue *time.Time `json:"next_due,omitempty"`
+
+	// PingKeyAt When the check's ping key was minted. Missing when it has none.
+	PingKeyAt *time.Time `json:"ping_key_at,omitempty"`
+
+	// Schedule When a check expects pings. Set period_s, or cron with an optional tz, or neither for an unscheduled check that only a failed or overrun run takes down.
+	Schedule CheckSchedule `json:"schedule"`
+
+	// StartedAt The start of the run in progress.
+	StartedAt  *time.Time `json:"started_at,omitempty"`
+	State      CheckState `json:"state"`
+	StateSince time.Time  `json:"state_since"`
+}
+
+// CheckDownReason defines model for Check.DownReason.
+type CheckDownReason string
+
+// CheckIncident The state of the check's incident, checkin:<key>. Missing when it never had one.
+type CheckIncident string
+
+// CheckState defines model for Check.State.
+type CheckState string
+
+// CheckConfig defines model for CheckConfig.
+type CheckConfig struct {
+	Cron        *string `json:"cron,omitempty"`
+	GraceS      *int    `json:"grace_s,omitempty"`
+	Host        *string `json:"host,omitempty"`
+	MaxRuntimeS *int    `json:"max_runtime_s,omitempty"`
+	PeriodS     *int    `json:"period_s,omitempty"`
+	ReminderS   *int    `json:"reminder_s,omitempty"`
+	Tz          *string `json:"tz,omitempty"`
+}
+
+// CheckList defines model for CheckList.
+type CheckList struct {
+	Checkins []Check `json:"checkins"`
+}
+
+// CheckSchedule When a check expects pings. Set period_s, or cron with an optional tz, or neither for an unscheduled check that only a failed or overrun run takes down.
+type CheckSchedule struct {
+	Cron *string `json:"cron,omitempty"`
+
+	// GraceS Seconds a ping may be late before the check goes down. Default 3600.
+	GraceS *int `json:"grace_s,omitempty"`
+
+	// MaxRuntimeS Seconds a started run may take before the check goes down.
+	MaxRuntimeS *int `json:"max_runtime_s,omitempty"`
+	PeriodS     *int `json:"period_s,omitempty"`
+
+	// ReminderS Seconds between reminders while the check's incident is open and not acked. Default 86400; 0 sends none.
+	ReminderS *int `json:"reminder_s,omitempty"`
+
+	// Tz IANA time zone for cron. Default UTC.
+	Tz *string `json:"tz,omitempty"`
+}
+
 // Checkin Run details for kind checkin, in the shape of a healthchecks.io ping.
 type Checkin struct {
 	// DurationMs How long the run took, in milliseconds, when the sender measured it.
@@ -729,7 +925,7 @@ type Error struct {
 	Error string `json:"error"`
 }
 
-// Event One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold and delivery.
+// Event One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold, delivery and, on an incident, incident.
 type Event struct {
 	// Action Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none.
 	Action *EventAction `json:"action,omitempty"`
@@ -764,7 +960,7 @@ type Event struct {
 	// Host The machine the event is about. It can differ from the sender: a monitor on one machine reports about another. Status views group by host.
 	Host *string `json:"host,omitempty"`
 
-	// Icon Icon for the source: a URL or a symbol name.
+	// Icon Icon for the source: an https URL, or the name of an icon in the server's registry (GET /v1/icons). Without it, the push uses the registry icon named after the source, when there is one.
 	Icon *string `json:"icon,omitempty"`
 
 	// Id Server-assigned event id. Sortable by arrival.
@@ -772,6 +968,18 @@ type Event struct {
 
 	// Image Image attached to the notification.
 	Image *string `json:"image,omitempty"`
+
+	// Incident On an incident event: the incident as it stood after this event.
+	Incident *struct {
+		// OpenedAt When the incident opened, RFC 3339. A resolve with no earlier open opens and resolves at once.
+		OpenedAt time.Time `json:"opened_at"`
+
+		// ResolvedAt When the incident resolved, RFC 3339. Set when state is resolved.
+		ResolvedAt *time.Time `json:"resolved_at,omitempty"`
+
+		// State open: not acked or resolved. acked: someone acknowledged it. resolved: it is over.
+		State EventIncidentState `json:"state"`
+	} `json:"incident,omitempty"`
 
 	// Key Groups related events: the incident, progress, check-in or status key. incident, progress, checkin and status need one. The server derives apns-collapse-id from a hash of the key, so the key may be longer than APNs allows.
 	Key *string `json:"key,omitempty"`
@@ -813,6 +1021,9 @@ type Event struct {
 	Url *string `json:"url,omitempty"`
 }
 
+// EventIncidentState open: not acked or resolved. acked: someone acknowledged it. resolved: it is over.
+type EventIncidentState string
+
 // EventAction Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none.
 type EventAction string
 
@@ -845,7 +1056,7 @@ type EventInput struct {
 	// Host The machine the event is about. It can differ from the sender: a monitor on one machine reports about another. Status views group by host.
 	Host *string `json:"host,omitempty"`
 
-	// Icon Icon for the source: a URL or a symbol name.
+	// Icon Icon for the source: an https URL, or the name of an icon in the server's registry (GET /v1/icons). Without it, the push uses the registry icon named after the source, when there is one.
 	Icon *string `json:"icon,omitempty"`
 
 	// Image Image attached to the notification.
@@ -920,6 +1131,25 @@ type HealthPush string
 
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
+
+// IconInfo defines model for IconInfo.
+type IconInfo struct {
+	Bytes       int                 `json:"bytes"`
+	ContentType IconInfoContentType `json:"content_type"`
+	Name        string              `json:"name"`
+
+	// Sha256 Hex SHA-256 of the image, also its ETag.
+	Sha256    string    `json:"sha256"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// IconInfoContentType defines model for IconInfo.ContentType.
+type IconInfoContentType string
+
+// IconInfoList defines model for IconInfoList.
+type IconInfoList struct {
+	Icons []IconInfo `json:"icons"`
+}
 
 // InstanceReport What the app saw. At least one field.
 type InstanceReport struct {
@@ -997,6 +1227,42 @@ type Metric struct {
 	Value string `json:"value"`
 }
 
+// Mute defines model for Mute.
+type Mute struct {
+	// Active The mute holds back pushes now.
+	Active    bool      `json:"active"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// EndedAt Set when DELETE ended the mute early.
+	EndedAt *time.Time `json:"ended_at,omitempty"`
+
+	// Id mute_ plus a ULID.
+	Id     string    `json:"id"`
+	Key    *string   `json:"key,omitempty"`
+	Source *string   `json:"source,omitempty"`
+	Until  time.Time `json:"until"`
+}
+
+// MuteInput A new mute. Give source, key or both, and until or for.
+type MuteInput struct {
+	// For How long the mute lasts, a Go duration such as 1h or 90m, instead of until.
+	For *string `json:"for,omitempty"`
+
+	// Key Mute events with this key, such as one incident.
+	Key *string `json:"key,omitempty"`
+
+	// Source Mute events from this source.
+	Source *string `json:"source,omitempty"`
+
+	// Until When the mute ends, RFC 3339. In the future, at most 366 days ahead.
+	Until *time.Time `json:"until,omitempty"`
+}
+
+// MuteList defines model for MuteList.
+type MuteList struct {
+	Mutes []Mute `json:"mutes"`
+}
+
 // Permissions Permission health the app reports. A field left out is unknown. false raises an
 // incident with key device:<id>:<field>; true resolves it.
 type Permissions struct {
@@ -1008,6 +1274,15 @@ type Permissions struct {
 
 	// TimeSensitive Time-sensitive notifications are allowed.
 	TimeSensitive *bool `json:"time_sensitive,omitempty"`
+}
+
+// PingKey defines model for PingKey.
+type PingKey struct {
+	// Key The ping key. Shown once; the server keeps its SHA-256.
+	Key string `json:"key"`
+
+	// Path The ping path, /p/<key>. Append /start, /fail, /log or an exit code.
+	Path string `json:"path"`
 }
 
 // Schedule When the check expects a ping. The server uses it only to create a check it does not know yet, as healthchecks.io does with ?create=1; after that the check's config lives on the server. Set period_s, or cron with an optional tz, not both.
@@ -1061,16 +1336,25 @@ type TimelineEntryAction string
 // Create defines model for Create.
 type Create int
 
+// PingHost defines model for PingHost.
+type PingHost = string
+
+// PingKeyPath defines model for PingKeyPath.
+type PingKeyPath = string
+
+// PingSource defines model for PingSource.
+type PingSource = string
+
 // Rid defines model for Rid.
 type Rid = string
 
 // Slug defines model for Slug.
 type Slug = string
 
-// Repeat One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold and delivery.
+// Repeat One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold, delivery and, on an incident, incident.
 type Repeat = Event
 
-// Stored One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold and delivery.
+// Stored One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold, delivery and, on an incident, incident.
 type Stored = Event
 
 // NotifyLiveActivityEndParams defines parameters for NotifyLiveActivityEnd.
@@ -1102,13 +1386,156 @@ type NotifyLiveActivityUpsertParamsNew int
 // NotifyJSONJSONBody defines parameters for NotifyJSON.
 type NotifyJSONJSONBody = map[string]interface{}
 
+// KeyPingSuccessParams defines parameters for KeyPingSuccess.
+type KeyPingSuccessParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// KeyPingSuccessWithLogTextBody defines parameters for KeyPingSuccessWithLog.
+type KeyPingSuccessWithLogTextBody = string
+
+// KeyPingSuccessWithLogParams defines parameters for KeyPingSuccessWithLog.
+type KeyPingSuccessWithLogParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// KeyPingFailParams defines parameters for KeyPingFail.
+type KeyPingFailParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// KeyPingFailWithLogTextBody defines parameters for KeyPingFailWithLog.
+type KeyPingFailWithLogTextBody = string
+
+// KeyPingFailWithLogParams defines parameters for KeyPingFailWithLog.
+type KeyPingFailWithLogParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// KeyPingLogGetParams defines parameters for KeyPingLogGet.
+type KeyPingLogGetParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// KeyPingLogTextBody defines parameters for KeyPingLog.
+type KeyPingLogTextBody = string
+
+// KeyPingLogParams defines parameters for KeyPingLog.
+type KeyPingLogParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// KeyPingStartParams defines parameters for KeyPingStart.
+type KeyPingStartParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// KeyPingStartWithLogTextBody defines parameters for KeyPingStartWithLog.
+type KeyPingStartWithLogTextBody = string
+
+// KeyPingStartWithLogParams defines parameters for KeyPingStartWithLog.
+type KeyPingStartWithLogParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// KeyPingExitCodeParams defines parameters for KeyPingExitCode.
+type KeyPingExitCodeParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// KeyPingExitCodeWithLogTextBody defines parameters for KeyPingExitCodeWithLog.
+type KeyPingExitCodeWithLogTextBody = string
+
+// KeyPingExitCodeWithLogParams defines parameters for KeyPingExitCodeWithLog.
+type KeyPingExitCodeWithLogParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
 // PingSuccessParams defines parameters for PingSuccess.
 type PingSuccessParams struct {
 	// Rid Run id. Pairs a start with its end.
 	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
 
-	// Create Set to 1 to create the check when the server does not know the slug.
+	// Create Set to 1 to create the check when the server does not know the slug. A new check
+	// takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+	// or a Go duration such as 1h30m. These parameters are ignored for a known check.
 	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
 }
 
 // PingSuccessWithLogTextBody defines parameters for PingSuccessWithLog.
@@ -1119,8 +1546,16 @@ type PingSuccessWithLogParams struct {
 	// Rid Run id. Pairs a start with its end.
 	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
 
-	// Create Set to 1 to create the check when the server does not know the slug.
+	// Create Set to 1 to create the check when the server does not know the slug. A new check
+	// takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+	// or a Go duration such as 1h30m. These parameters are ignored for a known check.
 	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
 }
 
 // PingFailParams defines parameters for PingFail.
@@ -1128,8 +1563,16 @@ type PingFailParams struct {
 	// Rid Run id. Pairs a start with its end.
 	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
 
-	// Create Set to 1 to create the check when the server does not know the slug.
+	// Create Set to 1 to create the check when the server does not know the slug. A new check
+	// takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+	// or a Go duration such as 1h30m. These parameters are ignored for a known check.
 	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
 }
 
 // PingFailWithLogTextBody defines parameters for PingFailWithLog.
@@ -1140,8 +1583,33 @@ type PingFailWithLogParams struct {
 	// Rid Run id. Pairs a start with its end.
 	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
 
-	// Create Set to 1 to create the check when the server does not know the slug.
+	// Create Set to 1 to create the check when the server does not know the slug. A new check
+	// takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+	// or a Go duration such as 1h30m. These parameters are ignored for a known check.
 	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// PingLogGetParams defines parameters for PingLogGet.
+type PingLogGetParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Create Set to 1 to create the check when the server does not know the slug. A new check
+	// takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+	// or a Go duration such as 1h30m. These parameters are ignored for a known check.
+	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
 }
 
 // PingLogTextBody defines parameters for PingLog.
@@ -1152,8 +1620,16 @@ type PingLogParams struct {
 	// Rid Run id. Pairs a start with its end.
 	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
 
-	// Create Set to 1 to create the check when the server does not know the slug.
+	// Create Set to 1 to create the check when the server does not know the slug. A new check
+	// takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+	// or a Go duration such as 1h30m. These parameters are ignored for a known check.
 	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
 }
 
 // PingStartParams defines parameters for PingStart.
@@ -1161,8 +1637,36 @@ type PingStartParams struct {
 	// Rid Run id. Pairs a start with its end.
 	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
 
-	// Create Set to 1 to create the check when the server does not know the slug.
+	// Create Set to 1 to create the check when the server does not know the slug. A new check
+	// takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+	// or a Go duration such as 1h30m. These parameters are ignored for a known check.
 	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// PingStartWithLogTextBody defines parameters for PingStartWithLog.
+type PingStartWithLogTextBody = string
+
+// PingStartWithLogParams defines parameters for PingStartWithLog.
+type PingStartWithLogParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Create Set to 1 to create the check when the server does not know the slug. A new check
+	// takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+	// or a Go duration such as 1h30m. These parameters are ignored for a known check.
+	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
 }
 
 // PingExitCodeParams defines parameters for PingExitCode.
@@ -1170,8 +1674,36 @@ type PingExitCodeParams struct {
 	// Rid Run id. Pairs a start with its end.
 	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
 
-	// Create Set to 1 to create the check when the server does not know the slug.
+	// Create Set to 1 to create the check when the server does not know the slug. A new check
+	// takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+	// or a Go duration such as 1h30m. These parameters are ignored for a known check.
 	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+}
+
+// PingExitCodeWithLogTextBody defines parameters for PingExitCodeWithLog.
+type PingExitCodeWithLogTextBody = string
+
+// PingExitCodeWithLogParams defines parameters for PingExitCodeWithLog.
+type PingExitCodeWithLogParams struct {
+	// Rid Run id. Pairs a start with its end.
+	Rid *Rid `form:"rid,omitempty" json:"rid,omitempty"`
+
+	// Create Set to 1 to create the check when the server does not know the slug. A new check
+	// takes its schedule from period, cron, tz, grace, max_runtime and reminder: seconds,
+	// or a Go duration such as 1h30m. These parameters are ignored for a known check.
+	Create *Create `form:"create,omitempty" json:"create,omitempty"`
+
+	// Source The event's source. Default checkin.
+	Source *PingSource `form:"source,omitempty" json:"source,omitempty"`
+
+	// Host The event's host, and the host of a check that this ping creates.
+	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
 }
 
 // ListActivitiesParams defines parameters for ListActivities.
@@ -1257,6 +1789,21 @@ type NotifyAppriseKeyJSONRequestBody = AppriseNotify
 // NotifyAppriseKeyFormdataRequestBody defines body for NotifyAppriseKey for application/x-www-form-urlencoded ContentType.
 type NotifyAppriseKeyFormdataRequestBody = AppriseNotify
 
+// KeyPingSuccessWithLogTextRequestBody defines body for KeyPingSuccessWithLog for text/plain ContentType.
+type KeyPingSuccessWithLogTextRequestBody = KeyPingSuccessWithLogTextBody
+
+// KeyPingFailWithLogTextRequestBody defines body for KeyPingFailWithLog for text/plain ContentType.
+type KeyPingFailWithLogTextRequestBody = KeyPingFailWithLogTextBody
+
+// KeyPingLogTextRequestBody defines body for KeyPingLog for text/plain ContentType.
+type KeyPingLogTextRequestBody = KeyPingLogTextBody
+
+// KeyPingStartWithLogTextRequestBody defines body for KeyPingStartWithLog for text/plain ContentType.
+type KeyPingStartWithLogTextRequestBody = KeyPingStartWithLogTextBody
+
+// KeyPingExitCodeWithLogTextRequestBody defines body for KeyPingExitCodeWithLog for text/plain ContentType.
+type KeyPingExitCodeWithLogTextRequestBody = KeyPingExitCodeWithLogTextBody
+
 // PingSuccessWithLogTextRequestBody defines body for PingSuccessWithLog for text/plain ContentType.
 type PingSuccessWithLogTextRequestBody = PingSuccessWithLogTextBody
 
@@ -1266,8 +1813,17 @@ type PingFailWithLogTextRequestBody = PingFailWithLogTextBody
 // PingLogTextRequestBody defines body for PingLog for text/plain ContentType.
 type PingLogTextRequestBody = PingLogTextBody
 
+// PingStartWithLogTextRequestBody defines body for PingStartWithLog for text/plain ContentType.
+type PingStartWithLogTextRequestBody = PingStartWithLogTextBody
+
+// PingExitCodeWithLogTextRequestBody defines body for PingExitCodeWithLog for text/plain ContentType.
+type PingExitCodeWithLogTextRequestBody = PingExitCodeWithLogTextBody
+
 // ReportInstanceJSONRequestBody defines body for ReportInstance for application/json ContentType.
 type ReportInstanceJSONRequestBody = InstanceReport
+
+// PutCheckinJSONRequestBody defines body for PutCheckin for application/json ContentType.
+type PutCheckinJSONRequestBody = CheckConfig
 
 // PutCursorJSONRequestBody defines body for PutCursor for application/json ContentType.
 type PutCursorJSONRequestBody = Cursor
@@ -1280,3 +1836,6 @@ type UpdateDeviceJSONRequestBody = DeviceRegistration
 
 // PostEventJSONRequestBody defines body for PostEvent for application/json ContentType.
 type PostEventJSONRequestBody = EventInput
+
+// CreateMuteJSONRequestBody defines body for CreateMute for application/json ContentType.
+type CreateMuteJSONRequestBody = MuteInput

@@ -15,6 +15,14 @@ rules:
       title: '^(?P<host>[\w.-]+): \d+ unit\(s\) failed'
       body: '^(?P<unit>[^\s,]+)'
     set: {kind: incident, action: open, key: 'unit:{host}:{unit}', host: '{host}', thread: units}
+  # A host that stops answering is urgent: time-sensitive, pushed again
+  # every 15 minutes until someone acks it or it recovers.
+  - name: host-down
+    match: {title: '^(?P<host>[\w.-]+) is down$'}
+    set: {kind: incident, action: open, key: 'host:{host}', host: '{host}', level: time-sensitive, realert: 15m}
+  - name: host-up
+    match: {title: '^(?P<host>[\w.-]+) is up$'}
+    set: {kind: incident, action: resolve, key: 'host:{host}', host: '{host}', level: passive}
   - name: unit-recovered
     match:
       title: '^(?P<host>[\w.-]+): \d+ unit\(s\) recovered'
@@ -33,3 +41,9 @@ rules:
   - name: quiet-message
     match: {tag: '^quiet$'}
     set: {kind: message, level: passive}
+
+# While a host is down, its units' incidents are stored but not pushed.
+inhibit:
+  - name: host-down
+    parent: '^host:(?P<host>[\w.-]+)$'
+    children: '^unit:{host}:'

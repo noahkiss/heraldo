@@ -339,8 +339,10 @@ func withField(obj json.RawMessage, name string, v any) (json.RawMessage, error)
 // pushedWhere is the SQL form of push.Decide's "does this event push an
 // alert" rule by kind, action and hold, for the badge count. It leaves out
 // expiry, which depends on when the push goes out. push's tests check that
-// the two agree.
+// the two agree. An event a mute or an inhibit rule held back has a skipped
+// delivery and does not count either.
 const pushedWhere = `json_extract(event, '$.hold.store_only') IS NOT 1
+	AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.event_id = events.id AND d.outcome = 'skipped')
 	AND coalesce(json_extract(event, '$.hold.state'), '') != 'held'
 	AND (kind IN ('message', 'digest')
 	  OR (kind = 'incident' AND coalesce(action, '') != 'ack')

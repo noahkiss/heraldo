@@ -182,4 +182,70 @@ final class ServerTests: XCTestCase {
         let moved = try await client.updateDevice(id: dev.id, reg)
         XCTAssertEqual(moved.tokenSuffix, String(reg.token.suffix(8)))
     }
+
+    /// A progress start, update and end from LivePatch, read back with
+    /// activity(key:). The test server runs with push off, so no instances.
+    func testLiveActivityRoundTrip() async throws {
+        let source = unique("live")
+        let key = "\(source)/print"
+        var f = LiveFields()
+        f.title = "bracket.3mf"
+        f.progress = 10
+        f.status = "Printing"
+        f.metricsText = "Nozzle: 215 °C"
+        try await client.post(EventInput(source: source, kind: "progress", key: key, action: "start", content: f.patch()))
+        var u = LiveFields()
+        u.progress = 50
+        try await client.post(EventInput(source: source, kind: "progress", key: key, action: "update",
+                                         content: u.patch(clearing: [.metrics])))
+        var a = try await client.activity(key: key)
+        XCTAssertEqual(a.state, "active")
+        XCTAssertEqual(a.source, source)
+        XCTAssertTrue(a.instances.isEmpty)
+        var end = LivePatch()
+        end.status = .set("Done")
+        end.keepFor = .set(60)
+        try await client.post(EventInput(source: source, kind: "progress", key: key, action: "end", content: end))
+        a = try await client.activity(key: key)
+        XCTAssertEqual(a.state, "ended")
+        XCTAssertEqual(a.endReason, "sender")
+        do {
+            _ = try await client.reportInstance(id: "lai_none", InstanceReport(state: "dismissed"))
+            XCTFail("an unknown instance was accepted")
+        } catch let e as HeraldoError {
+            XCTAssertEqual(e.status, 404)
+        }
+    }
+
+    func testMuteRoundTrip() async throws {
+        let source = unique("mute")
+        let m = try await client.mute(MuteInput(source: source, for: "1h"))
+        XCTAssertTrue(m.active)
+        XCTAssertEqual(m.source, source)
+        let listed = try await client.mutes()
+        XCTAssertTrue(listed.contains { $0.id == m.id })
+        let ended = try await client.endMute(id: m.id)
+        XCTAssertFalse(ended.active)
+        XCTAssertNotNil(ended.endedAt)
+        let after = try await client.mutes()
+        XCTAssertFalse(after.contains { $0.id == m.id })
+    }
+
+    func testIncidentStateAndHoldFilter() async throws {
+        let key = unique("inc")
+        try await client.post(EventInput(source: key, kind: "incident", key: key, action: "open", title: "Down"))
+        let open = try await client.state().incidents.first { $0.key == key }
+        XCTAssertEqual(open?.incident?.state, "open")
+        XCTAssertNotNil(open?.incident?.openedAt)
+        try await client.ack(XCTUnwrap(open), source: key)
+        try await client.post(EventInput(source: key, kind: "incident", key: key, action: "update", title: "Still down"))
+        let acked = try await client.state().incidents.first { $0.key == key }
+        XCTAssertEqual(acked?.action, "update")
+        XCTAssertTrue(acked?.isAcked ?? false, "an update after an ack stays acked")
+        let resolved = try await client.post(EventInput(source: key, kind: "incident", key: key, action: "resolve"))
+        XCTAssertEqual(resolved.incident?.state, "resolved")
+        // The hold filter reaches the server; nothing from this test is held.
+        let held = try await client.listEvents(EventQuery(source: key, hold: "held"))
+        XCTAssertTrue(held.events.isEmpty)
+    }
 }

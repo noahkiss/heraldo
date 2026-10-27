@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/noahkiss/heraldo/api"
@@ -61,10 +62,26 @@ type Pusher interface {
 type server struct {
 	Options
 	hub *hub
+	// started is when the server started: no check goes down for a missed
+	// ping before started plus its grace.
+	started time.Time
+	// cmu serialises check judging, so a ping and a scheduler tick never
+	// open the same incident twice.
+	cmu sync.Mutex
 }
 
-// New returns the server's HTTP handler.
-func New(o Options) http.Handler {
+// Server is the HTTP handler and the check-in scheduler.
+type Server struct {
+	http.Handler
+	s *server
+}
+
+// New returns the server's HTTP handler. It is a *Server.
+func New(o Options) http.Handler { return NewServer(o) }
+
+// NewServer returns the server. Serve its handler, and run RunCheckins for
+// the check-in scheduler.
+func NewServer(o Options) *Server {
 	if o.Now == nil {
 		o.Now = time.Now
 	}
@@ -80,7 +97,7 @@ func New(o Options) http.Handler {
 	if o.PushState == "" {
 		o.PushState = api.HealthPushOff
 	}
-	s := &server{Options: o, hub: newHub()}
+	s := &server{Options: o, hub: newHub(), started: o.Now()}
 	if e, ok := o.Live.(interface {
 		SetEmit(func(context.Context, map[string]any) error)
 	}); ok {
@@ -105,7 +122,28 @@ func New(o Options) http.Handler {
 	mux.HandleFunc("GET /v1/activities/{key...}", s.auth(auth.ScopeRead, false, s.getActivity))
 	mux.HandleFunc("PUT /v1/activity-instances/{id}", s.auth(DeviceScope, false, s.reportInstance))
 	s.compatRoutes(mux)
-	return s.logRequests(mux)
+	mux.HandleFunc("GET /v1/mutes", s.auth(auth.ScopeWrite, false, s.listMutes))
+	mux.HandleFunc("POST /v1/mutes", s.auth(auth.ScopeWrite, false, s.createMute))
+	mux.HandleFunc("DELETE /v1/mutes/{id}", s.auth(auth.ScopeWrite, false, s.endMute))
+	mux.HandleFunc("GET /v1/icons", s.auth(auth.ScopeRead, false, s.listIcons))
+	mux.HandleFunc("GET /v1/icons/{name}", s.auth(auth.ScopeRead, false, s.getIcon))
+	mux.HandleFunc("PUT /v1/icons/{name}", s.auth(auth.ScopeAdmin, false, s.putIcon))
+	mux.HandleFunc("DELETE /v1/icons/{name}", s.auth(auth.ScopeAdmin, false, s.deleteIcon))
+	for _, m := range []string{"GET", "POST"} {
+		mux.HandleFunc(m+" /ping/{slug}", s.auth(auth.ScopeWrite, false, s.ping))
+		mux.HandleFunc(m+" /ping/{slug}/{op}", s.auth(auth.ScopeWrite, false, s.ping))
+		// A ping key in the path is the credential: no bearer token.
+		mux.HandleFunc(m+" /p/{key}", s.keyPing)
+		mux.HandleFunc(m+" /p/{key}/{op}", s.keyPing)
+	}
+	mux.HandleFunc("GET /v1/checkins", s.auth(auth.ScopeRead, false, s.listChecks))
+	mux.HandleFunc("GET /v1/checkins/{slug}", s.auth(auth.ScopeRead, false, s.getCheck))
+	mux.HandleFunc("PUT /v1/checkins/{slug}", s.auth(auth.ScopeWrite, false, s.putCheck))
+	mux.HandleFunc("POST /v1/checkins/{slug}/pause", s.auth(auth.ScopeWrite, false, s.pauseCheck))
+	mux.HandleFunc("POST /v1/checkins/{slug}/resume", s.auth(auth.ScopeWrite, false, s.resumeCheck))
+	mux.HandleFunc("POST /v1/checkins/{slug}/key", s.auth(auth.ScopeWrite, false, s.mintPingKey))
+	mux.HandleFunc("DELETE /v1/checkins/{slug}/key", s.auth(auth.ScopeWrite, false, s.removePingKey))
+	return &Server{Handler: s.logRequests(mux), s: s}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -144,7 +182,8 @@ func (w *statusWriter) WriteHeader(code int) {
 func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // logRequests logs one line per request. It logs the path, never the query
-// string, because /v1/send may carry a token there.
+// string, because /v1/send may carry a token there; and a ping key in a /p/
+// path is logged as <key>.
 func (s *server) logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -155,9 +194,21 @@ func (s *server) logRequests(next http.Handler) http.Handler {
 		if r.URL.Path == "/healthz" && sw.status == http.StatusOK {
 			return
 		}
-		s.Logger.Info("request", "method", r.Method, "path", r.URL.Path, "status", sw.status,
+		s.Logger.Info("request", "method", r.Method, "path", redactPath(r.URL.Path), "status", sw.status,
 			"ms", time.Since(start).Milliseconds(), "token", who)
 	})
+}
+
+// redactPath hides the ping key in a /p/<key>[/op] path.
+func redactPath(p string) string {
+	rest, ok := strings.CutPrefix(p, "/p/")
+	if !ok {
+		return p
+	}
+	if _, op, found := strings.Cut(rest, "/"); found {
+		return "/p/<key>/" + op
+	}
+	return "/p/<key>"
 }
 
 // auth requires a token with scope need. queryToken allows the token
@@ -177,7 +228,7 @@ func (s *server) auth(need auth.Scope, queryToken bool, h http.HandlerFunc) http
 		if presented == "" && r.URL.Query().Has("token") {
 			if !queryToken {
 				w.Header().Set("WWW-Authenticate", `Bearer`)
-				writeError(w, http.StatusUnauthorized, "the token parameter is accepted only on /v1/send; use the Authorization header")
+				writeError(w, http.StatusUnauthorized, "the token parameter is accepted only on /v1/send and the Notify! compatibility paths; use the Authorization header")
 				return
 			}
 			presented = r.URL.Query().Get("token")
@@ -362,6 +413,9 @@ func (s *server) ingest(ctx context.Context, in *validate.Input, trusted bool) (
 				action = string(*in.Typed.Action)
 			}
 			s.Live.Stored(id, *in.Typed.Key, action)
+		}
+		if *in.Typed.Kind == api.KindCheckin && in.Typed.Key != nil {
+			s.judgeCheck(ctx, *in.Typed.Key)
 		}
 	}
 	return rec, created, nil

@@ -55,7 +55,7 @@ struct RootView: View {
     @Environment(\.openSettings) private var openSettings
     #endif
 
-    enum Tab: Hashable { case inbox, incidents, settings }
+    enum Tab: Hashable { case inbox, incidents, checkins, settings }
 
     var body: some View {
         TabView(selection: $tab) {
@@ -67,6 +67,10 @@ struct RootView: View {
                 .tabItem { Label("Incidents", systemImage: "exclamationmark.triangle") }
                 .badge(model.unackedIncidents)
                 .tag(Tab.incidents)
+            CheckinsView()
+                .tabItem { Label("Check-ins", systemImage: "clock.badge.checkmark") }
+                .badge(model.downChecks)
+                .tag(Tab.checkins)
             #if os(iOS)
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape") }

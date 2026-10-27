@@ -225,6 +225,16 @@ func insert(ctx context.Context, tx *sql.Tx, ev NewEvent) (Record, error) {
 	if in.Kind == nil {
 		return Record{}, errors.New("store: event has no kind")
 	}
+	// An incident event carries the incident as it stands after the event,
+	// so a resolve knows how long the incident was open.
+	var inc *incidentRow
+	if *in.Kind == api.KindIncident && in.Key != nil {
+		var err error
+		if inc, err = nextIncident(ctx, tx, ev); err != nil {
+			return Record{}, err
+		}
+		ev.Fields["incident"] = inc.snapshot()
+	}
 	raw, err := json.Marshal(ev.Fields)
 	if err != nil {
 		return Record{}, err
@@ -256,77 +266,31 @@ func insert(ctx context.Context, tx *sql.Tx, ev NewEvent) (Record, error) {
 			return Record{}, err
 		}
 	}
-	if err := derive(ctx, tx, ev); err != nil {
+	if err := derive(ctx, tx, ev, inc); err != nil {
 		return Record{}, err
 	}
 	return Record{Seq: seq, ID: ev.ID, Event: raw}, nil
 }
 
-// derive updates the state tables for one event.
-func derive(ctx context.Context, tx *sql.Tx, ev NewEvent) error {
+// derive updates the state tables for one event. inc is the incident row
+// after an incident event, from nextIncident.
+func derive(ctx context.Context, tx *sql.Tx, ev NewEvent, inc *incidentRow) error {
 	in := ev.Typed
 	if in.Key == nil {
 		return nil
 	}
 	key := *in.Key
-	at := ev.ReceivedAt.UTC().Format(timeFormat)
 	action := ""
 	if in.Action != nil {
 		action = string(*in.Action)
 	}
 	switch *in.Kind {
 	case api.KindIncident:
-		switch action {
-		case "resolve":
-			_, err := tx.ExecContext(ctx, `INSERT INTO incidents (key, state, opened_at, resolved_at, last_event)
-				VALUES (?, 'resolved', ?, ?, ?)
-				ON CONFLICT (key) DO UPDATE SET state = 'resolved', resolved_at = excluded.resolved_at,
-				last_event = excluded.last_event`, key, at, at, ev.ID)
-			return err
-		case "ack":
-			_, err := tx.ExecContext(ctx, `INSERT INTO incidents (key, state, opened_at, last_event)
-				VALUES (?, 'acked', ?, ?)
-				ON CONFLICT (key) DO UPDATE SET state = 'acked', last_event = excluded.last_event`, key, at, ev.ID)
-			return err
-		default: // open, update, or none
-			// A resolved incident that gets a new open or update reopens.
-			_, err := tx.ExecContext(ctx, `INSERT INTO incidents (key, state, opened_at, last_event)
-				VALUES (?, 'open', ?, ?)
-				ON CONFLICT (key) DO UPDATE SET
-				  opened_at = CASE WHEN incidents.state = 'resolved' THEN excluded.opened_at ELSE incidents.opened_at END,
-				  resolved_at = CASE WHEN incidents.state = 'resolved' THEN NULL ELSE incidents.resolved_at END,
-				  state = CASE WHEN incidents.state = 'acked' THEN 'acked' ELSE 'open' END,
-				  last_event = excluded.last_event`, key, at, ev.ID)
-			return err
-		}
+		return writeIncident(ctx, tx, key, inc)
 	case api.KindCheckin:
-		state := ""
-		switch action {
-		case "start":
-			state = "running"
-		case "fail":
-			state = "down"
-		case "log":
-		default: // success, or none: a plain ping is a success
-			state = "up"
-		}
-		if in.Checkin != nil && in.Checkin.ExitCode != nil && *in.Checkin.ExitCode != 0 && action != "log" {
-			state = "down"
-		}
-		if state == "" {
-			_, err := tx.ExecContext(ctx, `INSERT INTO checkins (key, last_ping, state, last_event)
-				VALUES (?, ?, 'unknown', ?)
-				ON CONFLICT (key) DO UPDATE SET last_ping = excluded.last_ping, last_event = excluded.last_event`,
-				key, at, ev.ID)
-			return err
-		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO checkins (key, last_ping, state, last_event)
-			VALUES (?, ?, ?, ?)
-			ON CONFLICT (key) DO UPDATE SET last_ping = excluded.last_ping, state = excluded.state,
-			last_event = excluded.last_event`, key, at, state, ev.ID)
-		return err
+		return deriveCheckin(ctx, tx, ev, key)
 	case api.KindProgress:
-		return deriveActivity(ctx, tx, ev, key, action, at)
+		return deriveActivity(ctx, tx, ev, key, action, ev.ReceivedAt.UTC().Format(timeFormat))
 	case api.KindStatus:
 		if action == "clear" {
 			_, err := tx.ExecContext(ctx, `DELETE FROM status WHERE key = ?`, key)

@@ -18,6 +18,8 @@ final class AppModel {
     private(set) var incidents: [Event] = []
     /// Check-ins whose last run failed.
     private(set) var failingCheckins: [Event] = []
+    /// Every check, in key order. Empty on a server before check-ins.
+    private(set) var checks: [Check] = []
     private(set) var isSyncing = false
     private(set) var lastSync: Date?
     var lastError: String?
@@ -67,7 +69,10 @@ final class AppModel {
     var isConfigured: Bool { credentials.isComplete }
 
     /// Open incidents not yet acknowledged.
-    var unackedIncidents: Int { incidents.filter { $0.action != "ack" }.count }
+    var unackedIncidents: Int { incidents.filter { !$0.isAcked }.count }
+
+    /// Checks that are down.
+    var downChecks: Int { checks.filter { $0.state == .down }.count }
 
     /// Shows one event, from a notification or a heraldo:// link.
     func openEvent(_ id: String) {
@@ -123,8 +128,12 @@ final class AppModel {
             unread = try await sync.unread()
             let state = try await sync.client.state()
             let newest: (Event, Event) -> Bool = { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
-            incidents = state.incidents.sorted(by: newest)
+            // Open incidents before acknowledged ones, newest first in each.
+            incidents = state.incidents.sorted { a, b in
+                a.isAcked == b.isAcked ? newest(a, b) : !a.isAcked
+            }
             failingCheckins = (state.checkins ?? []).filter(\.isFailingCheckin).sorted(by: newest)
+            checks = try await sync.client.checks() ?? []
             lastSync = .now
             lastError = nil
             onBadge?(unread.badge)
@@ -168,6 +177,12 @@ final class AppModel {
     /// Acknowledges an incident with the write token.
     func ack(_ incident: Event) async throws {
         try await client().ack(incident, source: AppInfo.source)
+        await refresh()
+    }
+
+    /// Pauses or resumes a check with the write token.
+    func setPaused(_ check: Check, _ paused: Bool) async throws {
+        try await client().setPaused(check.key, paused)
         await refresh()
     }
 

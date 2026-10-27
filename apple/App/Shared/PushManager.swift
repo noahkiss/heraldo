@@ -12,6 +12,7 @@ import AppKit
 /// Push on iOS and macOS: the notification categories, the APNs token, and the device
 /// registration with its permission health. It registers on every launch, and
 /// again on foreground when a permission changed since the last report.
+/// Registrations run one at a time, so the launch triggers do not each post.
 @MainActor
 @Observable
 final class PushManager {
@@ -26,6 +27,8 @@ final class PushManager {
 
     private let defaults = UserDefaults.standard
     private var registeredThisLaunch = false
+    /// The registration running now; the next one waits for it.
+    private var registerTask: Task<Void, Never>?
 
     private var deviceID: String? {
         get { defaults.string(forKey: "deviceID") }
@@ -80,19 +83,24 @@ final class PushManager {
         let ack = UNNotificationAction(identifier: PushCategory.ackAction, title: "Acknowledge",
                                        options: [.authenticationRequired],
                                        icon: UNNotificationActionIcon(systemImageName: "hand.raised"))
+        let mute = UNNotificationAction(identifier: PushCategory.muteAction, title: "Mute 1 h",
+                                        options: [.authenticationRequired],
+                                        icon: UNNotificationActionIcon(systemImageName: "bell.slash"))
         let open = UNNotificationAction(identifier: PushCategory.openAction, title: "Open",
                                         options: [.foreground],
                                         icon: UNNotificationActionIcon(systemImageName: "arrow.up.forward.app"))
         return [
-            UNNotificationCategory(identifier: PushCategory.incident, actions: [ack, open], intentIdentifiers: []),
-            UNNotificationCategory(identifier: PushCategory.event, actions: [open], intentIdentifiers: []),
+            UNNotificationCategory(identifier: PushCategory.incident, actions: [ack, mute, open], intentIdentifiers: []),
+            UNNotificationCategory(identifier: PushCategory.event, actions: [mute, open], intentIdentifiers: []),
         ]
     }
 
     func didRegister(token: Data) {
         apnsToken = APNs.hex(token)
         log.info("push: APNs token received")
-        Task { await register(force: !registeredThisLaunch) }
+        // Forced only when nothing registered this launch yet, judged when
+        // the registration runs, not now.
+        Task { await register(force: false, firstThisLaunch: true) }
     }
 
     func didFail(_ error: Error) {
@@ -129,7 +137,20 @@ final class PushManager {
     }
 
     /// POST /v1/devices, or PUT when the APNs token changed under a known id.
-    func register(force: Bool) async {
+    /// One runs at a time: a call waits for the one before it, then skips
+    /// when the server already has this registration. `firstThisLaunch`
+    /// forces it when no registration succeeded this launch yet.
+    func register(force: Bool, firstThisLaunch: Bool = false) async {
+        let previous = registerTask
+        let task = Task {
+            await previous?.value
+            await self.doRegister(force: force || (firstThisLaunch && !self.registeredThisLaunch))
+        }
+        registerTask = task
+        await task.value
+    }
+
+    private func doRegister(force: Bool) async {
         let model = AppModel.shared
         guard let token = apnsToken, model.isConfigured, let client = try? model.client() else { return }
         #if os(iOS)
@@ -198,6 +219,8 @@ final class PushManager {
         switch response.actionIdentifier {
         case PushCategory.ackAction:
             await ack(info)
+        case PushCategory.muteAction:
+            await mute(info)
         case PushCategory.openAction:
             if let url = info.url.flatMap(URL.init(string:)) {
                 #if os(iOS)
@@ -215,6 +238,25 @@ final class PushManager {
         }
     }
 
+    /// Mute 1 h: the incident's key, or the event's source.
+    private func mute(_ info: PushInfo) async {
+        guard let input = PushCategory.muteInput(info) else { return }
+        do {
+            let m = try await AppModel.shared.client().mute(input)
+            log.info("push: muted \(m.key ?? m.source ?? "", privacy: .public) until \(m.until, privacy: .public)")
+        } catch {
+            await failed("Mute failed", error, id: "mute-failed-\(info.id)")
+        }
+    }
+
+    private func failed(_ title: String, _ error: Error, id: String) async {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = error.localizedDescription
+        content.interruptionLevel = .passive
+        try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+    }
+
     private func ack(_ info: PushInfo) async {
         let model = AppModel.shared
         do {
@@ -225,12 +267,7 @@ final class PushManager {
             try await client.ack(incident, source: AppInfo.source)
             await model.refresh()
         } catch {
-            let content = UNMutableNotificationContent()
-            content.title = "Acknowledge failed"
-            content.body = error.localizedDescription
-            content.interruptionLevel = .passive
-            try? await UNUserNotificationCenter.current().add(
-                UNNotificationRequest(identifier: "ack-failed-\(info.id)", content: content, trigger: nil))
+            await failed("Acknowledge failed", error, id: "ack-failed-\(info.id)")
         }
     }
 }

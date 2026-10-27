@@ -113,21 +113,6 @@ func scanActivity(r scanner) (Activity, error) {
 	return a, nil
 }
 
-func parseTime(s string) time.Time {
-	if s == "" {
-		return time.Time{}
-	}
-	t, _ := time.Parse(timeFormat, s)
-	return t
-}
-
-func formatTime(t time.Time) any {
-	if t.IsZero() {
-		return nil
-	}
-	return t.UTC().Format(timeFormat)
-}
-
 // GetActivity returns the activity on key, or ErrNotFound.
 func (s *Store) GetActivity(ctx context.Context, key string) (Activity, error) {
 	a, err := scanActivity(s.db.QueryRowContext(ctx, `SELECT `+activityCols+` FROM activities WHERE key = ?`, key))
@@ -263,7 +248,7 @@ func (s *Store) SaveInstance(ctx context.Context, i Instance) error {
 		update_token = excluded.update_token, confirmed_at = excluded.confirmed_at, ended_at = excluded.ended_at,
 		last_push_at = excluded.last_push_at`,
 		i.ID, i.ActivityID, i.Key, i.DeviceID, i.Chain, i.State, nullStr(i.EndReason), nullStr(i.UpdateToken),
-		i.RequestedAt.UTC().Format(timeFormat), formatTime(i.ConfirmedAt), formatTime(i.EndedAt), formatTime(i.LastPushAt))
+		i.RequestedAt.UTC().Format(timeFormat), fmtTime(i.ConfirmedAt), fmtTime(i.EndedAt), fmtTime(i.LastPushAt))
 	return err
 }
 

@@ -40,6 +40,23 @@ public struct HistoryCache: Codable, Equatable, Sendable {
         reachedEnd = true
     }
 
+    /// The hold states seen in the cache, with `held` always first, for the hold filter.
+    public var holdStates: [String] {
+        let seen = Set(events.compactMap { $0.hold?.state }).subtracting(["held"])
+        return ["held"] + seen.sorted()
+    }
+
+    /// Resolved incidents since `date`, newest first, one per key.
+    public func resolvedIncidents(since date: Date) -> [Event] {
+        var keys = Set<String>()
+        return events.filter { e in
+            guard e.kind == "incident", e.action == "resolve", let key = e.key,
+                  (e.date ?? .distantPast) >= date, !keys.contains(key) else { return false }
+            keys.insert(key)
+            return true
+        }
+    }
+
     /// The sources seen in the cache, sorted, for the source filter.
     public var sources: [String] {
         Array(Set(events.map(\.source))).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
@@ -116,9 +133,10 @@ public struct HistorySync: Sendable {
     }
 
     /// A server-side search or filter, newest first. Not cached.
-    public func search(q: String?, kind: String?, source: String?, before: String? = nil) async throws -> EventPage {
+    public func search(q: String?, kind: String?, source: String?, hold: String? = nil,
+                       before: String? = nil) async throws -> EventPage {
         try await client.listEvents(EventQuery(before: before, order: .desc, limit: pageSize,
-                                               source: source, kind: kind, q: q))
+                                               source: source, kind: kind, q: q, hold: hold))
     }
 
     /// The read cursor and the events after it, up to `maxPages` pages.

@@ -161,13 +161,15 @@ func serve(log *slog.Logger) error {
 		}
 		go rw.Watch(ctx, rules.DefaultInterval)
 	}
-	pusher, lm, pushState := startPush(ctx, cfg, st, log)
+	pusher, lm, pushState := startPush(ctx, cfg, st, rw, log)
+	h := server.NewServer(server.Options{
+		Version: version.String(), Store: st, Tokens: tokens, Validator: v, Rules: rw, Logger: log,
+		Done: ctx.Done(), Pusher: pusher, PushState: pushState, Live: lm,
+	})
+	go h.RunCheckins(ctx, checkinTick)
 	srv := &http.Server{
-		Addr: cfg.Addr,
-		Handler: server.New(server.Options{
-			Version: version.String(), Store: st, Tokens: tokens, Validator: v, Rules: rw, Logger: log,
-			Done: ctx.Done(), Pusher: pusher, PushState: pushState, Live: lm,
-		}),
+		Addr:              cfg.Addr,
+		Handler:           h,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -197,10 +199,13 @@ func serve(log *slog.Logger) error {
 	return nil
 }
 
+// checkinTick is how often the scheduler judges the checks.
+const checkinTick = 15 * time.Second
+
 // startPush starts the APNs pusher and the Live Activity manager when
 // HERALDO_PUSH is on and a key loads. A missing or bad key logs an error and
 // leaves push off: ingest keeps working.
-func startPush(ctx context.Context, cfg config.Config, st *store.Store, log *slog.Logger) (server.Pusher, server.Live, api.HealthPush) {
+func startPush(ctx context.Context, cfg config.Config, st *store.Store, rw *rules.Watcher, log *slog.Logger) (server.Pusher, server.Live, api.HealthPush) {
 	if !cfg.Push {
 		if cfg.HasAPNsKey() {
 			log.Info("push: an APNs key is set, but HERALDO_PUSH is off; nothing is pushed")
@@ -221,7 +226,7 @@ func startPush(ctx context.Context, cfg config.Config, st *store.Store, log *slo
 		log.Error("push: the APNs key does not parse; nothing is pushed", "err", err)
 		return nil, nil, api.HealthPushNoKey
 	}
-	p := push.New(push.Config{Key: key, KeyID: cfg.APNsKeyID, TeamID: cfg.APNsTeamID, Store: st, Logger: log})
+	p := push.New(push.Config{Key: key, KeyID: cfg.APNsKeyID, TeamID: cfg.APNsTeamID, Store: st, Logger: log, Rules: rw.Rules})
 	go p.Run(ctx)
 	lm := live.New(live.Config{Store: st, Sender: p, Logger: log})
 	go lm.Run(ctx)

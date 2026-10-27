@@ -547,7 +547,7 @@ func TestDerivedState(t *testing.T) {
 	}
 
 	post(`{"source":"c","kind":"checkin","key":"job","action":"start"}`)
-	if r := row("checkins", "job"); r["state"] != "running" {
+	if r := row("checkins", "job"); r["state"] != "started" {
 		t.Fatalf("start: %v", r)
 	}
 	post(`{"source":"c","kind":"checkin","key":"job","checkin":{"exit_code":2}}`)

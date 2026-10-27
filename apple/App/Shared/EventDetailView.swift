@@ -116,13 +116,28 @@ struct EventDetailView: View {
             fact("Level", event.level)
             fact("Thread", event.thread)
             fact("Tags", event.tags?.joined(separator: ", "))
-            fact("Hold", event.hold?.state)
+            fact("Hold", event.hold?.label)
+            if let inc = event.incident {
+                fact("Incident", incidentLine(inc))
+            }
             ForEach(event.delivery ?? [], id: \.device) { d in
                 fact("Delivery", [d.outcome, d.level, d.error].compactMap { $0 }.joined(separator: " · "))
             }
             fact("ID", event.id)
         }
         .font(.footnote)
+    }
+
+    /// "acked · opened 10:02" or "resolved · open for 12 min".
+    private func incidentLine(_ inc: IncidentInfo) -> String {
+        var parts = [inc.state]
+        if let d = inc.openFor {
+            parts.append("open for " + Duration.seconds(d).formatted(
+                .units(allowed: [.days, .hours, .minutes], width: .abbreviated, maximumUnitCount: 2)))
+        } else if let opened = inc.openedAt {
+            parts.append("opened " + opened.formatted(date: .abbreviated, time: .shortened))
+        }
+        return parts.joined(separator: " · ")
     }
 
     @ViewBuilder

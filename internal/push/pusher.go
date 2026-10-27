@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/noahkiss/heraldo/api"
+	"github.com/noahkiss/heraldo/internal/rules"
 	"github.com/noahkiss/heraldo/internal/store"
 )
 
@@ -54,6 +55,12 @@ type Config struct {
 	Backoff []time.Duration
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
+	// Rules returns the rules in force, for their inhibit rules; nil means
+	// none.
+	Rules func() *rules.Set
+	// RealertTick is how often the pusher looks for due re-alerts; 0 means
+	// 30 seconds.
+	RealertTick time.Duration
 }
 
 // Pusher sends events to every active device.
@@ -90,6 +97,12 @@ func New(cfg Config) *Pusher {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
+	if cfg.Rules == nil {
+		cfg.Rules = func() *rules.Set { return nil }
+	}
+	if cfg.RealertTick == 0 {
+		cfg.RealertTick = 30 * time.Second
+	}
 	return &Pusher{
 		cfg:   cfg,
 		sign:  &signer{key: cfg.Key, keyID: cfg.KeyID, teamID: cfg.TeamID, now: cfg.Now},
@@ -115,10 +128,24 @@ func (p *Pusher) Enqueue(rec store.Record) bool {
 // Wait blocks until every queued event is handled. Tests use it.
 func (p *Pusher) Wait() { p.pending.Wait() }
 
-// Run drains the queue until ctx ends. Events still queued then are not
-// pushed.
+// Run drains the queue and sends due re-alerts until ctx ends. Events still
+// queued then are not pushed.
 func (p *Pusher) Run(ctx context.Context) {
 	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		t := time.NewTicker(p.cfg.RealertTick)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				p.Realert(ctx)
+			}
+		}
+	}()
 	for range p.cfg.Workers {
 		wg.Add(1)
 		go func() {
@@ -148,6 +175,99 @@ func (p *Pusher) handle(ctx context.Context, rec store.Record) {
 	if !d.Push {
 		return
 	}
+	p.push(ctx, log, &ev, d, 0)
+}
+
+// Realert pushes every due re-alert once and moves its schedule on. A
+// server that was down for several intervals sends one re-alert, not one per
+// missed interval. Run calls it on a ticker.
+func (p *Pusher) Realert(ctx context.Context) {
+	now := p.cfg.Now()
+	due, err := p.cfg.Store.DueAlerts(ctx, now)
+	if err != nil {
+		p.cfg.Logger.Error("push: due re-alerts", "err", err)
+		return
+	}
+	for _, a := range due {
+		next := a.Due.Add(a.Every)
+		if !next.After(now) {
+			next = now.Add(a.Every)
+		}
+		// Move the schedule first: an ack meanwhile wins, and a failed push
+		// is not retried every tick.
+		if ok, err := p.cfg.Store.Realerted(ctx, a.Key, a.Due, next); err != nil || !ok {
+			if err != nil {
+				p.cfg.Logger.Error("push: re-alert schedule", "key", a.Key, "err", err)
+			}
+			continue
+		}
+		log := p.cfg.Logger.With("event", a.EventID, "realert", a.Key)
+		rec, err := p.cfg.Store.Get(ctx, a.EventID)
+		if err != nil {
+			log.Error("push: re-alert event", "err", err)
+			continue
+		}
+		var ev api.Event
+		if err := json.Unmarshal(rec.Event, &ev); err != nil {
+			log.Error("push: decode event", "err", err)
+			continue
+		}
+		d := Decide(&ev, now)
+		if !d.Push {
+			continue
+		}
+		p.push(ctx, log, &ev, d, max(now.Sub(a.OpenedAt), time.Minute))
+	}
+}
+
+// suppressed says why a mute or an inhibit rule holds back the push of ev,
+// or "" when none does.
+func (p *Pusher) suppressed(ctx context.Context, ev *api.Event) (string, error) {
+	key := ""
+	if ev.Key != nil {
+		key = *ev.Key
+	}
+	m, ok, err := p.cfg.Store.MatchMute(ctx, ev.Source, key, p.cfg.Now())
+	if err != nil {
+		return "", err
+	}
+	if ok {
+		return "muted by " + m.ID, nil
+	}
+	set := p.cfg.Rules()
+	if key == "" || len(set.InhibitRules()) == 0 {
+		return "", nil
+	}
+	open, err := p.cfg.Store.OpenIncidentKeys(ctx)
+	if err != nil {
+		return "", err
+	}
+	if rule, parent, ok := set.Inhibited(key, open); ok {
+		return fmt.Sprintf("inhibited by %s: %s is open", rule, parent), nil
+	}
+	return "", nil
+}
+
+// icon returns the registry icon for ev: its icon field when the registry
+// has that name, else the icon named after its source.
+func (p *Pusher) icon(ctx context.Context, ev *api.Event) string {
+	var names []string
+	if ev.Icon != nil && *ev.Icon != "" {
+		names = append(names, *ev.Icon)
+	}
+	for _, n := range append(names, ev.Source) {
+		if ok, err := p.cfg.Store.HasIcon(ctx, n); err == nil && ok {
+			return n
+		}
+	}
+	return ""
+}
+
+// push sends ev with decision d to every active device and records the
+// outcomes. openFor is set on a re-alert. A mute or an inhibit rule records
+// skipped instead. A re-alert overwrites the event's delivery with its own
+// outcome.
+func (p *Pusher) push(ctx context.Context, log *slog.Logger, ev *api.Event, d Decision, openFor time.Duration) {
 	devices, err := p.cfg.Store.Devices(ctx, true)
 	if err != nil {
 		log.Error("push: devices", "err", err)
@@ -156,13 +276,33 @@ func (p *Pusher) handle(ctx context.Context, rec store.Record) {
 	if len(devices) == 0 {
 		return
 	}
-	var badge *int
+	why, err := p.suppressed(ctx, ev)
+	if err != nil {
+		log.Error("push: mutes and inhibit rules", "err", err)
+	}
+	if why != "" && openFor > 0 {
+		// A held-back re-alert leaves the event's delivery as it was.
+		log.Info("push: re-alert held back", "why", why)
+		return
+	}
+	if why != "" {
+		for _, dev := range devices {
+			out := store.Delivery{EventID: ev.Id, DeviceID: dev.ID, Outcome: "skipped", Level: string(d.Level),
+				Error: why, At: p.cfg.Now()}
+			if err := p.cfg.Store.RecordDelivery(context.WithoutCancel(ctx), out); err != nil {
+				log.Error("push: record delivery", "device", dev.ID, "err", err)
+			}
+		}
+		log.Info("push: held back", "why", why)
+		return
+	}
+	x := Extra{Icon: p.icon(ctx, ev), OpenFor: openFor}
 	if n, err := p.cfg.Store.Unread(ctx, BadgeCursor); err != nil {
 		log.Error("push: badge", "err", err)
 	} else {
-		badge = &n
+		x.Badge = &n
 	}
-	body, h, err := Build(&ev, d, badge)
+	body, h, err := Build(ev, d, x)
 	if err != nil {
 		log.Error("push: payload", "err", err)
 		return

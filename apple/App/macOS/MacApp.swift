@@ -187,14 +187,14 @@ struct MenuBarContent: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            if e.isOpenIncident && !(model.credentials.writeToken?.isEmpty ?? true) {
+            if e.isOpenIncident && !e.isAcked && !(model.credentials.writeToken?.isEmpty ?? true) {
                 Button("Ack") {
                     Task {
                         do { try await model.ack(e); ackError = nil } catch { ackError = error.localizedDescription }
                     }
                 }
                 .controlSize(.small)
-            } else if e.action == "ack" {
+            } else if e.isAcked {
                 Text("Acked").font(.caption).foregroundStyle(.secondary)
             }
         }

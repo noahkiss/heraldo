@@ -23,7 +23,7 @@ import (
 const MaxBodyBytes = 256 * 1024
 
 // ServerFields are the readOnly fields a sender may not set.
-var ServerFields = []string{"id", "received_at", "hold", "delivery"}
+var ServerFields = []string{"id", "received_at", "hold", "delivery", "incident"}
 
 // Error is a validation failure, written for a person to read.
 type Error struct{ Msg string }

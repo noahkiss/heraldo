@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/auth"
 	"github.com/noahkiss/heraldo/internal/ids"
+	"github.com/noahkiss/heraldo/internal/rules"
 	"github.com/noahkiss/heraldo/internal/server"
 	"github.com/noahkiss/heraldo/internal/store"
 	"github.com/noahkiss/heraldo/internal/validate"
@@ -100,22 +102,51 @@ type rig struct {
 	p          *Pusher
 	key        *ecdsa.PrivateKey
 	prod, sand *fakeAPNs
+	clock      *clock
 }
+
+// clock is a test clock that only moves when told.
+type clock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func (c *clock) now() time.Time      { c.mu.Lock(); defer c.mu.Unlock(); return c.t }
+func (c *clock) add(d time.Duration) { c.mu.Lock(); c.t = c.t.Add(d); c.mu.Unlock() }
 
 func newRig(t *testing.T, queue int) *rig {
 	t.Helper()
+	return newRigRules(t, queue, "")
+}
+
+// newRigRules is newRig with a rules file; "" means no rules.
+func newRigRules(t *testing.T, queue int, rulesYAML string) *rig {
+	t.Helper()
+	var rw *rules.Watcher
+	if rulesYAML != "" {
+		path := filepath.Join(t.TempDir(), "rules.yaml")
+		if err := os.WriteFile(path, []byte(rulesYAML), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var err error
+		if rw, err = rules.NewWatcher(path, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &rig{st: st, prod: newFake(t), sand: newFake(t)}
+	r := &rig{st: st, prod: newFake(t), sand: newFake(t), clock: &clock{t: time.Now().UTC().Truncate(time.Second)}}
+	st.SetClock(r.clock.now)
 	r.key, _ = newKey(t)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	r.p = New(Config{
 		Key: r.key, KeyID: "KEYID00001", TeamID: "TEAMID0001", Store: st, Logger: log,
 		ProductionURL: r.prod.srv.URL, SandboxURL: r.sand.srv.URL, HTTPClient: r.prod.srv.Client(),
 		Backoff: []time.Duration{time.Millisecond, time.Millisecond}, Queue: queue,
+		Now: r.clock.now, Rules: rw.Rules, RealertTick: time.Hour,
 	})
 	done := make(chan struct{})
 	go func() { r.p.Run(ctx); close(done) }()
@@ -129,7 +160,8 @@ func newRig(t *testing.T, queue int) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.h = server.New(server.Options{Store: st, Tokens: tokens, Validator: v, Logger: log, Pusher: r.p, PushState: api.HealthPushOn})
+	r.h = server.New(server.Options{Store: st, Tokens: tokens, Validator: v, Logger: log, Pusher: r.p,
+		PushState: api.HealthPushOn, Now: r.clock.now, Rules: rw})
 	return r
 }
 
@@ -446,6 +478,157 @@ func TestBadgeRuleMatchesDecide(t *testing.T) {
 		}
 		if got != c.push {
 			t.Errorf("%s: SQL says push %v, Decide says %v", c.name, got, c.push)
+		}
+	}
+}
+
+func payloadOf(t *testing.T, q fakeReq) Payload {
+	t.Helper()
+	var p Payload
+	if err := json.Unmarshal(q.Body, &p); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// TestResolveReplacesOpen is the lock-screen acceptance case: a failure and
+// its recovery go out under one collapse id, and the recovery says how long
+// the incident was open.
+func TestResolveReplacesOpen(t *testing.T) {
+	r := newRig(t, 0)
+	r.register(t, prodToken, "production")
+	r.post(t, writeTok, `{"source":"uptime","kind":"incident","key":"unit:web-1:nginx","action":"open",
+		"title":"Web is down","summary":"nginx failed","level":"time-sensitive"}`)
+	r.clock.add(12*time.Minute + 10*time.Second)
+	r.post(t, writeTok, `{"source":"uptime","kind":"incident","key":"unit:web-1:nginx","action":"resolve","title":"Web is up"}`)
+	q := r.prod.requests()
+	if len(q) != 2 || q[0].CollapseID == "" || q[0].CollapseID != q[1].CollapseID || q[1].Priority != "5" {
+		t.Fatalf("requests %+v", q)
+	}
+	if p := payloadOf(t, q[1]); p.APS.Alert.Body != "Resolved after 12 min" || p.APS.InterruptionLevel != "passive" || p.APS.Sound != "" {
+		t.Fatalf("resolve payload %s", q[1].Body)
+	}
+}
+
+func TestMuteHoldsBackPush(t *testing.T) {
+	r := newRig(t, 0)
+	dev := r.register(t, prodToken, "production")
+	if rec := r.do(t, http.MethodPost, "/v1/mutes", writeTok, `{"source":"backup","for":"1h"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("mute: %d %s", rec.Code, rec.Body)
+	}
+	muted := r.post(t, writeTok, `{"source":"backup","title":"nightly ran"}`)
+	r.post(t, writeTok, `{"source":"other","title":"not muted"}`)
+	if n := len(r.prod.requests()); n != 1 {
+		t.Fatalf("%d pushes, want 1", n)
+	}
+	ds := r.delivery(t, muted)
+	if len(ds) != 1 || ds[0].Device != dev || ds[0].Outcome != api.DeliveryOutcomeSkipped || ds[0].Error == nil ||
+		!strings.HasPrefix(*ds[0].Error, "muted by mute_") {
+		t.Fatalf("delivery %+v", ds)
+	}
+	// The muted event does not count in the badge; the other one does.
+	if p := payloadOf(t, r.prod.requests()[0]); p.APS.Badge == nil || *p.APS.Badge != 1 {
+		t.Fatalf("badge %v", p.APS.Badge)
+	}
+	// After the hour, the source pushes again.
+	r.clock.add(time.Hour)
+	r.post(t, writeTok, `{"source":"backup","title":"nightly ran again"}`)
+	if n := len(r.prod.requests()); n != 2 {
+		t.Fatalf("%d pushes after expiry, want 2", n)
+	}
+}
+
+func TestInhibitHoldsBackChildren(t *testing.T) {
+	r := newRigRules(t, 0, `inhibit:
+  - name: host-down
+    parent: '^host:(?P<host>[\w.-]+)$'
+    children: '^(unit|container):{host}:'
+`)
+	r.register(t, prodToken, "production")
+	r.post(t, writeTok, `{"source":"uptime","kind":"incident","key":"host:web-1","action":"open","title":"web-1 is down"}`)
+	child := r.post(t, writeTok, `{"source":"units","kind":"incident","key":"unit:web-1:nginx","action":"open","title":"nginx failed"}`)
+	r.post(t, writeTok, `{"source":"units","kind":"incident","key":"unit:web-2:nginx","action":"open","title":"other host"}`)
+	if n := len(r.prod.requests()); n != 2 {
+		t.Fatalf("%d pushes, want the parent and the other host", n)
+	}
+	if ds := r.delivery(t, child); len(ds) != 1 || ds[0].Outcome != api.DeliveryOutcomeSkipped ||
+		!strings.Contains(*ds[0].Error, "host-down") {
+		t.Fatalf("child delivery %+v", ds)
+	}
+	r.post(t, writeTok, `{"source":"uptime","kind":"incident","key":"host:web-1","action":"resolve"}`)
+	r.post(t, writeTok, `{"source":"units","kind":"incident","key":"unit:web-1:nginx","action":"update","title":"nginx still failed"}`)
+	if n := len(r.prod.requests()); n != 4 {
+		t.Fatalf("%d pushes after the parent resolved, want 4", n)
+	}
+}
+
+func TestRealert(t *testing.T) {
+	r := newRigRules(t, 0, `rules:
+  - name: down
+    match: {title: '^(?P<h>[\w-]+) is down'}
+    set: {kind: incident, action: open, key: 'host:{h}', level: time-sensitive, realert: 10m}
+`)
+	r.register(t, prodToken, "production")
+	ctx := context.Background()
+	r.post(t, writeTok, `{"source":"uptime","title":"web-1 is down","body":"no answer"}`)
+	realert := func() {
+		r.p.Realert(ctx)
+		r.p.Wait()
+	}
+	realert()
+	if n := len(r.prod.requests()); n != 1 {
+		t.Fatalf("%d pushes before the interval", n)
+	}
+	r.clock.add(10 * time.Minute)
+	realert()
+	q := r.prod.requests()
+	if len(q) != 2 || q[1].CollapseID != q[0].CollapseID {
+		t.Fatalf("requests %+v", q)
+	}
+	if p := payloadOf(t, q[1]); p.APS.Alert.Body != "Still open after 10 min. no answer" || p.APS.InterruptionLevel != "time-sensitive" {
+		t.Fatalf("re-alert payload %s", q[1].Body)
+	}
+	// A server that slept through three intervals sends one re-alert.
+	r.clock.add(35 * time.Minute)
+	realert()
+	realert()
+	if n := len(r.prod.requests()); n != 3 {
+		t.Fatalf("%d pushes after a long gap, want 3", n)
+	}
+	// A mute holds re-alerts back; an ack ends them.
+	if rec := r.do(t, http.MethodPost, "/v1/mutes", writeTok, `{"key":"host:web-1","for":"15m"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("mute: %d", rec.Code)
+	}
+	r.clock.add(10 * time.Minute)
+	realert()
+	if n := len(r.prod.requests()); n != 3 {
+		t.Fatalf("%d pushes while muted, want 3", n)
+	}
+	r.post(t, writeTok, `{"source":"heraldo-app","kind":"incident","key":"host:web-1","action":"ack"}`)
+	r.clock.add(time.Hour)
+	realert()
+	if n := len(r.prod.requests()); n != 3 {
+		t.Fatalf("%d pushes after the ack, want 3", n)
+	}
+}
+
+func TestIconInPayload(t *testing.T) {
+	r := newRig(t, 0)
+	r.register(t, prodToken, "production")
+	png := append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 24)...)
+	if err := func() error {
+		_, err := r.st.PutIcon(context.Background(), &store.Icon{Name: "backup", ContentType: "image/png", Data: png, UpdatedBy: "t"})
+		return err
+	}(); err != nil {
+		t.Fatal(err)
+	}
+	r.post(t, writeTok, `{"source":"backup","title":"by source"}`)
+	r.post(t, writeTok, `{"source":"other","icon":"backup","title":"by name"}`)
+	r.post(t, writeTok, `{"source":"other","icon":"gear","title":"no such icon"}`)
+	q := r.prod.requests()
+	for i, want := range []string{"backup", "backup", ""} {
+		if p := payloadOf(t, q[i]); p.Heraldo.Icon != want {
+			t.Errorf("push %d: icon %q, want %q", i, p.Heraldo.Icon, want)
 		}
 	}
 }
