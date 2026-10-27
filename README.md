@@ -254,6 +254,28 @@ brew install --cask noahkiss/tap/heraldo-app
 - The app syncs every minute, on wake and on a push. Closing the window keeps
   the menu bar item.
 
+### Provision from the shell
+
+`apple/scripts/provision.sh` saves the URL and tokens without a paste, for a
+setup script or an agent. The Mac app saves them to the synced Keychain item,
+so they also reach the iPhone.
+
+```sh
+HERALDO_URL=https://heraldo.example.com \
+HERALDO_READ_TOKEN_CMD='<command that prints the read token>' \
+HERALDO_WRITE_TOKEN_CMD='<command that prints the write token>' \
+  apple/scripts/provision.sh
+```
+
+- The script quits the app and launches it once with `--provision-stdin`. It
+  passes `{"url", "read_token", "write_token"}` as JSON through a FIFO to the
+  app's stdin (`open --stdin`). The tokens never reach argv, a file, the
+  pasteboard or the log.
+- The app tests the values against the server, as "Save and test" does, then
+  saves them and registers for push.
+- The script prints the app's one log line, `provision: saved ...` or
+  `provision: failed: ...`, and exits 0 or 1.
+
 A Mac build without a Developer ID profile signs ad hoc. It has no push, and it
 keeps the credentials in this Mac's login keychain. See
 `apple/Config/Local.example.xcconfig`, step 3.

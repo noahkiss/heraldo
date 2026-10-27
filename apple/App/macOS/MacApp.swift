@@ -18,6 +18,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationC
         AppModel.shared.onBadge = { push.setBadge($0) }
         AppModel.shared.onCredentialsChanged = { push.credentialsChanged() }
         push.start()
+        if Provision.requested { Task { await Provision.run(AppModel.shared) } }
         startPolling()
         // After sleep the network can take a few seconds to return; sync then.
         NSWorkspace.shared.notificationCenter.addObserver(

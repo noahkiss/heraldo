@@ -76,7 +76,8 @@ struct RootView: View {
             #if os(iOS)
             tab = .settings
             #else
-            openSettings()
+            // A provisioning launch saves the settings itself.
+            if !Provision.requested { openSettings() }
             #endif
         }
         // The scene is often active before onChange(of: scenePhase) can see it.
