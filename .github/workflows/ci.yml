@@ -1,6 +1,9 @@
 # Go gate: gofmt, generated code up to date, vet, tests. Then, on a push to
 # main or a v* tag, build the server image and push it to GHCR (amd64 only).
 # Pull requests run the gate only.
+# On a v* tag it then dispatches the Homebrew tap's bump.yml and waits for the
+# verified bump. That needs the repo secret HOMEBREW_TAP_TOKEN (a PAT with
+# `workflow` scope on the tap): this repo's GITHUB_TOKEN cannot dispatch another.
 # apple/ is not built in CI yet. Run apple/scripts/check.sh locally instead.
 name: CI
 
@@ -39,3 +42,15 @@ jobs:
       build_args: |
         VERSION=${{ github.ref_type == 'tag' && github.ref_name || format('main-{0}', github.sha) }}
       smoke_command: docker run --rm "$IMAGE" version
+
+  bump-tap:
+    needs: image
+    if: github.ref_type == 'tag'
+    uses: noahkiss/workflows/.github/workflows/dispatch-and-wait.yml@main
+    with:
+      repo: noahkiss/homebrew-tap
+      workflow: bump.yml
+      inputs_json: ${{ format('{{"formula":"heraldo","tag":"{0}"}}', github.ref_name) }}
+      timeout_minutes: 45
+    secrets:
+      token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
