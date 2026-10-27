@@ -25,6 +25,10 @@ tags:
   - name: health
   - name: devices
     description: Devices the apps register for push.
+  - name: mutes
+    description: Hold back pushes for a while. Events are still stored.
+  - name: icons
+    description: The icon registry. Pushes name an icon; the apps fetch it.
 paths:
   /healthz:
     get:
@@ -253,8 +257,8 @@ paths:
       description: |
         Flat arrays of the latest event per key: open incidents, running progress,
         check-ins and status values. The shape is a stand-in until stage 12. An
-        incident's last event shows whether it is acked: its action is ack until a
-        later event.
+        incident's last event carries the incident's state in its incident field:
+        open or acked, with the time it opened.
       tags: [state]
       responses:
         "200":
@@ -477,6 +481,179 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /v1/mutes:
+    get:
+      operationId: listMutes
+      summary: The mutes in force, soonest to end first.
+      tags: [mutes]
+      responses:
+        "200":
+          description: The mutes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MuteList"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: createMute
+      summary: Hold back the pushes of a source, a key, or both, until a time.
+      description: |
+        A mute holds back pushes only: matching events are stored, listed and
+        counted as usual, and their delivery records outcome skipped. Re-alerts are
+        held back too. A mute with source and key matches only events with both.
+        Give until or for, not both. Needs a write token.
+      tags: [mutes]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MuteInput"
+      responses:
+        "201":
+          description: The mute.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Mute"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/mutes/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      operationId: endMute
+      summary: End a mute now. Needs a write token.
+      tags: [mutes]
+      responses:
+        "200":
+          description: The ended mute. A mute that had already ended is returned as it is.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Mute"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/icons:
+    get:
+      operationId: listIcons
+      summary: The icon registry, by name, without the images.
+      tags: [icons]
+      responses:
+        "200":
+          description: The icons.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IconInfoList"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/icons/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        description: 1 to 128 of A-Z a-z 0-9 . _ -, starting with a letter or digit.
+        schema:
+          type: string
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    get:
+      operationId: getIcon
+      summary: The icon image.
+      description: The ETag is the image's SHA-256; If-None-Match answers 304.
+      tags: [icons]
+      responses:
+        "200":
+          description: The image.
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        "304":
+          description: The image has not changed.
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    put:
+      operationId: putIcon
+      summary: Store or replace an icon. Needs an admin token.
+      description: |
+        The body is the image: PNG or JPEG, up to 256 KiB. The server checks the
+        bytes, not the Content-Type header. A square image of 256 by 256 pixels or
+        more shows best.
+      tags: [icons]
+      requestBody:
+        required: true
+        content:
+          image/png:
+            schema:
+              type: string
+              format: binary
+          image/jpeg:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "201":
+          description: A new icon.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IconInfo"
+        "200":
+          description: The icon, replaced.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IconInfo"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "413":
+          $ref: "#/components/responses/Error"
+        "415":
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteIcon
+      summary: Remove an icon. Needs an admin token.
+      tags: [icons]
+      responses:
+        "204":
+          description: Removed.
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
   /ping/{slug}:
     parameters:
       - $ref: "#/components/parameters/Slug"
@@ -652,10 +829,11 @@ components:
         One token per sender for writes, one per client for reads. An app holds a pair: a
         read token (history, cursors, device registration) and a write token (notification
         actions, sending). Each token has a
-        scope: write (POST /v1/events, GET /v1/send), read (GET /v1/events,
-        /v1/events/{id}, /v1/state, /v1/stream, the read cursors and /v1/devices), or
-        admin (both). A missing or unknown token gets 401; a
-        token without the scope gets 403.
+        scope: write (POST /v1/events, GET /v1/send, POST and DELETE /v1/mutes), read
+        (GET /v1/events, /v1/events/{id}, /v1/state, /v1/stream, the read cursors,
+        /v1/devices, GET /v1/mutes and GET /v1/icons), or admin (both, and PUT and
+        DELETE /v1/icons). A missing or unknown token gets 401; a token without the
+        scope gets 403.
 
         A write token can carry the trusted-ingest capability, for a bridge such as
         apprise-tee. The server copies its details.tee.hold object into hold, marked
@@ -891,6 +1069,83 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Device"
+    MuteInput:
+      type: object
+      description: A new mute. Give source, key or both, and until or for.
+      additionalProperties: false
+      properties:
+        source:
+          type: string
+          maxLength: 128
+          description: Mute events from this source.
+        key:
+          type: string
+          maxLength: 255
+          description: Mute events with this key, such as one incident.
+        until:
+          type: string
+          format: date-time
+          description: When the mute ends, RFC 3339. In the future, at most 366 days ahead.
+        for:
+          type: string
+          description: How long the mute lasts, a Go duration such as 1h or 90m, instead of until.
+    Mute:
+      type: object
+      required: [id, until, created_at, active]
+      properties:
+        id:
+          type: string
+          description: mute_ plus a ULID.
+        source:
+          type: string
+        key:
+          type: string
+        until:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        ended_at:
+          type: string
+          format: date-time
+          description: Set when DELETE ended the mute early.
+        active:
+          type: boolean
+          description: The mute holds back pushes now.
+    MuteList:
+      type: object
+      required: [mutes]
+      properties:
+        mutes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Mute"
+    IconInfo:
+      type: object
+      required: [name, content_type, bytes, sha256, updated_at]
+      properties:
+        name:
+          type: string
+        content_type:
+          type: string
+          enum: [image/png, image/jpeg]
+        bytes:
+          type: integer
+        sha256:
+          type: string
+          description: Hex SHA-256 of the image, also its ETag.
+        updated_at:
+          type: string
+          format: date-time
+    IconInfoList:
+      type: object
+      required: [icons]
+      properties:
+        icons:
+          type: array
+          items:
+            $ref: "#/components/schemas/IconInfo"
     AppriseNotify:
       type: object
       description: An Apprise API notify request. Fields heraldo does not use are accepted and ignored.

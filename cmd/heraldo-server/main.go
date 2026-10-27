@@ -160,7 +160,7 @@ func serve(log *slog.Logger) error {
 		}
 		go rw.Watch(ctx, rules.DefaultInterval)
 	}
-	pusher, pushState := startPush(ctx, cfg, st, log)
+	pusher, pushState := startPush(ctx, cfg, st, rw, log)
 	srv := &http.Server{
 		Addr: cfg.Addr,
 		Handler: server.New(server.Options{
@@ -199,7 +199,7 @@ func serve(log *slog.Logger) error {
 // startPush starts the APNs pusher when HERALDO_PUSH is on and a key loads.
 // A missing or bad key logs an error and leaves push off: ingest keeps
 // working.
-func startPush(ctx context.Context, cfg config.Config, st *store.Store, log *slog.Logger) (server.Pusher, api.HealthPush) {
+func startPush(ctx context.Context, cfg config.Config, st *store.Store, rw *rules.Watcher, log *slog.Logger) (server.Pusher, api.HealthPush) {
 	if !cfg.Push {
 		if cfg.HasAPNsKey() {
 			log.Info("push: an APNs key is set, but HERALDO_PUSH is off; nothing is pushed")
@@ -220,7 +220,7 @@ func startPush(ctx context.Context, cfg config.Config, st *store.Store, log *slo
 		log.Error("push: the APNs key does not parse; nothing is pushed", "err", err)
 		return nil, api.HealthPushNoKey
 	}
-	p := push.New(push.Config{Key: key, KeyID: cfg.APNsKeyID, TeamID: cfg.APNsTeamID, Store: st, Logger: log})
+	p := push.New(push.Config{Key: key, KeyID: cfg.APNsKeyID, TeamID: cfg.APNsTeamID, Store: st, Logger: log, Rules: rw.Rules})
 	go p.Run(ctx)
 	return p, api.HealthPushOn
 }

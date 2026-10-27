@@ -47,6 +47,15 @@ func TestParseErrors(t *testing.T) {
 		"capture twice":      `rules: [{name: a, match: {title: '(?P<x>.)', body: '(?P<x>.)'}, set: {kind: message}}]`,
 		"name twice":         "rules:\n  - {name: a, set: {kind: message}}\n  - {name: a, set: {kind: digest}}",
 		"not yaml":           `rules: [`,
+		"realert on message": `rules: [{name: a, set: {kind: message, realert: 10m}}]`,
+		"realert too short":  `rules: [{name: a, set: {kind: incident, key: k, realert: 30s}}]`,
+		"realert not a time": `rules: [{name: a, set: {kind: incident, key: k, realert: often}}]`,
+		"inhibit no name":    `inhibit: [{parent: a, children: b}]`,
+		"inhibit no parent":  `inhibit: [{name: a, children: b}]`,
+		"inhibit bad parent": `inhibit: [{name: a, parent: '(', children: b}]`,
+		"inhibit capture":    `inhibit: [{name: a, parent: '^host:(?P<h>.+)$', children: '^unit:{x}:'}]`,
+		"inhibit bad child":  `inhibit: [{name: a, parent: 'x', children: '('}]`,
+		"inhibit twice":      "inhibit:\n  - {name: a, parent: x, children: y}\n  - {name: a, parent: x, children: z}",
 	}
 	for name, raw := range cases {
 		if _, err := Parse([]byte(raw)); err == nil {
@@ -267,5 +276,58 @@ func TestExampleFileParses(t *testing.T) {
 	s, err := Load("../../deploy/rules.example.yaml")
 	if err != nil || s.Len() == 0 {
 		t.Fatalf("deploy/rules.example.yaml: %d rules, %v", s.Len(), err)
+	}
+}
+
+func TestRealertIsStored(t *testing.T) {
+	v, err := validate.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := Parse([]byte(`rules:
+  - name: down
+    match: {title: '^(?P<h>\w+) is down'}
+    set: {kind: incident, action: open, key: 'host:{h}', level: time-sensitive, realert: 15m}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, rule, err := Apply(s, input(t, v, `{"source":"s","title":"web is down"}`), v)
+	if err != nil || rule != "down" {
+		t.Fatalf("apply %q %v", rule, err)
+	}
+	h := (*out.Typed.Details)["heraldo"].(map[string]any)
+	if h["realert_s"] != float64(900) || h["rule"] != "down" {
+		t.Fatalf("details.heraldo = %v", h)
+	}
+}
+
+func TestInhibited(t *testing.T) {
+	s, err := Parse([]byte(`inhibit:
+  - name: host-down
+    parent: '^host:(?P<host>[\w.-]+)$'
+    children: '^(unit|container):{host}:'`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	open := []string{"host:web.1", "unit:db:pg"}
+	for _, c := range []struct {
+		key, parent string
+	}{
+		{"unit:web.1:nginx", "host:web.1"},
+		{"container:web.1:app", "host:web.1"},
+		// The capture is quoted: the dot in web.1 matches a dot only.
+		{"unit:webx1:nginx", ""},
+		{"unit:db:pg", ""},
+		{"host:web.1", ""},
+		{"disk:web.1:sda", ""},
+		{"", ""},
+	} {
+		rule, parent, ok := s.Inhibited(c.key, open)
+		if ok != (c.parent != "") || parent != c.parent || (ok && rule != "host-down") {
+			t.Errorf("%q: %q %q %v; want parent %q", c.key, rule, parent, ok, c.parent)
+		}
+	}
+	if _, _, ok := (*Set)(nil).Inhibited("unit:web.1:x", open); ok {
+		t.Fatal("nil set inhibits")
 	}
 }

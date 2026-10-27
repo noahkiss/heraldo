@@ -72,7 +72,7 @@ func TestDecide(t *testing.T) {
 func build(t *testing.T, js string, badge *int) (Payload, Headers, int) {
 	t.Helper()
 	ev := event(t, js)
-	b, h, err := Build(ev, Decide(ev, testNow), badge)
+	b, h, err := Build(ev, Decide(ev, testNow), Extra{Badge: badge})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,5 +152,59 @@ func TestBuildTruncates(t *testing.T) {
 	p, _, _ = build(t, `{"id":"x","ts":"2026-10-27T12:00:00Z","source":"s","kind":"message","body":"short"}`, nil)
 	if p.Heraldo.Truncated || p.APS.Alert.Body != "short" {
 		t.Fatalf("short: %+v", p)
+	}
+}
+
+func TestBuildResolveDigestRealert(t *testing.T) {
+	// A resolve says how long the incident was open, from the stored
+	// incident snapshot, and keeps the open's collapse id.
+	p, h, _ := build(t, `{"id":"x","ts":"2026-10-27T12:00:00Z","source":"uptime","kind":"incident","key":"web",
+		"action":"resolve","title":"Web is up","summary":"nginx is back","body":"details",
+		"incident":{"state":"resolved","opened_at":"2026-10-27T11:48:00Z","resolved_at":"2026-10-27T12:00:30Z"}}`, nil)
+	if p.APS.Alert.Title != "Web is up" || p.APS.Alert.Body != "Resolved after 12 min" || p.Heraldo.Truncated ||
+		h.CollapseID != CollapseID("web") || p.APS.InterruptionLevel != "passive" {
+		t.Errorf("resolve: %+v %+v", p, h)
+	}
+	p, _, _ = build(t, `{"id":"x","ts":"2026-10-27T12:00:00Z","source":"s","kind":"incident","key":"k","action":"resolve",
+		"incident":{"state":"resolved","opened_at":"2026-10-27T12:00:00Z","resolved_at":"2026-10-27T12:00:00Z"}}`, nil)
+	if p.APS.Alert.Body != "Resolved" {
+		t.Errorf("resolve without open: %q", p.APS.Alert.Body)
+	}
+	// A digest without a summary shows the first line of its body.
+	p, _, _ = build(t, `{"id":"x","ts":"2026-10-27T12:00:00Z","source":"backup","kind":"digest",
+		"body":"\n## Nightly: 3 jobs ran\n\n- a\n- b"}`, nil)
+	if p.APS.Alert.Body != "Nightly: 3 jobs ran" || !p.Heraldo.Truncated {
+		t.Errorf("digest: %q truncated %v", p.APS.Alert.Body, p.Heraldo.Truncated)
+	}
+	// A re-alert leads with how long the incident has been open; the icon
+	// and an https icon URL travel in the payload.
+	ev := event(t, `{"id":"x","ts":"2026-10-27T12:00:00Z","source":"uptime","kind":"incident","key":"web","action":"open",
+		"title":"Web is down","summary":"nginx failed","level":"time-sensitive","icon":"https://example.com/i.png"}`)
+	b, _, err := Build(ev, Decide(ev, testNow), Extra{OpenFor: 30 * time.Minute, Icon: "uptime"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = json.Unmarshal(b, &p)
+	if p.APS.Alert.Body != "Still open after 30 min. nginx failed" || p.Heraldo.Icon != "uptime" ||
+		p.Heraldo.IconURL != "https://example.com/i.png" || p.APS.Category != CategoryIncident {
+		t.Errorf("re-alert: %s", b)
+	}
+}
+
+func TestDuration(t *testing.T) {
+	for d, want := range map[time.Duration]string{
+		30 * time.Second:                "under a minute",
+		12*time.Minute + 59*time.Second: "12 min",
+		2 * time.Hour:                   "2 h",
+		2*time.Hour + 5*time.Minute:     "2 h 5 min",
+		72 * time.Hour:                  "3 d",
+		76*time.Hour + 30*time.Minute:   "3 d 4 h",
+	} {
+		if got := Duration(d); got != want {
+			t.Errorf("%s: %q, want %q", d, got, want)
+		}
+	}
+	if got := FirstLine("**bold** start\nmore"); got != "**bold** start" {
+		t.Errorf("first line %q", got)
 	}
 }

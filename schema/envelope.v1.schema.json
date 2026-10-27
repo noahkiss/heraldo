@@ -19,7 +19,7 @@
   "$defs": {
     "Event": {
       "title": "Event",
-      "description": "One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold and delivery.",
+      "description": "One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold, delivery and, on an incident, incident.",
       "type": "object",
       "required": [
         "id",
@@ -65,6 +65,37 @@
           "items": {
             "$ref": "#/$defs/Delivery"
           }
+        },
+        "incident": {
+          "type": "object",
+          "readOnly": true,
+          "description": "On an incident event: the incident as it stood after this event.",
+          "required": [
+            "state",
+            "opened_at"
+          ],
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "open",
+                "acked",
+                "resolved"
+              ],
+              "description": "open: not acked or resolved. acked: someone acknowledged it. resolved: it is over."
+            },
+            "opened_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "When the incident opened, RFC 3339. A resolve with no earlier open opens and resolves at once."
+            },
+            "resolved_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "When the incident resolved, RFC 3339. Set when state is resolved."
+            }
+          },
+          "additionalProperties": false
         }
       },
       "unevaluatedProperties": false
@@ -137,7 +168,7 @@
         },
         "icon": {
           "type": "string",
-          "description": "Icon for the source: a URL or a symbol name.",
+          "description": "Icon for the source: an https URL, or the name of an icon in the server's registry (GET /v1/icons). Without it, the push uses the registry icon named after the source, when there is one.",
           "maxLength": 512
         },
         "sound": {

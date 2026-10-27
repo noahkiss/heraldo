@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -130,14 +132,18 @@ type Heraldo struct {
 	Action string `json:"action,omitempty"`
 	URL    string `json:"url,omitempty"`
 	Image  string `json:"image,omitempty"`
+	// Icon is the name of the source's icon in the server's registry, for
+	// GET /v1/icons/{name}. IconURL is an icon the event links to instead.
+	Icon    string `json:"icon,omitempty"`
+	IconURL string `json:"icon_url,omitempty"`
 	// Truncated is set when the alert does not carry the full text: the
 	// body was cut to fit, or the alert shows the summary of a longer body.
 	// The extension fetches the event by id for the rest.
 	Truncated bool `json:"truncated,omitempty"`
 }
 
-// Categories the app registers: incident has Ack, Mute and Open; event has
-// Mute and Open.
+// Categories the app registers: incident has Ack, Mute 1 h and Open; event
+// has Mute 1 h and Open.
 const (
 	CategoryIncident = "incident"
 	CategoryEvent    = "event"
@@ -157,13 +163,29 @@ func CollapseID(key string) string {
 	return hex.EncodeToString(h[:16])
 }
 
-// Build makes the payload and headers for ev with decision d. badge nil
-// leaves the badge alone. The payload fits MaxPayload: the alert body is cut
-// at a character boundary, with an ellipsis, and Truncated is set.
-func Build(ev *api.Event, d Decision, badge *int) ([]byte, Headers, error) {
+// Extra is what a push carries beyond the event.
+type Extra struct {
+	// Badge nil leaves the badge alone.
+	Badge *int
+	// Icon is the registry icon to show, by name.
+	Icon string
+	// OpenFor, on a re-alert, is how long the incident has been open.
+	OpenFor time.Duration
+}
+
+// Build makes the payload and headers for ev with decision d. The payload
+// fits MaxPayload: the alert body is cut at a character boundary, with an
+// ellipsis, and Truncated is set.
+//
+// Some kinds get their own text. A resolve says how long the incident was
+// open ("Resolved after 12 min") and, sent with the same collapse id,
+// replaces the incident's notification. A re-alert starts with how long the
+// incident has been open. A digest shows its summary, else the first line of
+// its body.
+func Build(ev *api.Event, d Decision, x Extra) ([]byte, Headers, error) {
 	p := Payload{
 		APS: APS{
-			Badge:             badge,
+			Badge:             x.Badge,
 			ThreadID:          ev.Source,
 			Category:          CategoryEvent,
 			MutableContent:    1,
@@ -190,6 +212,10 @@ func Build(ev *api.Event, d Decision, badge *int) ([]byte, Headers, error) {
 	if ev.Image != nil {
 		p.Heraldo.Image = *ev.Image
 	}
+	p.Heraldo.Icon = x.Icon
+	if ev.Icon != nil && strings.HasPrefix(*ev.Icon, "https://") {
+		p.Heraldo.IconURL = *ev.Icon
+	}
 	p.APS.Alert.Title = ev.Source
 	if ev.Title != nil && *ev.Title != "" {
 		p.APS.Alert.Title = *ev.Title
@@ -201,6 +227,22 @@ func Build(ev *api.Event, d Decision, badge *int) ([]byte, Headers, error) {
 		p.Heraldo.Truncated = ev.Body != nil && *ev.Body != ""
 	case ev.Body != nil:
 		text = *ev.Body
+	}
+	switch {
+	case ev.Kind == api.KindIncident && ev.Action != nil && *ev.Action == api.EventActionResolve:
+		text = ResolvedText(ev)
+		p.Heraldo.Truncated = false
+	case ev.Kind == api.KindDigest && (ev.Summary == nil || *ev.Summary == "") && ev.Body != nil:
+		text = FirstLine(*ev.Body)
+		p.Heraldo.Truncated = text != strings.TrimSpace(*ev.Body)
+	}
+	if x.OpenFor > 0 {
+		lead := "Still open after " + Duration(x.OpenFor)
+		if text == "" {
+			text = lead
+		} else {
+			text = lead + ". " + text
+		}
 	}
 	if d.Level != api.LevelPassive {
 		p.APS.Sound = "default"
@@ -258,4 +300,56 @@ func Build(ev *api.Event, d Decision, badge *int) ([]byte, Headers, error) {
 		}
 	}
 	return best, h, nil
+}
+
+// ResolvedText is the alert text of an incident resolve: "Resolved after
+// 12 min", from the incident snapshot the server stores on the event. A
+// resolve with no open before it says "Resolved".
+func ResolvedText(ev *api.Event) string {
+	if inc := ev.Incident; inc != nil && inc.ResolvedAt != nil && inc.ResolvedAt.After(inc.OpenedAt) {
+		return "Resolved after " + Duration(inc.ResolvedAt.Sub(inc.OpenedAt))
+	}
+	return "Resolved"
+}
+
+// Duration says d for a person, to the minute: "under a minute", "12 min",
+// "2 h 5 min", "3 d 4 h".
+func Duration(d time.Duration) string {
+	m := int(d / time.Minute)
+	switch {
+	case m < 1:
+		return "under a minute"
+	case m < 60:
+		return fmt.Sprintf("%d min", m)
+	case m < 24*60:
+		if m%60 == 0 {
+			return fmt.Sprintf("%d h", m/60)
+		}
+		return fmt.Sprintf("%d h %d min", m/60, m%60)
+	default:
+		h := m / 60
+		if h%24 == 0 {
+			return fmt.Sprintf("%d d", h/24)
+		}
+		return fmt.Sprintf("%d d %d h", h/24, h%24)
+	}
+}
+
+// FirstLine is the first line of markdown text with words in it, without
+// its heading, list or quote marker, cut to the summary limit.
+func FirstLine(md string) string {
+	for _, line := range strings.Split(md, "\n") {
+		line = strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), "#"))
+		for _, mark := range []string{"> ", "- ", "* ", "+ "} {
+			line = strings.TrimSpace(strings.TrimPrefix(line, mark))
+		}
+		if line == "" {
+			continue
+		}
+		if r := []rune(line); len(r) > 178 {
+			return string(r[:177]) + "…"
+		}
+		return line
+	}
+	return ""
 }

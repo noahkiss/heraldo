@@ -150,6 +150,27 @@ func (e DeviceRegistrationEnvironment) Valid() bool {
 	}
 }
 
+// Defines values for EventIncidentState.
+const (
+	EventIncidentStateAcked    EventIncidentState = "acked"
+	EventIncidentStateOpen     EventIncidentState = "open"
+	EventIncidentStateResolved EventIncidentState = "resolved"
+)
+
+// Valid indicates whether the value is a known member of the EventIncidentState enum.
+func (e EventIncidentState) Valid() bool {
+	switch e {
+	case EventIncidentStateAcked:
+		return true
+	case EventIncidentStateOpen:
+		return true
+	case EventIncidentStateResolved:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for EventAction.
 const (
 	EventActionAck     EventAction = "ack"
@@ -246,6 +267,24 @@ func (e HealthStatus) Valid() bool {
 	case HealthStatusError:
 		return true
 	case HealthStatusOk:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IconInfoContentType.
+const (
+	IconInfoContentTypeImagejpeg IconInfoContentType = "image/jpeg"
+	IconInfoContentTypeImagepng  IconInfoContentType = "image/png"
+)
+
+// Valid indicates whether the value is a known member of the IconInfoContentType enum.
+func (e IconInfoContentType) Valid() bool {
+	switch e {
+	case IconInfoContentTypeImagejpeg:
+		return true
+	case IconInfoContentTypeImagepng:
 		return true
 	default:
 		return false
@@ -513,7 +552,7 @@ type Error struct {
 	Error string `json:"error"`
 }
 
-// Event One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold and delivery.
+// Event One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold, delivery and, on an incident, incident.
 type Event struct {
 	// Action Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none.
 	Action *EventAction `json:"action,omitempty"`
@@ -548,7 +587,7 @@ type Event struct {
 	// Host The machine the event is about. It can differ from the sender: a monitor on one machine reports about another. Status views group by host.
 	Host *string `json:"host,omitempty"`
 
-	// Icon Icon for the source: a URL or a symbol name.
+	// Icon Icon for the source: an https URL, or the name of an icon in the server's registry (GET /v1/icons). Without it, the push uses the registry icon named after the source, when there is one.
 	Icon *string `json:"icon,omitempty"`
 
 	// Id Server-assigned event id. Sortable by arrival.
@@ -556,6 +595,18 @@ type Event struct {
 
 	// Image Image attached to the notification.
 	Image *string `json:"image,omitempty"`
+
+	// Incident On an incident event: the incident as it stood after this event.
+	Incident *struct {
+		// OpenedAt When the incident opened, RFC 3339. A resolve with no earlier open opens and resolves at once.
+		OpenedAt time.Time `json:"opened_at"`
+
+		// ResolvedAt When the incident resolved, RFC 3339. Set when state is resolved.
+		ResolvedAt *time.Time `json:"resolved_at,omitempty"`
+
+		// State open: not acked or resolved. acked: someone acknowledged it. resolved: it is over.
+		State EventIncidentState `json:"state"`
+	} `json:"incident,omitempty"`
 
 	// Key Groups related events: the incident, progress, check-in or status key. incident, progress, checkin and status need one. The server derives apns-collapse-id from a hash of the key, so the key may be longer than APNs allows.
 	Key *string `json:"key,omitempty"`
@@ -597,6 +648,9 @@ type Event struct {
 	Url *string `json:"url,omitempty"`
 }
 
+// EventIncidentState open: not acked or resolved. acked: someone acknowledged it. resolved: it is over.
+type EventIncidentState string
+
 // EventAction Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none.
 type EventAction string
 
@@ -629,7 +683,7 @@ type EventInput struct {
 	// Host The machine the event is about. It can differ from the sender: a monitor on one machine reports about another. Status views group by host.
 	Host *string `json:"host,omitempty"`
 
-	// Icon Icon for the source: a URL or a symbol name.
+	// Icon Icon for the source: an https URL, or the name of an icon in the server's registry (GET /v1/icons). Without it, the push uses the registry icon named after the source, when there is one.
 	Icon *string `json:"icon,omitempty"`
 
 	// Image Image attached to the notification.
@@ -705,6 +759,25 @@ type HealthPush string
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
 
+// IconInfo defines model for IconInfo.
+type IconInfo struct {
+	Bytes       int                 `json:"bytes"`
+	ContentType IconInfoContentType `json:"content_type"`
+	Name        string              `json:"name"`
+
+	// Sha256 Hex SHA-256 of the image, also its ETag.
+	Sha256    string    `json:"sha256"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// IconInfoContentType defines model for IconInfo.ContentType.
+type IconInfoContentType string
+
+// IconInfoList defines model for IconInfoList.
+type IconInfoList struct {
+	Icons []IconInfo `json:"icons"`
+}
+
 // Kind What the event is. message: a one-off notice. incident: a problem with a lifecycle. digest: a batch summary. progress: a Live Activity. checkin: a job run, as with healthchecks.io. status: a named live value for widgets and the status view; it never sends an alert push, only a widget push. incident, progress, checkin and status need a key.
 type Kind string
 
@@ -768,6 +841,42 @@ type Metric struct {
 	Value string `json:"value"`
 }
 
+// Mute defines model for Mute.
+type Mute struct {
+	// Active The mute holds back pushes now.
+	Active    bool      `json:"active"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// EndedAt Set when DELETE ended the mute early.
+	EndedAt *time.Time `json:"ended_at,omitempty"`
+
+	// Id mute_ plus a ULID.
+	Id     string    `json:"id"`
+	Key    *string   `json:"key,omitempty"`
+	Source *string   `json:"source,omitempty"`
+	Until  time.Time `json:"until"`
+}
+
+// MuteInput A new mute. Give source, key or both, and until or for.
+type MuteInput struct {
+	// For How long the mute lasts, a Go duration such as 1h or 90m, instead of until.
+	For *string `json:"for,omitempty"`
+
+	// Key Mute events with this key, such as one incident.
+	Key *string `json:"key,omitempty"`
+
+	// Source Mute events from this source.
+	Source *string `json:"source,omitempty"`
+
+	// Until When the mute ends, RFC 3339. In the future, at most 366 days ahead.
+	Until *time.Time `json:"until,omitempty"`
+}
+
+// MuteList defines model for MuteList.
+type MuteList struct {
+	Mutes []Mute `json:"mutes"`
+}
+
 // Permissions Permission health the app reports. A field left out is unknown. false raises an
 // incident with key device:<id>:<field>; true resolves it.
 type Permissions struct {
@@ -823,10 +932,10 @@ type Rid = string
 // Slug defines model for Slug.
 type Slug = string
 
-// Repeat One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold and delivery.
+// Repeat One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold, delivery and, on an incident, incident.
 type Repeat = Event
 
-// Stored One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold and delivery.
+// Stored One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold, delivery and, on an incident, incident.
 type Stored = Event
 
 // PingSuccessParams defines parameters for PingSuccess.
@@ -989,3 +1098,6 @@ type UpdateDeviceJSONRequestBody = DeviceRegistration
 
 // PostEventJSONRequestBody defines body for PostEvent for application/json ContentType.
 type PostEventJSONRequestBody = EventInput
+
+// CreateMuteJSONRequestBody defines body for CreateMute for application/json ContentType.
+type CreateMuteJSONRequestBody = MuteInput

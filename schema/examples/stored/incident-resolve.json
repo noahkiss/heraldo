@@ -1,0 +1,20 @@
+{
+  "id": "01JBA7Z0A1B2C3D4E5F6G7H8J9",
+  "received_at": "2026-10-26T12:12:31Z",
+  "ts": "2026-10-26T12:12:30Z",
+  "source": "uptime",
+  "kind": "incident",
+  "key": "unit:web-1:nginx.service",
+  "action": "resolve",
+  "title": "Web is back",
+  "level": "passive",
+  "incident": {
+    "state": "resolved",
+    "opened_at": "2026-10-26T12:00:01Z",
+    "resolved_at": "2026-10-26T12:12:31Z"
+  },
+  "delivery": [
+    { "device": "dev_01", "outcome": "sent", "level": "passive", "at": "2026-10-26T12:12:32Z" },
+    { "device": "dev_02", "outcome": "skipped", "level": "passive", "at": "2026-10-26T12:12:32Z", "error": "muted by mute_01JBA7Y0A1B2C3D4E5F6G7H8J9" }
+  ]
+}

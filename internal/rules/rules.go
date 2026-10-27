@@ -24,7 +24,23 @@
 //
 // set gives kind, key, action, level, thread and host. kind is required and
 // must be message, digest, incident or checkin. A field left out keeps the
-// sender's value.
+// sender's value. An incident rule may also set realert, a Go duration of a
+// minute or more: an open time-sensitive or critical incident is pushed
+// again at that interval until it is acked or resolved. It is stored as
+// details.heraldo.realert_s.
+//
+// inhibit, beside rules, holds back the pushes of child incidents while a
+// parent incident is not resolved:
+//
+//	inhibit:
+//	  - name: host-down
+//	    parent: '^host:(?P<host>[\w.-]+)$'
+//	    children: '^(unit|container):{host}:'
+//
+// parent is a regular expression on an incident key. children is one too;
+// {name} in it is replaced with the parent's capture, quoted. While an
+// incident whose key matches parent is open or acked, an event whose key
+// matches children, and is not the parent, is stored but not pushed.
 //
 // Rules run in file order and the first match wins. They apply only to an
 // untyped input, one without kind: an explicit kind, message included, is
@@ -34,12 +50,15 @@ package rules
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
@@ -66,7 +85,14 @@ var actions = map[api.Kind][]api.EventAction{
 
 // file is the rules file as written.
 type file struct {
-	Rules []ruleSpec `yaml:"rules"`
+	Rules   []ruleSpec    `yaml:"rules"`
+	Inhibit []inhibitSpec `yaml:"inhibit"`
+}
+
+type inhibitSpec struct {
+	Name     string `yaml:"name"`
+	Parent   string `yaml:"parent"`
+	Children string `yaml:"children"`
 }
 
 type ruleSpec struct {
@@ -82,6 +108,8 @@ type setSpec struct {
 	Level  string `yaml:"level"`
 	Thread string `yaml:"thread"`
 	Host   string `yaml:"host"`
+	// Realert is a Go duration, such as 15m.
+	Realert string `yaml:"realert"`
 }
 
 // Rule is one compiled rule.
@@ -92,11 +120,24 @@ type Rule struct {
 	action api.EventAction
 	level  api.Level
 	tmpl   map[string]string // key, thread, host
+	// realert is the re-alert interval; 0 means none.
+	realert time.Duration
+}
+
+// MinRealert is the shortest re-alert interval a rule may set.
+const MinRealert = time.Minute
+
+// Inhibit is one compiled inhibit rule.
+type Inhibit struct {
+	Name     string
+	parent   *regexp.Regexp
+	children string
 }
 
 // Set is a compiled rules file. The zero value and nil hold no rules.
 type Set struct {
-	Rules []*Rule
+	Rules    []*Rule
+	Inhibits []*Inhibit
 }
 
 // Len returns the number of rules.
@@ -146,7 +187,93 @@ func Parse(raw []byte) (*Set, error) {
 		names[r.Name] = true
 		s.Rules = append(s.Rules, r)
 	}
+	inhibits := map[string]bool{}
+	for i, spec := range f.Inhibit {
+		in, err := compileInhibit(spec)
+		if err != nil {
+			label := spec.Name
+			if label == "" {
+				label = fmt.Sprintf("#%d", i+1)
+			}
+			return nil, fmt.Errorf("inhibit %s: %w", label, err)
+		}
+		if inhibits[in.Name] {
+			return nil, fmt.Errorf("inhibit %s: name used twice", in.Name)
+		}
+		inhibits[in.Name] = true
+		s.Inhibits = append(s.Inhibits, in)
+	}
 	return s, nil
+}
+
+func compileInhibit(spec inhibitSpec) (*Inhibit, error) {
+	if spec.Name == "" {
+		return nil, errors.New("name is required")
+	}
+	if spec.Parent == "" || spec.Children == "" {
+		return nil, errors.New("parent and children are required")
+	}
+	parent, err := regexp.Compile(spec.Parent)
+	if err != nil {
+		return nil, fmt.Errorf("parent: %w", err)
+	}
+	groups := map[string]bool{}
+	for _, g := range parent.SubexpNames() {
+		groups[g] = g != ""
+	}
+	for _, m := range placeholder.FindAllStringSubmatch(spec.Children, -1) {
+		if !groups[m[1]] {
+			return nil, fmt.Errorf("children: {%s} names no capture in parent", m[1])
+		}
+	}
+	// Check that children compiles with any capture in its place.
+	if _, err := regexp.Compile(placeholder.ReplaceAllString(spec.Children, "x")); err != nil {
+		return nil, fmt.Errorf("children: %w", err)
+	}
+	return &Inhibit{Name: spec.Name, parent: parent, children: spec.Children}, nil
+}
+
+// InhibitRules returns the inhibit rules; a nil Set has none.
+func (s *Set) InhibitRules() []*Inhibit {
+	if s == nil {
+		return nil
+	}
+	return s.Inhibits
+}
+
+// Inhibited reports whether an event with key is held back by an incident
+// in open, the keys of the incidents that are not resolved. It returns the
+// inhibit rule and the parent key.
+func (s *Set) Inhibited(key string, open []string) (rule, parent string, ok bool) {
+	if s == nil || key == "" {
+		return "", "", false
+	}
+	for _, in := range s.Inhibits {
+		for _, p := range open {
+			if p == key {
+				continue
+			}
+			m := in.parent.FindStringSubmatch(p)
+			if m == nil {
+				continue
+			}
+			expr := placeholder.ReplaceAllStringFunc(in.children, func(ph string) string {
+				name := ph[1 : len(ph)-1]
+				if i := in.parent.SubexpIndex(name); i >= 0 {
+					return regexp.QuoteMeta(m[i])
+				}
+				return ""
+			})
+			re, err := regexp.Compile(expr)
+			if err != nil {
+				continue
+			}
+			if re.MatchString(key) {
+				return in.Name, p, true
+			}
+		}
+	}
+	return "", "", false
 }
 
 var placeholder = regexp.MustCompile(`\{([^{}]*)\}`)
@@ -209,6 +336,19 @@ func compile(spec ruleSpec) (*Rule, error) {
 		}
 		r.tmpl[field] = t
 	}
+	if spec.Set.Realert != "" {
+		d, err := time.ParseDuration(spec.Set.Realert)
+		if err != nil {
+			return nil, fmt.Errorf("set.realert: %w", err)
+		}
+		if r.kind != api.KindIncident {
+			return nil, errors.New("set.realert: only an incident rule re-alerts")
+		}
+		if d < MinRealert {
+			return nil, fmt.Errorf("set.realert: %s is under %s", d, MinRealert)
+		}
+		r.realert = d.Truncate(time.Second)
+	}
 	if (r.kind == api.KindIncident || r.kind == api.KindCheckin) && r.tmpl["key"] == "" {
 		return nil, fmt.Errorf("set.key: kind %s needs a key", r.kind)
 	}
@@ -236,6 +376,8 @@ type Result struct {
 	// Fields holds the envelope fields to set: kind always, and key,
 	// action, level, thread and host when the rule gives them.
 	Fields map[string]string
+	// Realert is the rule's re-alert interval; 0 means none.
+	Realert time.Duration
 }
 
 // Match returns the result of the first rule that matches fields, the
@@ -303,7 +445,7 @@ func tagsOf(fields map[string]any) []string {
 }
 
 func (r *Rule) result(caps map[string]string) Result {
-	res := Result{Rule: r.Name, Fields: map[string]string{"kind": string(r.kind)}}
+	res := Result{Rule: r.Name, Fields: map[string]string{"kind": string(r.kind)}, Realert: r.realert}
 	if r.action != "" {
 		res.Fields["action"] = string(r.action)
 	}
@@ -355,6 +497,9 @@ func Apply(s *Set, in *validate.Input, v *validate.Validator) (*validate.Input, 
 		}
 	}
 	own["rule"] = res.Rule
+	if res.Realert > 0 {
+		own["realert_s"] = json.Number(strconv.FormatInt(int64(res.Realert/time.Second), 10))
+	}
 	details["heraldo"] = own
 	f["details"] = details
 	out, err := v.Fields(f)

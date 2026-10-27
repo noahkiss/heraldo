@@ -12,6 +12,7 @@
     { "id": "ack", "title": "Acknowledge", "type": "server" }
   ],
   "hold": { "state": "open" },
+  "incident": { "state": "open", "opened_at": "2026-10-26T12:00:01Z" },
   "delivery": [
     { "device": "dev_01", "outcome": "sent", "level": "time-sensitive", "at": "2026-10-26T12:00:02Z" },
     { "device": "dev_02", "outcome": "failed", "at": "2026-10-26T12:00:02Z", "error": "BadDeviceToken" }
