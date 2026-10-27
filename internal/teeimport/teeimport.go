@@ -1,0 +1,295 @@
+// Package teeimport backfills events from an apprise-tee catalogue: a
+// directory of monthly JSON Lines files, notifications-YYYY-MM.jsonl, one
+// notification per line.
+//
+// Each entry becomes a kind message event. The mapping applies no
+// classification rules; those come in a later stage.
+//
+//	tee field              event field
+//	id                     details.tee.id; the event id is derived from ts and id
+//	ts (epoch seconds)     ts and received_at
+//	source                 source ("apprise-tee" when the entry has none)
+//	title, body            title, body (cut to the envelope limits)
+//	tag                    tags (split on commas and spaces)
+//	url, image             url, image (when they are valid URIs)
+//	level                  level when it is an envelope level, else details.tee.level
+//	hold, hold_id, ...     hold {state, id, reason, ids}
+//	client, path, status,  details.tee
+//	delivered, ms, backends
+package teeimport
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"math"
+	"net/url"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/noahkiss/heraldo/api"
+	"github.com/noahkiss/heraldo/internal/ids"
+	"github.com/noahkiss/heraldo/internal/store"
+	"github.com/noahkiss/heraldo/internal/validate"
+)
+
+// Origin names this import in the store's imports table.
+const Origin = "tee"
+
+// DefaultSource is the source of an entry that has none: entries written
+// before the tee learned sources.
+const DefaultSource = "apprise-tee"
+
+// maxLine is the longest catalogue line read. The tee caps request bodies at
+// 1 MiB; JSON escaping can grow that.
+const maxLine = 8 << 20
+
+// Stats counts what an import did.
+type Stats struct {
+	Files    int
+	Lines    int
+	Imported int
+	Skipped  int // imported by an earlier run
+	Bad      int // not JSON, no id, or not a valid envelope
+}
+
+// Run imports every catalogue file in dir.
+func Run(ctx context.Context, dir string, st *store.Store, v *validate.Validator, log *slog.Logger) (Stats, error) {
+	var s Stats
+	files, err := filepath.Glob(filepath.Join(dir, "notifications-*.jsonl"))
+	if err != nil {
+		return s, err
+	}
+	if len(files) == 0 {
+		return s, fmt.Errorf("no notifications-*.jsonl files in %s", dir)
+	}
+	sort.Strings(files)
+	for _, path := range files {
+		s.Files++
+		if err := importFile(ctx, path, st, v, log, &s); err != nil {
+			return s, fmt.Errorf("%s: %w", filepath.Base(path), err)
+		}
+	}
+	return s, nil
+}
+
+func importFile(ctx context.Context, path string, st *store.Store, v *validate.Validator, log *slog.Logger, s *Stats) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 64*1024), maxLine)
+	n := 0
+	for sc.Scan() {
+		n++
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		s.Lines++
+		ev, teeID, err := Map([]byte(line), v)
+		if err != nil {
+			s.Bad++
+			log.Warn("tee import: skipped a line", "file", filepath.Base(path), "line", n, "err", err)
+			continue
+		}
+		created, err := st.Import(ctx, Origin, teeID, ev)
+		if err != nil {
+			return fmt.Errorf("line %d: %w", n, err)
+		}
+		if created {
+			s.Imported++
+		} else {
+			s.Skipped++
+		}
+	}
+	return sc.Err()
+}
+
+// entry is a catalogue line. Unknown fields are ignored.
+type entry struct {
+	ID         string          `json:"id"`
+	Ts         *float64        `json:"ts"`
+	Time       string          `json:"time"`
+	Client     string          `json:"client"`
+	Path       string          `json:"path"`
+	Tag        json.RawMessage `json:"tag"`
+	Title      *string         `json:"title"`
+	Body       *string         `json:"body"`
+	Status     any             `json:"status"`
+	Delivered  *bool           `json:"delivered"`
+	Ms         *int64          `json:"ms"`
+	Source     *string         `json:"source"`
+	URL        *string         `json:"url"`
+	Image      *string         `json:"image"`
+	Level      *string         `json:"level"`
+	Backends   any             `json:"backends"`
+	Hold       *string         `json:"hold"`
+	HoldID     *string         `json:"hold_id"`
+	HoldReason *string         `json:"hold_reason"`
+	HoldIDs    any             `json:"hold_ids"`
+}
+
+// Map turns one catalogue line into an event ready to store, and returns the
+// tee id it came from.
+func Map(line []byte, v *validate.Validator) (store.NewEvent, string, error) {
+	var e entry
+	if err := json.Unmarshal(line, &e); err != nil {
+		return store.NewEvent{}, "", fmt.Errorf("not a JSON object: %w", err)
+	}
+	if e.ID == "" {
+		return store.NewEvent{}, "", fmt.Errorf("no id")
+	}
+	if e.Ts == nil || math.IsNaN(*e.Ts) || *e.Ts <= 0 {
+		return store.NewEvent{}, "", fmt.Errorf("%s: no ts", e.ID)
+	}
+	sec, frac := math.Modf(*e.Ts)
+	at := time.Unix(int64(sec), int64(math.Round(frac*1000))*int64(time.Millisecond)).UTC()
+
+	in := map[string]any{
+		"kind":   "message",
+		"source": DefaultSource,
+		"ts":     at.Format(time.RFC3339Nano),
+	}
+	if e.Source != nil && *e.Source != "" {
+		in["source"] = cut(*e.Source, 128)
+	}
+	if e.Title != nil && *e.Title != "" {
+		in["title"] = cut(*e.Title, 256)
+	}
+	if e.Body != nil && *e.Body != "" {
+		in["body"] = cutBytes(*e.Body, validate.MaxBodyBytes)
+	}
+	if tags := splitTags(e.Tag); len(tags) > 0 {
+		in["tags"] = tags
+	}
+	if e.URL != nil && isURI(*e.URL) {
+		in["url"] = *e.URL
+	}
+	if e.Image != nil && isURI(*e.Image) {
+		in["image"] = *e.Image
+	}
+	tee := map[string]any{"id": e.ID}
+	if e.Level != nil && *e.Level != "" {
+		if api.Level(*e.Level).Valid() {
+			in["level"] = *e.Level
+		} else {
+			tee["level"] = *e.Level
+		}
+	}
+	for k, x := range map[string]any{
+		"time": e.Time, "client": e.Client, "path": e.Path, "status": e.Status,
+		"delivered": e.Delivered, "ms": e.Ms, "backends": e.Backends,
+	} {
+		if !empty(x) {
+			tee[k] = x
+		}
+	}
+	in["details"] = map[string]any{"tee": tee}
+
+	raw, err := json.Marshal(in)
+	if err != nil {
+		return store.NewEvent{}, "", err
+	}
+	checked, err := v.Input(raw)
+	if err != nil {
+		return store.NewEvent{}, "", fmt.Errorf("%s: %w", e.ID, err)
+	}
+	id := e.ID
+	if !ids.Valid(id) {
+		id = ids.Derived(at, Origin, e.ID)
+	}
+	fields := checked.Fields
+	fields["id"] = id
+	fields["received_at"] = at.Format(time.RFC3339Nano)
+	if e.Hold != nil && *e.Hold != "" && *e.Hold != "none" {
+		hold := map[string]any{"state": *e.Hold}
+		if e.HoldID != nil {
+			hold["id"] = *e.HoldID
+		}
+		if e.HoldReason != nil {
+			hold["reason"] = *e.HoldReason
+		}
+		if !empty(e.HoldIDs) {
+			hold["ids"] = e.HoldIDs
+		}
+		fields["hold"] = hold
+	}
+	return store.NewEvent{ID: id, ReceivedAt: at, Fields: fields, Typed: checked.Typed}, e.ID, nil
+}
+
+func empty(x any) bool {
+	switch t := x.(type) {
+	case nil:
+		return true
+	case string:
+		return t == ""
+	case *bool:
+		return t == nil
+	case *int64:
+		return t == nil
+	case []any:
+		return len(t) == 0
+	case map[string]any:
+		return len(t) == 0
+	}
+	return false
+}
+
+// splitTags reads the tee's tag: a string of Apprise tags separated by
+// commas or spaces, a list, or null.
+func splitTags(raw json.RawMessage) []any {
+	var parts []string
+	var one string
+	var many []string
+	switch {
+	case json.Unmarshal(raw, &one) == nil:
+		parts = strings.FieldsFunc(one, func(r rune) bool { return r == ',' || r == ' ' })
+	case json.Unmarshal(raw, &many) == nil:
+		parts = many
+	}
+	seen := map[string]bool{}
+	var out []any
+	for _, p := range parts {
+		p = cut(strings.TrimSpace(p), 64)
+		if p == "" || seen[p] || len(out) == 16 {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out
+}
+
+func isURI(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && u.Scheme != ""
+}
+
+// cut shortens s to n characters.
+func cut(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	r := []rune(s)
+	return string(r[:n])
+}
+
+// cutBytes shortens s to at most n bytes without splitting a character.
+func cutBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}

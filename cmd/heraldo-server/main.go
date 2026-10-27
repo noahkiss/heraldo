@@ -2,47 +2,148 @@
 //
 // Configuration comes from the environment:
 //
-//	HERALDO_ADDR  listen address, host:port (default :7842)
+//	HERALDO_ADDR         listen address, host:port (default :7842)
+//	HERALDO_DB           SQLite database path (default heraldo.db)
+//	HERALDO_TOKENS_FILE  token list file, one "<name> <scope> <sha256>" per line
+//	HERALDO_TOKENS       the same list inline, entries separated by commas
+//
+// Subcommands:
+//
+//	heraldo-server                    serve (the default)
+//	heraldo-server import-tee <dir>   backfill an apprise-tee catalogue
+//	heraldo-server backup <path>      online backup of the database to path
+//	heraldo-server hash-token         print the SHA-256 of a token read from stdin
+//	heraldo-server version            print the version
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/noahkiss/heraldo/internal/auth"
 	"github.com/noahkiss/heraldo/internal/config"
 	"github.com/noahkiss/heraldo/internal/server"
+	"github.com/noahkiss/heraldo/internal/store"
+	"github.com/noahkiss/heraldo/internal/teeimport"
+	"github.com/noahkiss/heraldo/internal/validate"
 	"github.com/noahkiss/heraldo/internal/version"
 )
 
+const usage = `usage: heraldo-server [command]
+
+commands:
+  serve              run the server (the default)
+  import-tee <dir>   backfill an apprise-tee catalogue directory
+  backup <path>      copy the database to path with SQLite's online backup
+  hash-token         print the SHA-256 of a token read from stdin
+  version            print the version
+`
+
 func main() {
-	if err := run(); err != nil {
-		slog.Error("heraldo-server", "err", err)
+	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	slog.SetDefault(log)
+	if err := run(os.Args[1:], os.Stdin, os.Stdout, log); err != nil {
+		log.Error("heraldo-server", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(args []string, stdin io.Reader, stdout io.Writer, log *slog.Logger) error {
+	cmd := "serve"
+	if len(args) > 0 {
+		cmd, args = args[0], args[1:]
+	}
+	switch cmd {
+	case "serve":
+		return serve(log)
+	case "import-tee":
+		if len(args) != 1 {
+			return errors.New("usage: heraldo-server import-tee <dir>")
+		}
+		return importTee(args[0], log)
+	case "backup":
+		if len(args) != 1 {
+			return errors.New("usage: heraldo-server backup <path>")
+		}
+		return backup(args[0], log)
+	case "hash-token":
+		line, err := bufio.NewReader(stdin).ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return err
+		}
+		tok := strings.TrimSpace(line)
+		if tok == "" {
+			return errors.New("hash-token: no token on stdin")
+		}
+		fmt.Fprintln(stdout, auth.Hash(tok))
+		return nil
+	case "version", "--version", "-v":
+		fmt.Fprintln(stdout, "heraldo-server", version.String())
+		return nil
+	case "help", "--help", "-h":
+		fmt.Fprint(stdout, usage)
+		return nil
+	default:
+		return fmt.Errorf("unknown command %q\n\n%s", cmd, usage)
+	}
+}
+
+func open(ctx context.Context) (config.Config, *store.Store, error) {
 	cfg, err := config.FromEnv(os.Getenv)
+	if err != nil {
+		return cfg, nil, err
+	}
+	st, err := store.Open(ctx, cfg.DB)
+	if err != nil {
+		return cfg, nil, fmt.Errorf("open %s: %w", cfg.DB, err)
+	}
+	return cfg, st, nil
+}
+
+func serve(log *slog.Logger) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	cfg, st, err := open(ctx)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	tokens, err := cfg.LoadTokens()
+	if err != nil {
+		return err
+	}
+	if tokens.Len() == 0 {
+		log.Warn("no tokens configured; every call except /healthz is refused")
+	}
+	v, err := validate.New()
 	if err != nil {
 		return err
 	}
 	srv := &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           server.New(version.String()),
+		Addr: cfg.Addr,
+		Handler: server.New(server.Options{
+			Version: version.String(), Store: st, Tokens: tokens, Validator: v, Logger: log,
+		}),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       2 * time.Minute,
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	errc := make(chan error, 1)
 	go func() {
-		slog.Info("listening", "addr", cfg.Addr, "version", version.String())
+		log.Info("listening", "addr", cfg.Addr, "db", cfg.DB, "tokens", tokens.Len(), "version", version.String())
 		errc <- srv.ListenAndServe()
 	}()
 	select {
@@ -50,6 +151,7 @@ func run() error {
 		return err
 	case <-ctx.Done():
 	}
+	log.Info("shutting down")
 	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdown); err != nil {
@@ -58,5 +160,47 @@ func run() error {
 	if err := <-errc; !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
+	return nil
+}
+
+func importTee(dir string, log *slog.Logger) error {
+	ctx := context.Background()
+	_, st, err := open(ctx)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	v, err := validate.New()
+	if err != nil {
+		return err
+	}
+	s, err := teeimport.Run(ctx, dir, st, v, log)
+	log.Info("tee import", "files", s.Files, "lines", s.Lines, "imported", s.Imported,
+		"already_imported", s.Skipped, "bad", s.Bad)
+	return err
+}
+
+func backup(dst string, log *slog.Logger) error {
+	if _, err := os.Stat(dst); err == nil {
+		return fmt.Errorf("backup: %s exists; give a new path", dst)
+	}
+	cfg, err := config.FromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(cfg.DB); err != nil {
+		return fmt.Errorf("backup: database: %w", err)
+	}
+	ctx := context.Background()
+	_, st, err := open(ctx)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	start := time.Now()
+	if err := st.Backup(ctx, dst); err != nil {
+		return fmt.Errorf("backup: %w", err)
+	}
+	log.Info("backup", "path", dst, "ms", time.Since(start).Milliseconds())
 	return nil
 }
