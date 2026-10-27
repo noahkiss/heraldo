@@ -120,6 +120,21 @@ public struct HeraldoClient: Sendable {
         return try await send(r)
     }
 
+    /// Proves the write token without storing anything. It posts an empty
+    /// object: the server checks the token first (401 unknown, 403 wrong
+    /// scope), then refuses the body with 400 before it stores anything.
+    public func checkWriteToken() async throws {
+        guard let writeToken else { throw HeraldoError.notConfigured("The write token") }
+        var r = request("v1/events", method: "POST", token: writeToken)
+        r.httpBody = Data("{}".utf8)
+        do {
+            let _: Event = try await send(r)
+        } catch let e as HeraldoError where e.status == 400 {
+            return
+        }
+        throw HeraldoError.badAnswer("the server stored an empty event")
+    }
+
     /// Acknowledges an open incident: an incident event with action ack and
     /// the incident's source and key, as `heraldo ack` posts it.
     @discardableResult

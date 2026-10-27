@@ -269,12 +269,29 @@ HERALDO_WRITE_TOKEN_CMD='<command that prints the write token>' \
 
 - The script quits the app and launches it once with `--provision-stdin`. It
   passes `{"url", "read_token", "write_token"}` as JSON through a FIFO to the
-  app's stdin (`open --stdin`). The tokens never reach argv, a file, the
-  pasteboard or the log.
-- The app tests the values against the server, as "Save and test" does, then
-  saves them and registers for push.
+  app's stdin (`open --stdin`).
 - The script prints the app's one log line, `provision: saved ...` or
   `provision: failed: ...`, and exits 0 or 1.
+
+The app keeps six rules for this path:
+
+1. **Write-only.** Nothing reads the credentials back out, prints them or
+   exports them. The log names the outcome and the server host, never a
+   token.
+2. **Launch-time only.** Only the `--provision-stdin` flag with stdin reaches
+   it. No URL scheme, App Intent, XPC service or file drop does, so a web page
+   or another app's link cannot set the credentials.
+3. **Checked before saving.** The read token must pass the "Save and test"
+   check. The write token must pass a scope check: an empty `POST /v1/events`,
+   which the server refuses with 400 after the token check and before it
+   stores anything. On any failure the app saves nothing.
+4. **No silent takeover.** When settings for a different server exist, the app
+   refuses unless it also gets `--replace` (`HERALDO_REPLACE=1`). New tokens
+   for the same server need no flag.
+5. **Visible.** After a save the app posts a local notification, "Heraldo
+   settings were set from the command line", with no values.
+6. **Pipe only.** stdin must be a pipe or FIFO. The app refuses a terminal, so
+   no secret is typed where scrollback can keep it.
 
 A Mac build without a Developer ID profile signs ad hoc. It has no push, and it
 keeps the credentials in this Mac's login keychain. See

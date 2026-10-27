@@ -63,6 +63,29 @@ final class ServerTests: XCTestCase {
         }
     }
 
+    func testCheckWriteTokenStoresNothing() async throws {
+        let before = try await client.health().events
+        try await client.checkWriteToken()
+        let after = try await client.health().events
+        XCTAssertEqual(after, before, "the check stored an event")
+        var readOnly = client!
+        readOnly.writeToken = readOnly.readToken
+        do {
+            try await readOnly.checkWriteToken()
+            XCTFail("a read token passed the write check")
+        } catch let e as HeraldoError {
+            XCTAssertEqual(e.status, 403)
+        }
+        var unknown = client!
+        unknown.writeToken = "nope"
+        do {
+            try await unknown.checkWriteToken()
+            XCTFail("an unknown token passed the write check")
+        } catch let e as HeraldoError {
+            XCTAssertEqual(e.status, 401)
+        }
+    }
+
     func testSyncPagesAndOlder() async throws {
         let sync = HistorySync(client: client, pageSize: 3)
         try await post(4, source: unique("sync"))

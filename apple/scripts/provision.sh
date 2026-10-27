@@ -13,8 +13,20 @@
 # app's stdin: never argv, a file, the pasteboard or the log.
 #
 # The script quits the running app, launches it once with --provision-stdin,
-# and waits for the app's answer in the log. The app tests the values against
-# the server first, as Settings' "Save and test" does.
+# and waits for the app's one "provision:" log line.
+#
+# The rules the app keeps (README, "Provision from the shell"):
+#   1. Write-only. Nothing reads the credentials back out; the log names the
+#      outcome and the server host, never a token.
+#   2. Launch-time only, through the flag and stdin. No URL scheme, intent or
+#      other entry point reaches it.
+#   3. The read token must pass the server check and the write token a scope
+#      check that stores nothing. On a failure nothing is saved.
+#   4. Settings for a different server are replaced only with HERALDO_REPLACE=1
+#      (the app's --replace). New tokens for the same server need nothing.
+#   5. A save posts a local notification: "Heraldo settings were set from the
+#      command line".
+#   6. stdin must be a pipe or FIFO, never a terminal.
 #
 # HERALDO_APP picks the app (default /Applications/Heraldo.app).
 # HERALDO_WRITE_TOKEN_CMD is optional; without it the app saves no write token.
@@ -58,7 +70,11 @@ start=$(date '+%Y-%m-%d %H:%M:%S')
 } | jq -R -n -c --arg url "$HERALDO_URL" \
   '[inputs] as $t | {url: $url, read_token: $t[0], write_token: ($t[1] // "")}' >"$fifo" &
 writer=$!
-open -n "$app" --stdin "$fifo" --args --provision-stdin
+if [ "${HERALDO_REPLACE:-}" = 1 ]; then
+  open -n "$app" --stdin "$fifo" --args --provision-stdin --replace
+else
+  open -n "$app" --stdin "$fifo" --args --provision-stdin
+fi
 wait "$writer" || die "a token command failed"
 
 # The app logs one "provision:" line with the outcome and no values.
