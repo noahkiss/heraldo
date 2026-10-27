@@ -13,11 +13,19 @@ struct HeraldoApp: App {
 struct ContentView: View {
     var body: some View {
         NavigationStack {
-            ContentUnavailableView(
-                "No notifications",
-                systemImage: "newspaper",
-                description: Text("Events from the server appear here.")
-            )
+            ContentUnavailableView {
+                Label {
+                    Text("No notifications")
+                } icon: {
+                    Image("HeraldoMark")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 64)
+                        .accessibilityHidden(true)
+                }
+            } description: {
+                Text("Events from the server appear here.")
+            }
             .navigationTitle(AppInfo.displayName())
         }
         #if os(macOS)

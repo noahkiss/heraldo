@@ -16,6 +16,7 @@ ImageMagick 7 (magick). Every path is relative to this file.
 import argparse
 import io
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -32,7 +33,12 @@ from PIL import Image
 
 HERE = Path(__file__).resolve().parent
 MASTER = HERE / "heraldo.svg"
-APPICON = HERE.parent.parent / "apple" / "App" / "AppIcon.icon"
+APPLE_APP = HERE.parent.parent / "apple" / "App"
+APPICON = APPLE_APP / "AppIcon.icon"
+XCASSETS = APPLE_APP / "Shared" / "Assets.xcassets"
+LOGO = HERE / "export" / "logo"
+HEADER_PX = 40          # web header logo height (1x)
+MENU_BAR_PT = 18        # macOS menu bar icon height
 NS = {"svg": "http://www.w3.org/2000/svg"}
 
 CIRCLE_R = 392   # circle layout: no pixel beyond this radius (the safe zone is 409.6)
@@ -146,6 +152,83 @@ def build_svgs(palette, paths):
     return geometry
 
 
+# ---- Mark-only logos: the H and rule cropped to their bounds (viewBox only).
+def mark_svg(parts, bounds, height=None):
+    x0, y0, x1, y1 = bounds
+    w, h = x1 - x0, y1 - y0
+    size = f' width="{ntos(w * height / h)}" height="{height}"' if height else ""
+    body = "\n  ".join(f'<path fill="{c}" d="{d}"/>' for c, d in parts)
+    return (GENERATED + f'<svg xmlns="http://www.w3.org/2000/svg"{size} '
+            f'viewBox="{ntos(x0)} {ntos(y0)} {ntos(w)} {ntos(h)}">\n  {body}\n</svg>\n')
+
+
+def mark_bounds(*paths, pad=0):
+    b = [p.bounds for p in paths]
+    x0, y0 = min(v[0] for v in b), min(v[1] for v in b)
+    x1, y1 = max(v[2] for v in b), max(v[3] for v in b)
+    return (math.floor(x0 - pad), math.floor(y0 - pad), math.ceil(x1 + pad), math.ceil(y1 + pad))
+
+
+def build_logos(palette, paths):
+    """Web logos and the Apple asset catalog. Full colour uses the squircle
+    geometry; the menu bar icon uses the small-size geometry."""
+    ink, cream, red = palette["ink"], palette["cream"], palette["red"]
+    h, r, _ = place(paths["h"], paths["rule"], False)
+    hs, rs, _ = place(paths["h"], paths["rule-small"], False)
+    hd, rd, hsd, rsd = path_d(h), path_d(r), path_d(hs), path_d(rs)
+    b, bs = mark_bounds(h, r), mark_bounds(hs, rs)
+    LOGO.mkdir(parents=True, exist_ok=True)
+    variants = {"light": [(ink, hd), (red, rd)],          # for light grounds
+                "dark": [(cream, hd), (red, rd)],         # for dark grounds
+                "mono": [("currentColor", hd), ("currentColor", rd)]}
+    for name, parts in variants.items():
+        (LOGO / f"heraldo-mark-{name}.svg").write_text(mark_svg(parts, b))
+    for name in ("light", "dark"):
+        src = LOGO / f"heraldo-mark-{name}.svg"
+        for scale, suffix in ((1, ""), (2, "@2x")):
+            dst = LOGO / f"heraldo-mark-{name}-{HEADER_PX}{suffix}.png"
+            subprocess.run(["rsvg-convert", "-h", str(HEADER_PX * scale), str(src), "-o", str(dst)], check=True)
+    # Open Graph image: the dark mark centred on ink, 60% of the height.
+    x0, y0, x1, y1 = b
+    k = 630 * 0.6 / (y1 - y0)
+    tx, ty = 600 - (x0 + x1) / 2 * k, 315 - (y0 + y1) / 2 * k
+    og = (GENERATED + '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">\n'
+          f'  <rect width="1200" height="630" fill="{ink}"/>\n'
+          f'  <g transform="matrix({ntos(k)} 0 0 {ntos(k)} {ntos(tx)} {ntos(ty)})">\n'
+          f'    <path fill="{cream}" d="{hd}"/>\n    <path fill="{red}" d="{rd}"/>\n  </g>\n</svg>\n')
+    og_svg = LOGO / "og-image.svg"
+    og_svg.write_text(og)
+    subprocess.run(["rsvg-convert", "-w", "1200", "-h", "630", str(og_svg), "-o", str(LOGO / "og-image.png")], check=True)
+
+    # Apple asset catalog.
+    def imageset(name, files, props):
+        d = XCASSETS / f"{name}.imageset"
+        if d.exists():
+            shutil.rmtree(d)
+        d.mkdir(parents=True)
+        images = []
+        for fname, text, dark in files:
+            (d / fname).write_text(text)
+            img = {"filename": fname, "idiom": "universal"}
+            if dark:
+                img["appearances"] = [{"appearance": "luminosity", "value": "dark"}]
+            images.append(img)
+        (d / "Contents.json").write_text(json.dumps(
+            {"images": images, "info": {"author": "xcode", "version": 1}, "properties": props}, indent=2) + "\n")
+
+    XCASSETS.mkdir(parents=True, exist_ok=True)
+    (XCASSETS / "Contents.json").write_text(json.dumps({"info": {"author": "xcode", "version": 1}}, indent=2) + "\n")
+    vector = {"preserves-vector-representation": True}
+    template = {"preserves-vector-representation": True, "template-rendering-intent": "template"}
+    imageset("HeraldoMark", [("HeraldoMark.svg", mark_svg(variants["light"], b, 128), False),
+                             ("HeraldoMark-dark.svg", mark_svg(variants["dark"], b, 128), True)], vector)
+    # Template images: both parts opaque black, so the rule keeps its shape when tinted.
+    imageset("HeraldoMarkTemplate", [("HeraldoMarkTemplate.svg",
+                                      mark_svg([("#000000", hd), ("#000000", rd)], b, 128), False)], template)
+    imageset("MenuBarIcon", [("MenuBarIcon.svg",
+                              mark_svg([("#000000", hsd), ("#000000", rsd)], bs, MENU_BAR_PT), False)], template)
+
+
 def render(src, dst, px):
     subprocess.run(["rsvg-convert", "-w", str(px), "-h", str(px), str(src), "-o", str(dst)], check=True)
 
@@ -245,6 +328,7 @@ def main():
     palette, paths = read_master()
     geometry = build_svgs(palette, paths)
     build_web(palette)
+    build_logos(palette, paths)
     if a.apple:
         build_apple(palette)
     print(json.dumps(geometry, indent=1))

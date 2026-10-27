@@ -19,7 +19,7 @@ truth. Every other icon file is derived from it, and each derived SVG says
 | `export/` | Generated web set: `favicon.ico`, 16 and 32 px PNGs, `apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, `icon-maskable-512.png` |
 | `geometry.json` | Generated: placement figures from the last build |
 
-`build.py --apple` also writes the Apple app icon, `apple/App/AppIcon.icon`.
+`build.py --apple` also writes the Apple app icon and the app's logo assets. See "Derived assets".
 
 ## The master
 
@@ -80,6 +80,30 @@ These rules apply when you change the shapes, by hand or through `tools/from_fon
   - Coordinates use 2 decimals.
 
   `tools/from_font.py` cleans to these rules. Keep them when you edit by hand.
+
+## Derived assets
+
+Every file below comes from `heraldo.svg`. `build.py` writes them all; `--apple` adds the two Apple rows.
+
+| Asset | Source elements | Treatment | Used for |
+|---|---|---|---|
+| `masters/heraldo-squircle-{dark,light}.svg` | `h`, `rule` | Optical centring, ground, theme colours | Reference full icons; web set source |
+| `masters/heraldo-squircle-{dark,light}-small.svg` | `h`, `rule-small` | As above | Favicons |
+| `masters/heraldo-circle-{dark,light}.svg` | `h`, `rule-circle` | Centring, scaled to r 392 | Maskable PWA icon; watchOS reference |
+| `masters/heraldo-circle-{dark,light}-small.svg` | `h`, `rule-circle-small` | As above | Small circle uses |
+| `layers/{squircle,circle}-{h-ink,h-cream,rule,rule-cream}.svg` | `h`, `rule` or `rule-circle` | Centring, one part per file, no ground | Icon Composer layers |
+| `export/favicon.ico`, `favicon-{16x16,32x32}.png` | `h`, `rule-small` | Dark squircle small master | Browser tabs |
+| `export/apple-touch-icon.png`, `icon-192.png`, `icon-512.png` | `h`, `rule` | Dark squircle master | iOS home-screen bookmark, PWA manifest |
+| `export/icon-maskable-512.png` | `h`, `rule-circle` | Dark circle master | PWA manifest, `purpose: maskable` |
+| `export/logo/heraldo-mark-{light,dark,mono}.svg` | `h`, `rule` | Cropped to the mark; mono uses `currentColor` | Landing page and docs headers |
+| `export/logo/heraldo-mark-{light,dark}-40.png`, `@2x` | `h`, `rule` | As above, 40 px tall | Header logo at 1x and 2x |
+| `export/logo/og-image.{svg,png}` | `h`, `rule` | Dark mark centred on ink, 1200 x 630 | Link previews (Open Graph) |
+| `apple/App/AppIcon.icon` | `h`, `rule` | Squircle layers plus `icon.json` | App icon (Liquid Glass) |
+| `apple/App/Shared/Assets.xcassets/HeraldoMark` | `h`, `rule` | Cropped, light and dark appearances, vector | In-app headers and empty states |
+| `apple/App/Shared/Assets.xcassets/HeraldoMarkTemplate` | `h`, `rule` | Cropped, one colour, template rendering | Tinted in-app mark |
+| `apple/App/Shared/Assets.xcassets/MenuBarIcon` | `h`, `rule-small` | Cropped, one colour, template, 18 pt tall | macOS menu bar |
+
+There is no wordmark yet; it waits on a typeface decision.
 
 ## Apple app icon
 

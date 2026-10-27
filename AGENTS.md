@@ -14,7 +14,7 @@ The plan and its stages live in bm (project `heraldo`).
 | `internal/` | Server packages: `config` (env), `server` (handlers), `version` |
 | `apple/` | XcodeGen project: multiplatform app `Heraldo`, `HeraldoNotificationService` (iOS), `HeraldoWidgets`, package `HeraldoKit` |
 | `deploy/` | Generic `compose.yml` and `heraldo.example.env` |
-| `design/icon/` | App and web icon. `heraldo.svg` is the source of truth; `build.py` derives the masters, layers, web set and `apple/App/AppIcon.icon` |
+| `design/icon/` | App and web icon. `heraldo.svg` is the source of truth; `build.py` derives the masters, layers, web set and logos, `apple/App/AppIcon.icon` and the logo assets in `apple/App/Shared/Assets.xcassets` |
 | `docs/` | API summary, Apple notes |
 
 ## Build and test
