@@ -296,7 +296,7 @@ Pushes:
 
 | Push | When | apns-priority | Notes |
 |---|---|---|---|
-| start | A new activity or a new link | 10 | To the push-to-start token. `alert` with the title and the body or status; sound unless the start's `level` is unset or `passive`. Expires after 15 minutes. |
+| start | A new activity or a new link | 10 | To the push-to-start token. `alert` with the title and the body or status; the first start on a device sounds when the start's `level` is set and not `passive`; a chain link or a retry has no sound. Expires after 15 minutes. |
 | update, state change | The app reported a token (catch-up), or `status` changed | 10 | At once. |
 | update, progress | Any other update | 5 | At most one per 15 seconds per activity. Updates in between merge; the last content goes out when the 15 seconds are up. |
 | end | The activity ended, a link was handed over, or a start replaced it | 10 | `dismissal-date` is now plus `keep_for` when set, now on a hand-off, else the system default. |

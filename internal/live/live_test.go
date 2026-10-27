@@ -781,3 +781,60 @@ func TestNotifyCompat(t *testing.T) {
 		t.Errorf("read token on the compat API: %d", rec.Code)
 	}
 }
+
+// sound returns the alert sound of a start push, "" when it has none.
+func sound(p sent) string {
+	alert, _ := p.APS["alert"].(map[string]any)
+	s, _ := alert["sound"].(string)
+	return s
+}
+
+func TestOnlyTheFirstStartSounds(t *testing.T) {
+	// A retry after never-started comes up silently.
+	r := newRig(t)
+	r.phone(t)
+	r.post(t, start)
+	if got := r.apns.take(); len(got) != 1 || sound(got[0]) != "default" {
+		t.Fatalf("first start = %+v", got)
+	}
+	r.clk.add(live.DefaultStartTimeout)
+	r.tick()
+	r.post(t, update(0.1))
+	got := r.apns.take()
+	if len(got) != 1 || got[0].event() != "start" || sound(got[0]) != "" {
+		t.Fatalf("retry = %+v", got)
+	}
+	if alert, _ := got[0].APS["alert"].(map[string]any); alert["title"] != "bracket.3mf" {
+		t.Errorf("retry alert = %v, want a title and no sound", alert)
+	}
+
+	// A chain link comes up silently.
+	r = newRig(t)
+	r.phone(t)
+	r.begin(t, 1)
+	for i := 0; i < 46; i++ { // 7 h 40 min in 10 minute steps
+		r.clk.add(10 * time.Minute)
+		r.post(t, update(float64(i)/100))
+		r.tick()
+	}
+	var link *sent
+	for _, p := range r.apns.take() {
+		if p.event() == "start" {
+			link = &p
+		}
+	}
+	if link == nil || sound(*link) != "" {
+		t.Fatalf("chain link = %+v", link)
+	}
+
+	// A next link after a system end comes up silently.
+	r = newRig(t)
+	r.phone(t)
+	id := r.begin(t, 1)
+	r.report(t, id, `{"state":"ended"}`)
+	r.clk.add(time.Minute)
+	r.post(t, update(0.5))
+	if got := r.apns.take(); len(got) != 1 || got[0].event() != "start" || sound(got[0]) != "" {
+		t.Fatalf("next link = %+v", got)
+	}
+}

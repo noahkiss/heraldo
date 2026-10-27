@@ -353,18 +353,18 @@ func (m *Manager) sync(ctx context.Context, a store.Activity, start, now bool) {
 		latest := lastOf(mine)
 		switch {
 		case latest == nil:
-			pushed = m.start(ctx, a, dev, 0) || pushed
+			pushed = m.start(ctx, a, dev, 0, true) || pushed
 		case latest.State == store.InstanceActive:
 			pushed = m.update(ctx, a, dev, latest, prio) || pushed
 		case latest.State == store.InstanceStarting:
 			// No update token yet; Confirm pushes the content when it comes.
 		case latest.State == store.InstanceNeverStarted:
 			if count(mine, store.InstanceNeverStarted) < m.cfg.MaxStarts {
-				pushed = m.start(ctx, a, dev, latest.Chain) || pushed
+				pushed = m.start(ctx, a, dev, latest.Chain, false) || pushed
 			}
 		case latest.State == store.InstanceEnded && latest.EndReason == "ended on the device":
 			// The system ended it before the hand-off: start the next link.
-			pushed = m.start(ctx, a, dev, latest.Chain+1) || pushed
+			pushed = m.start(ctx, a, dev, latest.Chain+1, false) || pushed
 		default:
 			// Dismissed, or its token died: never respawn.
 		}
@@ -394,15 +394,16 @@ func (m *Manager) chain(ctx context.Context, a store.Activity, insts []store.Ins
 		}
 		// End the old link only once the new one is on its way, so a failed
 		// start leaves the old one up and the next tick tries again.
-		if m.start(ctx, a, dev, in.Chain+1) {
+		if m.start(ctx, a, dev, in.Chain+1, false) {
 			m.end(ctx, a, dev, in, now, store.InstanceEnded, "chained")
 		}
 	}
 }
 
-// start sends a push-to-start for link chain of a on dev. It reports whether
-// APNs took it.
-func (m *Manager) start(ctx context.Context, a store.Activity, dev store.Device, chain int) bool {
+// start sends a push-to-start for link chain of a on dev. first is the
+// activity's first start on the device: only it may sound. A chain link and
+// a retry come up silently. It reports whether APNs took it.
+func (m *Manager) start(ctx context.Context, a store.Activity, dev store.Device, chain int, first bool) bool {
 	if dev.LiveActivityToken == "" {
 		return false
 	}
@@ -422,7 +423,7 @@ func (m *Manager) start(ctx context.Context, a store.Activity, dev store.Device,
 	} else if s, _ := content["status"].(string); s != "" {
 		alert.Body = s
 	}
-	if a.Level != "" && a.Level != "passive" {
+	if first && a.Level != "" && a.Level != "passive" {
 		alert.Sound = "default"
 	}
 	body, err := payload{
