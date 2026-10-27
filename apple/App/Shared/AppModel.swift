@@ -154,7 +154,7 @@ final class AppModel {
     func isUnread(_ e: Event) -> Bool { unread.ids.contains(e.id) }
 
     func markRead(_ e: Event) async {
-        await run { try await $0.markRead(eventID: e.id) }
+        await run { try await $0.markRead(e) }
     }
 
     func markAllRead() async {

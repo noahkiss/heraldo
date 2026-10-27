@@ -925,7 +925,7 @@ type Error struct {
 	Error string `json:"error"`
 }
 
-// Event One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold, delivery and, on an incident, incident.
+// Event One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery and, on an incident, incident.
 type Event struct {
 	// Action Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none.
 	Action *EventAction `json:"action,omitempty"`
@@ -941,6 +941,9 @@ type Event struct {
 
 	// Content What a Live Activity (kind progress) or widget (kind status) shows. On an update, a field left out keeps its value and a field set to null clears it.
 	Content *LiveContent `json:"content,omitempty"`
+
+	// Cursor The list cursor of this event, as a page's next_cursor gives it. A read cursor moved to it marks every event up to this one read; after and before take it too.
+	Cursor *string `json:"cursor,omitempty"`
 
 	// Dedup Idempotency id chosen by the sender. The server drops a repeat with the same dedup within 24 hours and returns the first event. Set it when a sender may retry the same event.
 	Dedup *string `json:"dedup,omitempty"`
@@ -1027,7 +1030,7 @@ type EventIncidentState string
 // EventAction Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none.
 type EventAction string
 
-// EventInput One heraldo event as a sender posts it, envelope v1. The kind field picks the meaning of key and action. An input without kind is untyped: the server's ingest rules may type it, and it is stored as kind message when no rule matches. An explicit kind, message included, is final. The server owns id, received_at, hold and delivery: an input that sets any of them is rejected. The stored form, with those fields, is $defs/Event.
+// EventInput One heraldo event as a sender posts it, envelope v1. The kind field picks the meaning of key and action. An input without kind is untyped: the server's ingest rules may type it, and it is stored as kind message when no rule matches. An explicit kind, message included, is final. The server owns id, received_at, cursor, hold and delivery: an input that sets any of them is rejected. The stored form, with those fields, is $defs/Event.
 type EventInput struct {
 	// Action Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none.
 	Action *EventAction `json:"action,omitempty"`
@@ -1351,10 +1354,10 @@ type Rid = string
 // Slug defines model for Slug.
 type Slug = string
 
-// Repeat One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold, delivery and, on an incident, incident.
+// Repeat One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery and, on an incident, incident.
 type Repeat = Event
 
-// Stored One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, hold, delivery and, on an incident, incident.
+// Stored One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery and, on an incident, incident.
 type Stored = Event
 
 // NotifyLiveActivityEndParams defines parameters for NotifyLiveActivityEnd.

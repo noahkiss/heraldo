@@ -317,6 +317,18 @@ func (s *Store) WithDeliveries(ctx context.Context, recs []Record) error {
 	return nil
 }
 
+// WithCursors adds each record's list cursor to its event as cursor.
+func WithCursors(recs []Record) error {
+	for i, r := range recs {
+		raw, err := withField(r.Event, "cursor", CursorFor(r.Seq))
+		if err != nil {
+			return err
+		}
+		recs[i].Event = raw
+	}
+	return nil
+}
+
 // withField appends "name": v to the JSON object obj, keeping the stored
 // field order.
 func withField(obj json.RawMessage, name string, v any) (json.RawMessage, error) {

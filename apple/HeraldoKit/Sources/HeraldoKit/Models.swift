@@ -6,6 +6,8 @@ import Foundation
 public struct Event: Codable, Hashable, Identifiable, Sendable {
     public var id: String
     public var receivedAt: Date?
+    /// The event's list cursor. Servers before 0.3.1 send none.
+    public var cursor: String?
     public var ts: Date?
     public var source: String
     public var kind: String?
@@ -29,7 +31,7 @@ public struct Event: Codable, Hashable, Identifiable, Sendable {
     public var incident: IncidentInfo?
 
     enum CodingKeys: String, CodingKey {
-        case id, ts, source, kind, key, action, host, title, summary, body, level, thread
+        case id, cursor, ts, source, kind, key, action, host, title, summary, body, level, thread
         case url, image, icon, tags, actions, hold, delivery, checkin, incident
         case receivedAt = "received_at"
     }

@@ -143,6 +143,20 @@ final class ServerTests: XCTestCase {
         XCTAssertNil(unknown)
     }
 
+    func testMarkReadByEventCursor() async throws {
+        let sync = HistorySync(client: client)
+        let name = unique("test")
+        let evs = try await post(3, source: unique("own-cursor"))
+        let listed = try await client.listEvents(EventQuery(order: .asc, limit: 10, source: evs[0].source)).events
+        XCTAssertEqual(listed.map(\.id), evs.map(\.id))
+        XCTAssertNotNil(listed[1].cursor, "a listed event carries its cursor")
+        let moved = try await sync.markRead(listed[1], name)
+        XCTAssertEqual(moved?.cursor, listed[1].cursor!)
+        let state = try await sync.unread(name)
+        XCTAssertTrue(state.ids.isSuperset(of: [evs[2].id]))
+        XCTAssertFalse(state.ids.contains(evs[1].id))
+    }
+
     func testCursorOfFindsDeepEvents() async throws {
         let sync = HistorySync(client: client, pageSize: 2)
         let evs = try await post(5, source: unique("deep"))

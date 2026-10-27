@@ -75,6 +75,9 @@ Limits and errors:
 Paging:
 
 - `next_cursor` comes with every page that has events. Pass it as `after`.
+- Each event in a page, `GET /v1/events/{id}` and the answer to a post
+  carries its own `cursor`: the `next_cursor` of a page that ends on it. A
+  client marks one event read with one `PUT /v1/cursors/{name}`.
 - An empty page means the client is up to date. Keep the last cursor and poll
   with it again.
 - The order is arrival at this server. An event imported later still appears
@@ -534,7 +537,7 @@ curl -X PUT --data-binary @backup.png -H "Authorization: Bearer $ADMIN_TOKEN" \
 
 - **`EventInput`** is what a sender posts. It is the schema root.
 - **`Event`** is what the read API returns: `$defs/Event` in the schema.
-- The server owns `id`, `received_at`, `hold`, `delivery` and `incident`. An
+- The server owns `id`, `received_at`, `cursor`, `hold`, `delivery` and `incident`. An
   input that sets any of them is rejected. `ts` stays the sender's; the server fills it with the
   arrival time when it is missing.
 
@@ -817,6 +820,7 @@ that, the check's config lives on the server. See "Check-ins".
 |---|---|
 | `id` | Event id: a ULID (26 characters, sortable by time). Live events get the arrival time. |
 | `received_at` | When the server stored the event. |
+| `cursor` | The event's list cursor (see "Paging"). |
 | `hold` | Triage state. |
 | `delivery` | Per-device outcome: `sent`, `failed`, or `skipped` (a mute or an inhibit rule held it back), with the level the push carried. See "Push". |
 | `incident` | On an incident event: the incident after this event, `{state, opened_at, resolved_at}`. `state` is `open`, `acked` or `resolved`. See "Incidents". |

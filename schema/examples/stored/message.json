@@ -1,6 +1,7 @@
 {
   "id": "01JBA6Z0000000000000000000",
   "received_at": "2026-10-26T12:05:00Z",
+  "cursor": "s1",
   "ts": "2026-10-26T12:05:00Z",
   "source": "backup",
   "kind": "message",

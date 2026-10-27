@@ -171,6 +171,14 @@ public struct HistorySync: Sendable {
         return try await client.moveCursor(name, to: cursor)
     }
 
+    /// Marks one event read, by its own cursor when the server sent one: one
+    /// call. Without it, markRead(eventID:) looks the cursor up.
+    @discardableResult
+    public func markRead(_ event: Event, _ name: String = HistorySync.inbox) async throws -> ReadCursor? {
+        guard let cursor = event.cursor else { return try await markRead(eventID: event.id, name) }
+        return try await client.moveCursor(name, to: cursor)
+    }
+
     /// The list cursor of one event. An event does not carry its cursor; a
     /// page does, as the cursor of its last event. This finds the event in
     /// the newest pages, then asks for the page that ends on it.

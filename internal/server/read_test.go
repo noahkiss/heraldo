@@ -201,3 +201,37 @@ func mustTokens(t *testing.T) *auth.Set {
 	}
 	return set
 }
+
+// Each listed event carries its own list cursor: the next_cursor of a page
+// that ends on it, so one PUT marks it read.
+func TestListedEventsCarryCursor(t *testing.T) {
+	e := newEnv(t)
+	for _, b := range []string{`{"source":"s","title":"a"}`, `{"source":"s","title":"b"}`, `{"source":"s","title":"c"}`} {
+		e.post(t, b)
+	}
+	rec := e.do(t, http.MethodGet, "/v1/events?order=desc", readTok, nil)
+	var p struct {
+		Events []struct {
+			ID, Title, Cursor string
+		}
+		NextCursor string `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Events) != 3 || p.Events[2].Cursor != p.NextCursor || p.Events[0].Cursor == "" {
+		t.Fatalf("page %s", rec.Body)
+	}
+	b := p.Events[1]
+	if got := e.do(t, http.MethodGet, "/v1/events/"+b.ID, readTok, nil); !strings.Contains(got.Body.String(), `"cursor":"`+b.Cursor+`"`) {
+		t.Fatalf("get by id: %s", got.Body)
+	}
+	put := e.do(t, http.MethodPut, "/v1/cursors/inbox", readTok, []byte(`{"cursor":"`+b.Cursor+`"}`))
+	if !strings.Contains(put.Body.String(), `"unread":1`) {
+		t.Fatalf("mark b read: %s", put.Body)
+	}
+	// A sender may not set it.
+	if rec := e.post(t, `{"source":"s","cursor":"s1"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("post with cursor: %d", rec.Code)
+	}
+}

@@ -384,9 +384,15 @@ func (s *server) store(w http.ResponseWriter, r *http.Request, in *validate.Inpu
 	if !created {
 		status = http.StatusOK
 	}
+	recs := []store.Record{rec}
+	if err := store.WithCursors(recs); err != nil {
+		s.Logger.Error("cursor", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_, _ = w.Write(append(rec.Event, '\n'))
+	_, _ = w.Write(append(recs[0].Event, '\n'))
 }
 
 // ingest types, stores and announces one input: it pokes the event streams
@@ -501,6 +507,9 @@ func (s *server) getEvent(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		recs := []store.Record{rec}
 		err = s.Store.WithDeliveries(r.Context(), recs)
+		if err == nil {
+			err = store.WithCursors(recs)
+		}
 		rec = recs[0]
 	}
 	if err != nil {
@@ -580,6 +589,9 @@ func (s *server) listEvents(w http.ResponseWriter, r *http.Request) {
 	recs, err := s.Store.List(r.Context(), f)
 	if err == nil {
 		err = s.Store.WithDeliveries(r.Context(), recs)
+	}
+	if err == nil {
+		err = store.WithCursors(recs)
 	}
 	if err != nil {
 		s.Logger.Error("list", "err", err)
