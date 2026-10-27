@@ -7,8 +7,9 @@
     uv run design/icon/build.py            # masters, layers, export/, geometry.json
     uv run design/icon/build.py --apple    # also rewrite apple/App/AppIcon.icon
 
-It reads the paths h, rule, rule-small, rule-circle and rule-circle-small, and the
-ink, cream and red classes, from heraldo.svg. It only transforms that geometry:
+It reads the paths h, rule, rule-small, rule-circle and rule-circle-small, the
+wordmark and wordmark-small groups, and the ink, cream and red classes, from
+heraldo.svg. It only transforms that geometry:
 it translates for optical centring, scales to fit the circle layout, swaps
 colours and sets opacity. It never draws new geometry. Needs rsvg-convert and
 ImageMagick 7 (magick). Every path is relative to this file.
@@ -38,6 +39,9 @@ APPICON = APPLE_APP / "AppIcon.icon"
 XCASSETS = APPLE_APP / "Shared" / "Assets.xcassets"
 LOGO = HERE / "export" / "logo"
 HEADER_PX = 40          # web header logo height (1x)
+WORDMARK_HEADER_PX = 28  # web header wordmark height (1x), from wordmark-small
+BANNER = (1280, 320)    # README banner
+WORDMARK_PT = 64        # asset catalog wordmark height
 MENU_BAR_PT = 18        # macOS menu bar icon height
 NS = {"svg": "http://www.w3.org/2000/svg"}
 
@@ -169,6 +173,22 @@ def mark_bounds(*paths, pad=0):
     return (math.floor(x0 - pad), math.floor(y0 - pad), math.ceil(x1 + pad), math.ceil(y1 + pad))
 
 
+def imageset(name, files, props):
+    d = XCASSETS / f"{name}.imageset"
+    if d.exists():
+        shutil.rmtree(d)
+    d.mkdir(parents=True)
+    images = []
+    for fname, text, dark in files:
+        (d / fname).write_text(text)
+        img = {"filename": fname, "idiom": "universal"}
+        if dark:
+            img["appearances"] = [{"appearance": "luminosity", "value": "dark"}]
+        images.append(img)
+    (d / "Contents.json").write_text(json.dumps(
+        {"images": images, "info": {"author": "xcode", "version": 1}, "properties": props}, indent=2) + "\n")
+
+
 def build_logos(palette, paths):
     """Web logos and the Apple asset catalog. Full colour uses the squircle
     geometry; the menu bar icon uses the small-size geometry."""
@@ -187,35 +207,14 @@ def build_logos(palette, paths):
         src = LOGO / f"heraldo-mark-{name}.svg"
         for scale, suffix in ((1, ""), (2, "@2x")):
             dst = LOGO / f"heraldo-mark-{name}-{HEADER_PX}{suffix}.png"
-            subprocess.run(["rsvg-convert", "-h", str(HEADER_PX * scale), str(src), "-o", str(dst)], check=True)
-    # Open Graph image: the dark mark centred on ink, 60% of the height.
-    x0, y0, x1, y1 = b
-    k = 630 * 0.6 / (y1 - y0)
-    tx, ty = 600 - (x0 + x1) / 2 * k, 315 - (y0 + y1) / 2 * k
-    og = (GENERATED + '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">\n'
-          f'  <rect width="1200" height="630" fill="{ink}"/>\n'
-          f'  <g transform="matrix({ntos(k)} 0 0 {ntos(k)} {ntos(tx)} {ntos(ty)})">\n'
-          f'    <path fill="{cream}" d="{hd}"/>\n    <path fill="{red}" d="{rd}"/>\n  </g>\n</svg>\n')
-    og_svg = LOGO / "og-image.svg"
-    og_svg.write_text(og)
-    subprocess.run(["rsvg-convert", "-w", "1200", "-h", "630", str(og_svg), "-o", str(LOGO / "og-image.png")], check=True)
+            rasterize(src, dst, h=HEADER_PX * scale)
+    # Open Graph image, mark only: the dark mark centred on ink, 60% of the height.
+    # The default og-image.* carries the wordmark (build_wordmark).
+    og_svg = LOGO / "og-image-mark.svg"
+    og_svg.write_text(ground_svg((1200, 630), ink, [(cream, hd), (red, rd)], b, 630 * 0.6))
+    rasterize(og_svg, LOGO / "og-image-mark.png", 1200, 630)
 
     # Apple asset catalog.
-    def imageset(name, files, props):
-        d = XCASSETS / f"{name}.imageset"
-        if d.exists():
-            shutil.rmtree(d)
-        d.mkdir(parents=True)
-        images = []
-        for fname, text, dark in files:
-            (d / fname).write_text(text)
-            img = {"filename": fname, "idiom": "universal"}
-            if dark:
-                img["appearances"] = [{"appearance": "luminosity", "value": "dark"}]
-            images.append(img)
-        (d / "Contents.json").write_text(json.dumps(
-            {"images": images, "info": {"author": "xcode", "version": 1}, "properties": props}, indent=2) + "\n")
-
     XCASSETS.mkdir(parents=True, exist_ok=True)
     (XCASSETS / "Contents.json").write_text(json.dumps({"info": {"author": "xcode", "version": 1}}, indent=2) + "\n")
     vector = {"preserves-vector-representation": True}
@@ -227,6 +226,61 @@ def build_logos(palette, paths):
                                       mark_svg([("#000000", hd), ("#000000", rd)], b, 128), False)], template)
     imageset("MenuBarIcon", [("MenuBarIcon.svg",
                               mark_svg([("#000000", hsd), ("#000000", rsd)], bs, MENU_BAR_PT), False)], template)
+
+
+def ground_svg(size, ground, parts, bounds, height):
+    """`parts` scaled to `height` and centred on a `size` canvas filled with `ground`."""
+    W, H = size
+    x0, y0, x1, y1 = bounds
+    k = height / (y1 - y0)
+    tx, ty = W / 2 - (x0 + x1) / 2 * k, H / 2 - (y0 + y1) / 2 * k
+    body = "\n".join(f'    <path fill="{c}" d="{d}"/>' for c, d in parts)
+    return (GENERATED + f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">\n'
+            f'  <rect width="{W}" height="{H}" fill="{ground}"/>\n'
+            f'  <g transform="matrix({ntos(k)} 0 0 {ntos(k)} {ntos(tx)} {ntos(ty)})">\n{body}\n  </g>\n</svg>\n')
+
+
+def rasterize(src, dst, w=None, h=None):
+    size = (["-w", str(w)] if w else []) + (["-h", str(h)] if h else [])
+    subprocess.run(["rsvg-convert", *size, str(src), "-o", str(dst)], check=True)
+
+
+# ---- Wordmark: "Heraldo" in Chomsky over the rule (tools/wordmark_from_font.py).
+def wordmark(paths, prefix):
+    """(letters d, rule d, bounds) for the `wordmark` or `wordmark-small` group."""
+    ids = [k for k in paths if re.fullmatch(rf"{prefix}-[a-z]", k)]
+    letters, rule = [paths[k] for k in ids], paths[f"{prefix}-rule"]
+    return " ".join(path_d(p) for p in letters), path_d(rule), mark_bounds(*letters, rule)
+
+
+def build_wordmark(palette, paths):
+    """Wordmark logos, header PNGs, README banners, the default og-image and the
+    HeraldoWordmark asset. Display geometry everywhere except the header PNGs,
+    which use wordmark-small (looser tracking, heavier rule)."""
+    ink, cream, red = palette["ink"], palette["cream"], palette["red"]
+    for prefix in ("wordmark", "wordmark-small"):
+        ld, rd, b = wordmark(paths, prefix)
+        variants = {"light": [(ink, ld), (red, rd)], "dark": [(cream, ld), (red, rd)],
+                    "mono": [("currentColor", ld), ("currentColor", rd)]}
+        for name, parts in variants.items():
+            (LOGO / f"heraldo-{prefix}-{name}.svg").write_text(mark_svg(parts, b))
+    for name in ("light", "dark"):
+        src = LOGO / f"heraldo-wordmark-small-{name}.svg"
+        for scale, suffix in ((1, ""), (2, "@2x")):
+            rasterize(src, LOGO / f"heraldo-wordmark-{name}-{WORDMARK_HEADER_PX}{suffix}.png",
+                      h=WORDMARK_HEADER_PX * scale)
+    ld, rd, b = wordmark(paths, "wordmark")
+    themes = {"light": (cream, ink), "dark": (ink, cream)}   # (ground, letters)
+    for name, (ground, fg) in themes.items():
+        out = LOGO / f"readme-banner-{name}.svg"
+        out.write_text(ground_svg(BANNER, ground, [(fg, ld), (red, rd)], b, BANNER[1] * 0.46))
+        rasterize(out, out.with_suffix(".png"), *BANNER)
+    og = LOGO / "og-image.svg"
+    og.write_text(ground_svg((1200, 630), ink, [(cream, ld), (red, rd)], b, 630 * 0.38))
+    rasterize(og, LOGO / "og-image.png", 1200, 630)
+    imageset("HeraldoWordmark", [("HeraldoWordmark.svg", mark_svg([(ink, ld), (red, rd)], b, WORDMARK_PT), False),
+                                 ("HeraldoWordmark-dark.svg", mark_svg([(cream, ld), (red, rd)], b, WORDMARK_PT), True)],
+             {"preserves-vector-representation": True})
 
 
 def render(src, dst, px):
@@ -329,6 +383,7 @@ def main():
     geometry = build_svgs(palette, paths)
     build_web(palette)
     build_logos(palette, paths)
+    build_wordmark(palette, paths)
     if a.apple:
         build_apple(palette)
     print(json.dumps(geometry, indent=1))

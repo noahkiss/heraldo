@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="design/icon/export/logo/readme-banner-dark.png">
+  <img alt="Heraldo" src="design/icon/export/logo/readme-banner-light.png" width="640">
+</picture>
+
 # Heraldo
 
 A self-hosted notification hub. Services post events to one server. The server

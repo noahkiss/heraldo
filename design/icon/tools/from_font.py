@@ -7,7 +7,8 @@
 heraldo.svg is the icon's source of truth, and build.py reads only that file.
 Run this script only to start the master over from the font and the
 parameters below. It overwrites heraldo.svg, so any hand edits made there are
-lost. build.py never runs it.
+lost, and so is the wordmarks group: run tools/wordmark_from_font.py after it.
+build.py never runs it.
 
     uv run design/icon/tools/from_font.py
 
