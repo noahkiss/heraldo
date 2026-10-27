@@ -173,7 +173,14 @@ func TestLsShowAndFilters(t *testing.T) {
 	if r.code != 0 || !strings.Contains(r.stdout, "[incident open disk:a]") || strings.Contains(r.stdout, "disk:b") {
 		t.Fatalf("--open: %+v", r)
 	}
-	r = f.run("ls", "--json", "--limit", "1")
+	f.post(writeTok, `{"source":"watch","kind":"incident","key":"disk:0","action":"open","title":"disk 0 full"}`)
+	f.post(writeTok, `{"source":"watch","kind":"incident","key":"disk:c","action":"open","title":"disk c full"}`)
+	r = f.run("ls", "--open", "--limit", "2")
+	if lines := strings.Split(strings.TrimSpace(r.stdout), "\n"); len(lines) != 2 ||
+		!strings.Contains(lines[0], "disk:0") || !strings.Contains(lines[1], "disk:c") {
+		t.Fatalf("--open --limit 2 keeps the two most recent, oldest first: %+v", r)
+	}
+	r = f.run("ls", "--json", "--key", "disk:b", "--limit", "1")
 	var e map[string]any
 	if json.Unmarshal([]byte(r.stdout), &e) != nil || e["key"] != "disk:b" {
 		t.Fatalf("--json: %+v", r)

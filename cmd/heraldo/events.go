@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/noahkiss/heraldo/api"
@@ -169,6 +170,12 @@ func (a *app) ls(ctx context.Context, args []string) error {
 			if f.match(e) {
 				evs = append(evs, e)
 			}
+		}
+		// The state lists incidents by key. Keep the limit with the most
+		// recent last events, and print them oldest first, as ls does.
+		sort.SliceStable(evs, func(i, j int) bool { return evs[i].ReceivedAt.Before(evs[j].ReceivedAt) })
+		if len(evs) > *limit {
+			evs = evs[len(evs)-*limit:]
 		}
 		a.print(evs, *asJSON)
 		if len(evs) == 0 && !*asJSON {
