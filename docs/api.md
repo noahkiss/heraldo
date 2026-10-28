@@ -108,6 +108,9 @@ Read cursors:
   nothing, and the answer is the stored cursor. So clients that share a
   cursor never move it back. A cursor past the newest event gets 400.
 - `GET` answers 404 for a name with no cursor.
+- With push on, the server makes the `inbox` cursor at start-up when it is
+  missing, at the newest event: the history from before push went on is
+  read. The app makes its cursor the same way on first launch.
 - Every answer carries `unread`: the events after the cursor that push an
   alert (see "Push"). It is the app's badge. Held, store-only and passive
   events (digests and incident resolves among them), incident acks,
@@ -292,7 +295,7 @@ event that did not push has no `delivery`.
 |---|---|
 | `alert.title` | `title`, else `source` |
 | `alert.body` | `summary`, else `body`. A body is cut at a character boundary, with `…`, so the payload fits 4 KB. An incident resolve says `Resolved after 12 min` instead; a re-alert starts with `Still open after 30 min.`; a digest without a summary shows the first line of its body. |
-| `badge` | `unread` of the `inbox` cursor when the push goes out |
+| `badge` | `unread` of the `inbox` cursor when the push goes out; 0 when there is no `inbox` cursor |
 | `sound` | `sound`, default `default`; none for `passive` or `sound: none` |
 | `thread-id` | `thread`, else `source` |
 | `category` | `incident` for an incident `open`, `update` or no action; `event` for the rest. The app registers both: `incident` has Ack, Mute 1 h and Open; `event` has Mute 1 h and Open. Mute 1 h on an incident mutes its key; on a check-in, its check's incident key `checkin:<key>`; on any other event, its source. |

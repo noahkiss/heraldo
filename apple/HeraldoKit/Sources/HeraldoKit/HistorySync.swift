@@ -139,10 +139,12 @@ public struct HistorySync: Sendable {
                                                source: source, kind: kind, q: q, hold: hold))
     }
 
-    /// The read cursor and the events after it, up to `maxPages` pages.
+    /// The read cursor and the events after it, up to `maxPages` pages. A
+    /// missing cursor, as on a first launch, starts at the newest event: the
+    /// history before it counts as read. With no events yet there is none.
     public func unread(_ name: String = HistorySync.inbox) async throws -> UnreadState {
         guard let cursor = try await client.cursor(name) else {
-            return UnreadState(cursor: nil, ids: [])
+            return UnreadState(cursor: try await markAllRead(name), ids: [])
         }
         var ids = Set<String>()
         var after = cursor.cursor

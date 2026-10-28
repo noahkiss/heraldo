@@ -61,6 +61,22 @@ func (s *Store) Cursor(ctx context.Context, name string) (seq int64, found bool,
 	return seq, err == nil, err
 }
 
+// StartCursor makes the read cursor called name at the newest event, by by,
+// unless it exists. It reports whether it made it. Every event before it
+// then counts as read.
+func (s *Store) StartCursor(ctx context.Context, name, by string) (bool, error) {
+	s.wmu.Lock()
+	defer s.wmu.Unlock()
+	res, err := s.db.ExecContext(ctx, `INSERT INTO cursors (name, seq, updated_at, updated_by)
+		SELECT ?, coalesce(max(seq), 0), ?, ? FROM events WHERE true
+		ON CONFLICT (name) DO NOTHING`, name, s.now().UTC().Format(timeFormat), by)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
 // SetCursor moves the read cursor called name to seq; by names the token
 // that moved it. A cursor only moves forward: a seq at or below the stored
 // one changes nothing, so clients that share the cursor cannot move each

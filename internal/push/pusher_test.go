@@ -140,6 +140,10 @@ func newRigRules(t *testing.T, queue int, rulesYAML string) *rig {
 	}
 	r := &rig{st: st, prod: newFake(t), sand: newFake(t), clock: &clock{t: time.Now().UTC().Truncate(time.Second)}}
 	st.SetClock(r.clock.now)
+	// As heraldo-server does when push goes on.
+	if _, err := st.StartCursor(ctx, BadgeCursor, "test"); err != nil {
+		t.Fatal(err)
+	}
 	r.key, _ = newKey(t)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	r.p = New(Config{

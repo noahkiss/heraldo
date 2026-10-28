@@ -366,10 +366,11 @@ const pushedWhere = `json_extract(event, '$.hold.store_only') IS NOT 1
 	        OR (coalesce(action, '') != 'log' AND coalesce(json_extract(event, '$.checkin.exit_code'), 0) != 0))))`
 
 // Unread counts the events after the read cursor called name that push an
-// alert. No cursor counts every such event.
+// alert. No cursor counts none: a reader that never set one has read
+// nothing, but the history before it is not news.
 func (s *Store) Unread(ctx context.Context, name string) (int, error) {
-	seq, _, err := s.Cursor(ctx, name)
-	if err != nil {
+	seq, found, err := s.Cursor(ctx, name)
+	if err != nil || !found {
 		return 0, err
 	}
 	return s.UnreadAfter(ctx, seq)

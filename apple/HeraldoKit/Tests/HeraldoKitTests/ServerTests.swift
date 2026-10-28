@@ -118,8 +118,12 @@ final class ServerTests: XCTestCase {
     func testReadCursorMovesForwardOnly() async throws {
         let sync = HistorySync(client: client, pageSize: 4)
         let name = unique("test")
-        let none = try await sync.unread(name)
-        XCTAssertNil(none.cursor, "no client made this cursor yet")
+        _ = try await post(1, source: unique("cursor"))
+        let first = try await sync.unread(name)
+        XCTAssertNotNil(first.cursor, "a missing cursor starts at the newest event")
+        XCTAssertEqual(first.ids, [], "the history before it is read")
+        let made = try await client.cursor(name)
+        XCTAssertEqual(made?.cursor, first.cursor?.cursor, "the server keeps it")
 
         let evs = try await post(6, source: unique("cursor"))
         let moved = try await sync.markRead(eventID: evs[2].id, name)

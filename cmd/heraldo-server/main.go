@@ -251,6 +251,13 @@ func startPush(ctx, pushCtx context.Context, cfg config.Config, st *store.Store,
 	}
 	p := push.New(push.Config{Key: key, KeyID: cfg.APNsKeyID, TeamID: cfg.APNsTeamID, Store: st, Logger: log, Rules: rw.Rules})
 	go p.Run(pushCtx)
+	// The badge counts from the inbox cursor. Without one, it starts here:
+	// the history from before push went on is not unread.
+	if made, err := st.StartCursor(ctx, push.BadgeCursor, "heraldo-server"); err != nil {
+		log.Error("push: start the badge cursor", "err", err)
+	} else if made {
+		log.Info("push: started the badge cursor at the newest event", "cursor", push.BadgeCursor)
+	}
 	if n, err := p.Sweep(ctx, time.Now().Add(-sweepWindow)); err != nil {
 		log.Error("push: start-up sweep", "err", err)
 	} else if n > 0 {

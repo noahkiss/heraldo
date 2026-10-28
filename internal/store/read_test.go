@@ -102,6 +102,47 @@ func TestCursorsMoveForward(t *testing.T) {
 	}
 }
 
+// A missing cursor counts nothing unread; StartCursor makes it at the
+// newest event and leaves an existing one alone.
+func TestStartCursor(t *testing.T) {
+	ctx := context.Background()
+	s := open(t, filepath.Join(t.TempDir(), "h.db"))
+	defer s.Close()
+	at := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	for _, id := range []string{"01K3ZX0000AAAAAAAAAAAAAAA1", "01K3ZX0000AAAAAAAAAAAAAAA2"} {
+		if _, _, err := s.Insert(ctx, typed(t, id, at, api.KindMessage, "", "")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := s.Unread(ctx, "inbox"); err != nil || n != 0 {
+		t.Fatalf("unread without a cursor = %d, %v; want 0", n, err)
+	}
+	if made, err := s.StartCursor(ctx, "inbox", "server"); err != nil || !made {
+		t.Fatalf("start = %v, %v", made, err)
+	}
+	if seq, _, _ := s.Cursor(ctx, "inbox"); seq != 2 {
+		t.Fatalf("started at %d, want 2", seq)
+	}
+	if _, _, err := s.Insert(ctx, typed(t, "01K3ZX0000AAAAAAAAAAAAAAA3", at, api.KindMessage, "", "")); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.Unread(ctx, "inbox"); n != 1 {
+		t.Fatalf("unread = %d, want 1", n)
+	}
+	if made, _ := s.StartCursor(ctx, "inbox", "server"); made {
+		t.Fatal("start moved an existing cursor")
+	}
+	if seq, _, _ := s.Cursor(ctx, "inbox"); seq != 2 {
+		t.Fatalf("cursor = %d after a second start", seq)
+	}
+	// An empty database starts the cursor at 0.
+	e := open(t, filepath.Join(t.TempDir(), "e.db"))
+	defer e.Close()
+	if made, err := e.StartCursor(ctx, "inbox", "server"); err != nil || !made {
+		t.Fatalf("empty start = %v, %v", made, err)
+	}
+}
+
 func TestListDescBeforeHold(t *testing.T) {
 	ctx := context.Background()
 	s := open(t, filepath.Join(t.TempDir(), "h.db"))
