@@ -33,6 +33,8 @@ tags:
     description: Checks that expect pings on a schedule, and the ping API.
   - name: hold
     description: The alert hold, where alert-rung posts wait for triage.
+  - name: standby
+    description: A standby server copies the devices and hands back what it stored.
 paths:
   /healthz:
     get:
@@ -484,6 +486,55 @@ paths:
         "403":
           $ref: "#/components/responses/Error"
         "404":
+          $ref: "#/components/responses/Error"
+  /v1/standby/devices:
+    get:
+      operationId: exportDevices
+      summary: Every device with its full push tokens, for a standby server to copy.
+      description: |
+        Needs an admin token, or a read token with the standby capability. A plain read token
+        gets 403: the other device calls show only token suffixes. Retired devices are
+        included, so the standby retires them too.
+      tags: [standby]
+      responses:
+        "200":
+          description: The devices.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StandbyDeviceList"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/standby/import:
+    post:
+      operationId: importStandbyEvents
+      summary: Store events a standby server stored while this server was unreachable.
+      description: |
+        Needs an admin token, or a read token with the standby capability. Each event keeps its
+        id, received_at and hold. An event id imported before, or a dedup id stored
+        before at any age, is skipped, so a repeated import stores nothing twice.
+        Imported events are history: they are never pushed and never re-alert.
+      tags: [standby]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StandbyImport"
+      responses:
+        "200":
+          description: What the import stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StandbyImportResult"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
   /v1/activities:
     get:
@@ -1908,6 +1959,74 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Device"
+    StandbyDevice:
+      type: object
+      description: A device as a standby server copies it, with the full tokens.
+      required: [id, token, environment, topic, permissions, registered_at, updated_at]
+      properties:
+        id:
+          type: string
+        token:
+          type: string
+          description: The APNs device token, lower-case hex.
+        environment:
+          type: string
+          enum: [sandbox, production]
+        topic:
+          type: string
+        name:
+          type: string
+        platform:
+          type: string
+        app_version:
+          type: string
+        permissions:
+          $ref: "#/components/schemas/Permissions"
+        registered_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        retired_at:
+          type: string
+          format: date-time
+        retired_reason:
+          type: string
+        live_activity_token:
+          type: string
+          description: The push-to-start token, when the app reported one.
+    StandbyDeviceList:
+      type: object
+      required: [devices]
+      properties:
+        devices:
+          type: array
+          items:
+            $ref: "#/components/schemas/StandbyDevice"
+    StandbyImport:
+      type: object
+      required: [events]
+      properties:
+        events:
+          type: array
+          maxItems: 500
+          description: Stored events as the standby's read API returns them, oldest first.
+          items:
+            type: object
+    StandbyImportResult:
+      type: object
+      required: [imported, skipped, rejected]
+      properties:
+        imported:
+          type: integer
+          description: Events stored now.
+        skipped:
+          type: integer
+          description: Events imported before, or whose dedup id was already stored.
+        rejected:
+          type: integer
+          description: Events that are not valid here. The server logs each one and stores none of them.
     Activity:
       type: object
       description: |

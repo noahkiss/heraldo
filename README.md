@@ -113,7 +113,7 @@ The server reads its configuration from the environment.
 |---|---|---|
 | `HERALDO_ADDR` | `:7842` | Listen address, `host:port` |
 | `HERALDO_DB` | `heraldo.db` (`/data/heraldo.db` in the image) | SQLite database path. The server runs it in WAL mode, so keep the `-wal` and `-shm` files beside it. |
-| `HERALDO_TOKENS_FILE` | none | Token file, one `<name> <scope> <sha256> [trusted-ingest \| notify-key]` per line |
+| `HERALDO_TOKENS_FILE` | none | Token file, one `<name> <scope> <sha256> [capability]` per line. The capabilities are `trusted-ingest`, `notify-key` and `standby` ([docs/api.md](docs/api.md)). |
 | `HERALDO_TOKENS` | none | The same entries inline, separated by commas. Set this or the file, not both. |
 | `HERALDO_RULES` | none | Ingest rules file (YAML) that types untyped inputs (no `kind`), and can set the level or a hold on ping events; without it untyped inputs are stored as `message`. The server reloads it within 5 s of a change; a file that does not parse keeps the rules in force and logs an error. A broken file at startup stops the server. Format: [docs/api.md](docs/api.md#ingest-rules), example: `deploy/rules.example.yaml`. |
 | `HERALDO_PUSH` | `off` | `on` sends APNs pushes to the registered devices. Off, the server registers devices and pushes nothing. |
@@ -126,6 +126,7 @@ The server reads its configuration from the environment.
 | `HERALDO_HOLD_BYPASS_FILE` | none | The hold's bypass list, a JSON file, reloaded when it changes. Example: `deploy/hold-bypass.example.json`. |
 | `HERALDO_HOLD_DEADLINE` | `30m` | How long an alert waits for triage before it is forwarded as it is. |
 | `HERALDO_HOLD_DEADMAN` | `20m` | How long the hold waits for a triage poll before it stops holding. |
+| `HERALDO_ROLE` | `primary` | `standby` runs a standby that copies the primary's devices and pushes when the primary is down. It also needs `HERALDO_PRIMARY_URL` and `HERALDO_PRIMARY_TOKEN`. See [docs/api.md](docs/api.md#standby). |
 
 With no tokens, the server refuses every call except `/healthz`.
 
@@ -168,7 +169,7 @@ any `-wal` and `-shm` files left beside the old database first.
 | `heraldo checkins key [--remove] <slug>` | Prints a new ping URL, `<HERALDO_URL>/p/<key>`, for the check; the old key stops working. `--remove` removes the key. Needs `HERALDO_WRITE_TOKEN`. |
 | `heraldo tail` | Prints new events as they arrive. It takes the `ls` filters, `--unread` (start at the read cursor), `--mark` (move the cursor; not with filters) and `--exec <command>`. |
 | `heraldo ack <key>`, `heraldo resolve <key>` | Posts an `ack` or `resolve` event for an open incident. `-m` adds a note; `--force` posts for a key with no open incident. |
-| `heraldo send` | Posts a notification to an Apprise-compatible notify URL. |
+| `heraldo send` | Posts a notification to an Apprise-compatible notify URL, with an optional heraldo fallback. |
 
 Every list command takes `--json` and prints each event's stored JSON on one
 line.
@@ -186,6 +187,8 @@ Settings come from the environment first, then from an env file:
 | `HERALDO_SOURCE` | The `source` of `ack` and `resolve` events. Default: `heraldo-cli`. |
 | `HERALDO_SEND_URL`, `APPRISE_URL` | `send`'s notify URL; the first one set wins |
 | `NOTIFY_EXTRA_JSON` | `send`: extra JSON fields for the payload, such as `"_nonce": "abc"` |
+| `HERALDO_FALLBACK_URL` | `send`: a heraldo server, such as a standby, for when the notify URL fails |
+| `HERALDO_FALLBACK_TOKEN` | `send`: a `write` token for the fallback |
 
 Read cursors live on the server. One cursor is one unread state: every machine
 and app that reads `inbox` shares it, as with email. A cursor only moves
@@ -221,6 +224,13 @@ No shell runs. The command gets the event's JSON on stdin, and these variables:
   means HTTP 200 with a `Sent` line in the answer.
 - Anything else prints `❌ Failed to send notification. HTTP Status: <code>` and
   exits 1. A request that got no answer reports `000`.
+- Each connection gets 5 s to open, so a host that is down fails fast.
+- With `HERALDO_FALLBACK_URL` and `HERALDO_FALLBACK_TOKEN` set, a failed notify
+  URL is retried as `POST /v1/events` on that server. The event has kind
+  `message`; `--tag` becomes `tags`; a `--level` that is an envelope level
+  becomes `level`, any other `--level` becomes the first tag. When the
+  fallback stores it, `send` prints the sent line and names the fallback on
+  stderr. When both fail, the failed line carries the notify URL's status.
 
 ## iOS app
 

@@ -37,6 +37,8 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `POST`, `DELETE`, `GET /live-activity/{id}`, `GET /link`, `POST /notify-json/{id}` | Notify! compatibility, for senders written for Notify!. Write token as `?token=`. | served |
 | `GET /v1/mutes`, `POST /v1/mutes`, `DELETE /v1/mutes/{id}` | Mutes in force; mute a source or key for a while; end a mute. | served |
 | `GET /v1/icons`, `GET`, `PUT`, `DELETE /v1/icons/{name}` | The icon registry: list, fetch an image, store one, remove one. | served |
+| `GET /v1/standby/devices` | Every device with its full push tokens, for a standby. Admin, or a `read` token with the `standby` capability. See "Standby". | served |
+| `POST /v1/standby/import` | Stores the events a standby stored, by their ids, and pushes none of them. Same token as above. | served |
 
 Auth:
 
@@ -77,6 +79,9 @@ Auth:
     those is dropped.
   - Its `dedup` id matches every earlier event, not only the last 24 hours.
     The tee sends its catalogue id as `dedup`.
+- A `read` token with the `standby` capability is a standby's token on its
+  primary. It may read the full push tokens and import events (see
+  "Standby"). A plain `read` token sees token suffixes only.
 
 Limits and errors:
 
@@ -756,6 +761,63 @@ are no open uploads.
 curl -X PUT --data-binary @backup.png -H "Authorization: Bearer $ADMIN_TOKEN" \
   "$HERALDO_URL/v1/icons/backup"
 ```
+
+## Standby
+
+A standby is a second heraldo server on another host. It delivers pushes
+while the primary's host is down. It runs the same binary with
+`HERALDO_ROLE=standby` and its own copy of the APNs key.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `HERALDO_ROLE` | `primary` | `standby` runs the server as a standby. |
+| `HERALDO_PRIMARY_URL` | none | The primary's root. Needed on a standby. |
+| `HERALDO_PRIMARY_TOKEN` | none | The standby's token on the primary: a `read` token with the `standby` capability. Needed on a standby. |
+| `HERALDO_STANDBY_INTERVAL` | `1m` | The gap between rounds. |
+| `HERALDO_PRIMARY_DOWN_AFTER` | `10m` | How long the primary may go unanswered before the alert. |
+
+Each round, the standby calls the primary. Every call goes from the standby
+to the primary; the primary never calls the standby.
+
+1. `GET /v1/standby/devices`. The standby replaces its device table with the
+   answer, retired devices included. Apps register with the primary only.
+2. If the alert is open, the standby resolves it (see below).
+3. `POST /v1/standby/import` with every event the standby stored since the
+   last import, oldest first, 100 per call. The standby remembers the last
+   imported event in its database, so a restart sends nothing twice.
+
+The standby accepts `POST /v1/events`, `GET /v1/send` and the pings from its
+own `write` tokens, types them with its own `HERALDO_RULES`, stores them and
+pushes them. It judges no checks: the primary owns them.
+
+The import is idempotent:
+
+- The primary stores each event under the standby's id and records the import.
+  An id imported before is skipped.
+- A `dedup` id stored before, at any age, is skipped too. A sender that posted
+  to both servers is stored once.
+- Imported events are history. The primary never pushes them and never
+  re-alerts them. Incidents and check-ins derive from them as from any event.
+- An event that is not valid on the primary is logged there and counted as
+  `rejected`. It does not block the events after it.
+
+Primary down:
+
+- A round that gets no answer, or a 5xx from a proxy, counts as down. A 401
+  or 403 counts as up: the primary answered. The standby logs the refusal on
+  every round.
+- When the primary has not answered for `HERALDO_PRIMARY_DOWN_AFTER`, the
+  standby stores and pushes one incident: source `heraldo`, key
+  `heraldo:primary`, level `time-sensitive`, title
+  `heraldo primary unreachable`.
+- The standby raises it once per outage, across restarts. The first round the
+  primary answers resolves it (level `passive`), then hands both events back.
+- A standby that starts counts from its start: it raises nothing until the
+  primary has been silent for the full delay.
+
+Senders reach the standby when the primary fails. `heraldo send` does this
+with `HERALDO_FALLBACK_URL` and `HERALDO_FALLBACK_TOKEN` (README, "send").
+A script can post to the standby's `POST /v1/events` itself.
 
 ## Input and stored events
 

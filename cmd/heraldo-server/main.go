@@ -16,6 +16,11 @@
 //	HERALDO_HOLD         the alert hold: off, shadow or on (default off)
 //	HERALDO_HOLD_BYPASS_FILE  the hold's bypass list, a JSON file
 //	HERALDO_HOLD_DEADLINE, HERALDO_HOLD_DEADMAN  the hold's timers (30m, 20m)
+//	HERALDO_ROLE         standby runs this server as a primary's standby (default primary)
+//	HERALDO_PRIMARY_URL, HERALDO_PRIMARY_TOKEN
+//	                     a standby's primary, and its standby-capable token there
+//	HERALDO_STANDBY_INTERVAL, HERALDO_PRIMARY_DOWN_AFTER
+//	                     a standby's round interval (1m) and alert delay (10m)
 //
 // Subcommands:
 //
@@ -55,6 +60,7 @@ import (
 	"github.com/noahkiss/heraldo/internal/replay"
 	"github.com/noahkiss/heraldo/internal/rules"
 	"github.com/noahkiss/heraldo/internal/server"
+	"github.com/noahkiss/heraldo/internal/standby"
 	"github.com/noahkiss/heraldo/internal/store"
 	"github.com/noahkiss/heraldo/internal/teeimport"
 	"github.com/noahkiss/heraldo/internal/validate"
@@ -194,8 +200,20 @@ func serve(log *slog.Logger) error {
 			"nets", fmt.Sprint(cfg.NotifyTrustedNets))
 	}
 	log.Info("hold", "mode", cfg.HoldMode, "deadline", cfg.HoldDeadline.String(), "deadman", cfg.HoldDeadman.String())
-	go h.RunCheckins(ctx, checkinTick)
 	go h.RunHold(ctx, holdTick)
+	if cfg.Standby {
+		// A standby judges no checks: the primary owns them, and a standby
+		// that judged them would raise a second copy of every incident.
+		if pushState != api.HealthPushOn {
+			log.Warn("standby: push is not on; this standby delivers nothing")
+		}
+		go standby.New(standby.Config{
+			PrimaryURL: cfg.PrimaryURL, Token: cfg.PrimaryToken, Store: st, Emit: h.Emit,
+			Interval: cfg.StandbyInterval, DownAfter: cfg.PrimaryDownAfter, Logger: log,
+		}).Run(ctx)
+	} else {
+		go h.RunCheckins(ctx, checkinTick)
+	}
 	srv := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           h,
@@ -208,7 +226,7 @@ func serve(log *slog.Logger) error {
 	errc := make(chan error, 1)
 	go func() {
 		log.Info("listening", "addr", cfg.Addr, "db", cfg.DB, "tokens", tokens.Len(),
-			"rules", rw.Rules().Len(), "push", pushState, "version", version.String())
+			"rules", rw.Rules().Len(), "push", pushState, "standby", cfg.Standby, "version", version.String())
 		errc <- srv.ListenAndServe()
 	}()
 	select {

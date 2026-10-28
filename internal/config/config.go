@@ -65,6 +65,21 @@ type Config struct {
 	// HoldDeadman is how long the hold waits for a triage poll before it
 	// stops holding. HERALDO_HOLD_DEADMAN.
 	HoldDeadman time.Duration
+
+	// Standby runs the server as the standby of PrimaryURL.
+	// HERALDO_ROLE=standby; the default role is primary.
+	Standby bool
+	// PrimaryURL is the primary's root. HERALDO_PRIMARY_URL.
+	PrimaryURL string
+	// PrimaryToken is the standby's token on the primary, a read token with
+	// the standby capability. HERALDO_PRIMARY_TOKEN.
+	PrimaryToken string
+	// StandbyInterval is the gap between the standby's rounds.
+	// HERALDO_STANDBY_INTERVAL, a Go duration; default 1m.
+	StandbyInterval time.Duration
+	// PrimaryDownAfter is how long the primary may go unanswered before the
+	// standby raises its alert. HERALDO_PRIMARY_DOWN_AFTER; default 10m.
+	PrimaryDownAfter time.Duration
 }
 
 // FromEnv builds a Config from getenv, normally os.Getenv.
@@ -136,7 +151,43 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	if c.TokensFile != "" && c.Tokens != "" {
 		return Config{}, errors.New("set HERALDO_TOKENS_FILE or HERALDO_TOKENS, not both")
 	}
+	if err := c.standby(getenv); err != nil {
+		return Config{}, err
+	}
 	return c, nil
+}
+
+// standby reads the standby settings.
+func (c *Config) standby(getenv func(string) string) error {
+	switch strings.ToLower(getenv("HERALDO_ROLE")) {
+	case "", "primary":
+	case "standby":
+		c.Standby = true
+	default:
+		return fmt.Errorf("HERALDO_ROLE %q: want primary or standby", getenv("HERALDO_ROLE"))
+	}
+	c.PrimaryURL, c.PrimaryToken = getenv("HERALDO_PRIMARY_URL"), getenv("HERALDO_PRIMARY_TOKEN")
+	if !c.Standby {
+		return nil
+	}
+	if c.PrimaryURL == "" || c.PrimaryToken == "" {
+		return errors.New("HERALDO_ROLE=standby needs HERALDO_PRIMARY_URL and HERALDO_PRIMARY_TOKEN")
+	}
+	for _, d := range []struct {
+		name string
+		to   *time.Duration
+	}{{"HERALDO_STANDBY_INTERVAL", &c.StandbyInterval}, {"HERALDO_PRIMARY_DOWN_AFTER", &c.PrimaryDownAfter}} {
+		v := getenv(d.name)
+		if v == "" {
+			continue
+		}
+		n, err := time.ParseDuration(v)
+		if err != nil || n <= 0 {
+			return fmt.Errorf("%s %q: want a duration such as 10m", d.name, v)
+		}
+		*d.to = n
+	}
+	return nil
 }
 
 // LoadTokens parses the configured token list. No list gives an empty set,

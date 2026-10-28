@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func env(m map[string]string) func(string) string {
@@ -192,6 +193,29 @@ func TestFromEnvHoldAndTrustedNets(t *testing.T) {
 	} {
 		if _, err := FromEnv(env(map[string]string{k: v})); err == nil {
 			t.Errorf("%s=%s accepted", k, v)
+		}
+	}
+}
+
+func TestFromEnvStandby(t *testing.T) {
+	c, err := FromEnv(env(nil))
+	if err != nil || c.Standby {
+		t.Fatalf("default role: %+v %v", c, err)
+	}
+	c, err = FromEnv(env(map[string]string{
+		"HERALDO_ROLE": "standby", "HERALDO_PRIMARY_URL": "https://primary.example.net",
+		"HERALDO_PRIMARY_TOKEN": "t", "HERALDO_PRIMARY_DOWN_AFTER": "15m",
+	}))
+	if err != nil || !c.Standby || c.PrimaryURL != "https://primary.example.net" || c.PrimaryDownAfter != 15*time.Minute || c.StandbyInterval != 0 {
+		t.Fatalf("standby: %+v %v", c, err)
+	}
+	for _, bad := range []map[string]string{
+		{"HERALDO_ROLE": "replica"},
+		{"HERALDO_ROLE": "standby", "HERALDO_PRIMARY_URL": "https://primary.example.net"},
+		{"HERALDO_ROLE": "standby", "HERALDO_PRIMARY_URL": "u", "HERALDO_PRIMARY_TOKEN": "t", "HERALDO_STANDBY_INTERVAL": "soon"},
+	} {
+		if _, err := FromEnv(env(bad)); err == nil {
+			t.Fatalf("%v: no error", bad)
 		}
 	}
 }

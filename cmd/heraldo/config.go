@@ -19,6 +19,8 @@ const (
 	envSendURL    = "HERALDO_SEND_URL"    // send: the notify URL; falls back to APPRISE_URL
 	envAppriseURL = "APPRISE_URL"
 	envExtraJSON  = "NOTIFY_EXTRA_JSON"
+	envFallback   = "HERALDO_FALLBACK_URL"   // send: a heraldo server to post to when the notify URL fails
+	envFallbackTk = "HERALDO_FALLBACK_TOKEN" // send: a write token for the fallback
 	envEnvFile    = "HERALDO_ENV_FILE"
 )
 

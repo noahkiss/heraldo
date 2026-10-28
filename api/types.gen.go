@@ -504,6 +504,24 @@ func (e Level) Valid() bool {
 	}
 }
 
+// Defines values for StandbyDeviceEnvironment.
+const (
+	StandbyDeviceEnvironmentProduction StandbyDeviceEnvironment = "production"
+	StandbyDeviceEnvironmentSandbox    StandbyDeviceEnvironment = "sandbox"
+)
+
+// Valid indicates whether the value is a known member of the StandbyDeviceEnvironment enum.
+func (e StandbyDeviceEnvironment) Valid() bool {
+	switch e {
+	case StandbyDeviceEnvironmentProduction:
+		return true
+	case StandbyDeviceEnvironmentSandbox:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TimelineEntryAction.
 const (
 	TimelineEntryActionEnd    TimelineEntryAction = "end"
@@ -1428,6 +1446,56 @@ type Schedule struct {
 	Tz *string `json:"tz,omitempty"`
 }
 
+// StandbyDevice A device as a standby server copies it, with the full tokens.
+type StandbyDevice struct {
+	AppVersion  *string                  `json:"app_version,omitempty"`
+	Environment StandbyDeviceEnvironment `json:"environment"`
+	Id          string                   `json:"id"`
+
+	// LiveActivityToken The push-to-start token, when the app reported one.
+	LiveActivityToken *string `json:"live_activity_token,omitempty"`
+	Name              *string `json:"name,omitempty"`
+
+	// Permissions Permission health the app reports. A field left out is unknown. false raises an
+	// incident with key device:<id>:<field>; true resolves it.
+	Permissions   Permissions `json:"permissions"`
+	Platform      *string     `json:"platform,omitempty"`
+	RegisteredAt  time.Time   `json:"registered_at"`
+	RetiredAt     *time.Time  `json:"retired_at,omitempty"`
+	RetiredReason *string     `json:"retired_reason,omitempty"`
+
+	// Token The APNs device token, lower-case hex.
+	Token     string    `json:"token"`
+	Topic     string    `json:"topic"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// StandbyDeviceEnvironment defines model for StandbyDevice.Environment.
+type StandbyDeviceEnvironment string
+
+// StandbyDeviceList defines model for StandbyDeviceList.
+type StandbyDeviceList struct {
+	Devices []StandbyDevice `json:"devices"`
+}
+
+// StandbyImport defines model for StandbyImport.
+type StandbyImport struct {
+	// Events Stored events as the standby's read API returns them, oldest first.
+	Events []map[string]interface{} `json:"events"`
+}
+
+// StandbyImportResult defines model for StandbyImportResult.
+type StandbyImportResult struct {
+	// Imported Events stored now.
+	Imported int `json:"imported"`
+
+	// Rejected Events that are not valid here. The server logs each one and stores none of them.
+	Rejected int `json:"rejected"`
+
+	// Skipped Events imported before, or whose dedup id was already stored.
+	Skipped int `json:"skipped"`
+}
+
 // State The latest event per key, by kind. A stand-in until stage 12.
 type State struct {
 	// Checkins The last check-in of every known check.
@@ -2016,3 +2084,6 @@ type NotifyMessageFormdataRequestBody = AppriseNotify
 
 // NotifyMessageMultipartRequestBody defines body for NotifyMessage for multipart/form-data ContentType.
 type NotifyMessageMultipartRequestBody = AppriseNotify
+
+// ImportStandbyEventsJSONRequestBody defines body for ImportStandbyEvents for application/json ContentType.
+type ImportStandbyEventsJSONRequestBody = StandbyImport

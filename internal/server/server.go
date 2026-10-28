@@ -144,6 +144,7 @@ func NewServer(o Options) *Server {
 	s.compatRoutes(mux)
 	s.appriseRoutes(mux)
 	s.holdRoutes(mux)
+	s.standbyRoutes(mux)
 	mux.HandleFunc("GET /v1/mutes", s.auth(auth.ScopeWrite, false, s.listMutes))
 	mux.HandleFunc("POST /v1/mutes", s.auth(auth.ScopeWrite, false, s.createMute))
 	mux.HandleFunc("DELETE /v1/mutes/{id}", s.auth(auth.ScopeWrite, false, s.endMute))

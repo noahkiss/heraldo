@@ -611,3 +611,52 @@ func TestSendContract(t *testing.T) {
 		t.Fatalf("HERALDO_SEND_URL: %+v", r)
 	}
 }
+
+func TestSendFallback(t *testing.T) {
+	f := newFixture(t)
+	f.env["HERALDO_WRITE_TOKEN"] = writeTok
+	// The notify URL's host is down: nothing listens there.
+	f.env["APPRISE_URL"] = "http://127.0.0.1:1/notify/apprise?token=secret"
+	// No fallback: the old contract.
+	if r := f.run("send", "-m", "x"); r.code != 1 || r.stdout != "❌ Failed to send notification. HTTP Status: 000\n" {
+		t.Fatalf("no fallback: %+v", r)
+	}
+	f.env["HERALDO_FALLBACK_URL"] = f.srv.URL
+	if r := f.run("send", "-m", "x"); r.code != 1 || !strings.Contains(r.stderr, "but HERALDO_FALLBACK_TOKEN is not") {
+		t.Fatalf("no fallback token: %+v", r)
+	}
+	f.env["HERALDO_FALLBACK_TOKEN"] = writeTok
+	r := f.run("send", "-t", "Disk", "-m", "pool degraded", "--tag", "ops", "--level", "urgent",
+		"--source", "zpool-health", "--url", "https://example.net/pool")
+	if r.code != 0 || r.stdout != sentLine+"\n" || !strings.Contains(r.stderr, "the fallback 127.0.0.1") ||
+		strings.Contains(r.stderr, "secret") {
+		t.Fatalf("fallback: %+v", r)
+	}
+	ls := f.run("ls", "--json")
+	if !strings.Contains(ls.stdout, `"source":"zpool-health"`) || !strings.Contains(ls.stdout, `"tags":["urgent","ops"]`) ||
+		!strings.Contains(ls.stdout, `"body":"pool degraded"`) {
+		t.Fatalf("stored: %+v", ls)
+	}
+	// An envelope level passes as level.
+	f.run("send", "-m", "y", "--level", "time-sensitive")
+	if ls := f.run("ls", "--json"); !strings.Contains(ls.stdout, `"level":"time-sensitive"`) {
+		t.Fatalf("level: %s", ls.stdout)
+	}
+	// A notify URL that answers 424 falls back too.
+	f.env["APPRISE_URL"] = tee(t, 424, "One or more notification could not be sent.", nil)
+	if r := f.run("send", "-m", "z"); r.code != 0 || !strings.Contains(r.stderr, "HTTP 424") {
+		t.Fatalf("424: %+v", r)
+	}
+	// The primary works: the fallback is not used.
+	f.env["APPRISE_URL"] = tee(t, 200, "Sent", nil)
+	if r := f.run("send", "-m", "w"); r.code != 0 || r.stderr != "" {
+		t.Fatalf("primary ok: %+v", r)
+	}
+	// Both fail: the failed line carries the notify URL's status.
+	f.env["APPRISE_URL"] = tee(t, 424, "", nil)
+	f.env["HERALDO_FALLBACK_TOKEN"] = "wrong-token"
+	if r := f.run("send", "-m", "v"); r.code != 1 || r.stdout != "❌ Failed to send notification. HTTP Status: 424\n" ||
+		!strings.Contains(r.stderr, "fallback: HTTP 401") {
+		t.Fatalf("both fail: %+v", r)
+	}
+}

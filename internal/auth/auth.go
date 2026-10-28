@@ -6,8 +6,8 @@
 //	<name> <scope> <sha256-hex> [capability ...]
 //
 // scope is write, read or admin. admin covers write and read. A capability
-// grants one extra power: trusted-ingest (see CapTrustedIngest) or
-// notify-key (see CapNotifyKey). Blank lines and
+// grants one extra power: trusted-ingest (see CapTrustedIngest),
+// notify-key (see CapNotifyKey) or standby (see CapStandby). Blank lines and
 // lines starting with # are ignored. `heraldo-server hash-token` prints the
 // hash of a token read from stdin.
 package auth
@@ -42,6 +42,10 @@ const CapTrustedIngest = "trusted-ingest"
 // that cannot set a header. The path ends up in access logs, so give such a
 // token write scope and nothing more.
 const CapNotifyKey = "notify-key"
+
+// CapStandby lets a token read every device's full push tokens and import
+// the events a standby server stored: the standby's token on the primary.
+const CapStandby = "standby"
 
 // Allows reports whether a token with scope s may act with need.
 func (s Scope) Allows(need Scope) bool { return s == ScopeAdmin || s == need }
@@ -100,7 +104,7 @@ func Parse(r io.Reader, sep byte) (*Set, error) {
 		}
 		t := Token{Name: f[0], Scope: Scope(f[1])}
 		for _, c := range f[3:] {
-			if c != CapTrustedIngest && c != CapNotifyKey {
+			if c != CapTrustedIngest && c != CapNotifyKey && c != CapStandby {
 				return nil, fmt.Errorf("token %q: unknown capability %q", f[0], c)
 			}
 			t.Caps = append(t.Caps, c)
