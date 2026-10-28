@@ -53,7 +53,7 @@ func (t *tools) addIncidentAct(s *mcp.Server) {
 }
 
 func incidentOut(key string, e client.Event) map[string]any {
-	m := map[string]any{"key": key}
+	m := map[string]any{"key": key, "state": incidentState(e)}
 	if e.Incident != nil {
 		m["state"] = string(e.Incident.State)
 		m["opened_at"] = rfc(e.Incident.OpenedAt)
@@ -103,7 +103,7 @@ func (t *tools) incidentAct(ctx context.Context, req *mcp.CallToolRequest, in in
 		return result{}, toolErr("no_open_incident", fmt.Sprintf("no open incident has key %q", in.Key),
 			"overview lists the open incidents")
 	}
-	if in.Action == "ack" && open.Incident != nil && open.Incident.State == "acked" {
+	if in.Action == "ack" && incidentState(*open) == "acked" {
 		return result{out: map[string]any{"changed": false, "incident": incidentOut(in.Key, *open)},
 			text: in.Key + " is already acknowledged"}, nil
 	}

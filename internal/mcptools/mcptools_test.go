@@ -631,7 +631,8 @@ func fakeServer(t *testing.T, noOrder bool) string {
 		fmt.Fprintf(w, `{"events":[%s],"next_cursor":"c1"}`, ev)
 	})
 	mux.HandleFunc("GET /v1/state", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"incidents":[{"id":"01JBA6Y8Q2K9M3T4V5W6X7Y8Z9","source":"s","kind":"incident","key":"k","ts":"2026-10-27T21:04:05Z","incident":{"state":"open","opened_at":"2026-10-27T21:04:05Z"}}],"progress":[],"checkins":[],"statuses":[]}`)
+		fmt.Fprint(w, `{"incidents":[{"id":"01JBA6Y8Q2K9M3T4V5W6X7Y8Z9","source":"s","kind":"incident","key":"k","ts":"2026-10-27T21:04:05Z","incident":{"state":"open","opened_at":"2026-10-27T21:04:05Z"}},`+
+			`{"id":"01JBA6Y8Q2K9M3T4V5W6X7Y8Z8","source":"s","kind":"incident","action":"ack","key":"old","ts":"2026-10-27T21:04:05Z","received_at":"2026-10-27T21:04:05Z"}],"progress":[],"checkins":[],"statuses":[]}`)
 	})
 	mux.HandleFunc("GET /v1/checkins", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{"checkins":[]}`) })
 	mux.HandleFunc("GET /v1/activities", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{"activities":[]}`) })
@@ -667,6 +668,12 @@ func TestOldServer(t *testing.T) {
 	s.fail("overview", map[string]any{"project": []string{"heraldo"}}, "unsupported_filter")
 	if out, _ := s.ok("events_search", map[string]any{}); out["events"].([]any)[0].(map[string]any)["project"] != nil {
 		t.Fatalf("project: %v", out)
+	}
+	// An incident event stored before snapshots: its action gives the state.
+	out, text := s.ok("overview", map[string]any{"sections": []string{"incidents"}})
+	items := out["incidents"].(map[string]any)["items"].([]any)
+	if items[0].(map[string]any)["state"] != "open" || items[1].(map[string]any)["state"] != "acked" || strings.Contains(text, "since ,") {
+		t.Fatalf("incidents: %v\n%s", items, text)
 	}
 }
 

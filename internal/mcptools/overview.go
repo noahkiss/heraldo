@@ -214,8 +214,8 @@ func (t *tools) overview(ctx context.Context, req *mcp.CallToolRequest, in overv
 		var items []incidentItem
 		for _, e := range state.Incidents {
 			s := summarize(e)
-			it := incidentItem{Key: s.Key, State: s.IncidentState, Level: s.Level, Source: s.Source,
-				Title: s.headline(), Project: s.Project, EventID: e.Id}
+			it := incidentItem{Key: s.Key, State: incidentState(e), Level: s.Level, Source: s.Source,
+				Title: s.headline(), Project: s.Project, EventID: e.Id, opened: e.ReceivedAt}
 			if e.Incident != nil {
 				it.opened = e.Incident.OpenedAt
 				it.OpenedAt = rfc(it.opened)
@@ -233,7 +233,11 @@ func (t *tools) overview(ctx context.Context, req *mcp.CallToolRequest, in overv
 		out["incidents"] = map[string]any{"total": total, "items": nonNil(items)}
 		lines = append(lines, fmt.Sprintf("incidents: %d not resolved", total))
 		for _, it := range items {
-			lines = append(lines, fmt.Sprintf("  %s [%s] since %s, %s: %s (event %s)", it.Key, it.State, it.OpenedAt, it.Source, it.Title, it.EventID))
+			since := ""
+			if it.OpenedAt != "" {
+				since = " since " + it.OpenedAt
+			}
+			lines = append(lines, fmt.Sprintf("  %s [%s]%s, %s: %s (event %s)", it.Key, it.State, since, it.Source, it.Title, it.EventID))
 		}
 	}
 	if want["statuses"] && serr == nil {
@@ -349,6 +353,18 @@ func (t *tools) overview(ctx context.Context, req *mcp.CallToolRequest, in overv
 		lines = append(lines, "note: "+n)
 	}
 	return result{out: out, text: strings.Join(lines, "\n")}, nil
+}
+
+// incidentState is the state of the incident an event in /v1/state stands
+// for. An event stored before incident snapshots has none: its action says.
+func incidentState(e client.Event) string {
+	if e.Incident != nil {
+		return string(e.Incident.State)
+	}
+	if e.Action != nil && *e.Action == "ack" {
+		return "acked"
+	}
+	return "open"
 }
 
 func countLine(m map[string]int) string {
