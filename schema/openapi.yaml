@@ -1412,7 +1412,7 @@ paths:
       - $ref: "#/components/parameters/Slug"
     post:
       operationId: resumeCheckin
-      summary: Judge a paused check again. It is new until its next ping.
+      summary: Judge a paused check again. It is new, due at its first slot after the resume.
       tags: [checkins]
       responses:
         "200":
@@ -2049,7 +2049,7 @@ components:
         down_after:
           type: string
           format: date-time
-          description: next_due plus the grace. The check goes down then without a ping.
+          description: next_due plus the grace, or for a new check its first slot plus the grace. The check goes down then without a ping.
         last_log:
           type: string
           description: The body of the last ping that carried a log.

@@ -210,6 +210,36 @@ func TestMissedPingOpensAndResolves(t *testing.T) {
 	}
 }
 
+// A check made without a ping is due at its first slot after creation; if
+// no ping comes it goes down, never pinged.
+func TestNeverPingedOpens(t *testing.T) {
+	e := newEnv(t)
+	if rec := e.do(t, http.MethodPut, "/v1/checkins/job", writeTok, []byte(`{"period_s":3600,"grace_s":600}`)); rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	if c := e.check(t, "job"); c.State != api.CheckStateNew || c.DownAfter == nil || !c.DownAfter.Equal(e.clock.now().Add(70*time.Minute)) {
+		t.Fatalf("new: %+v", c)
+	}
+	e.clock.add(time.Hour)
+	e.tick(t)
+	if c := e.check(t, "job"); c.State != api.CheckStateLate {
+		t.Fatalf("first slot: %s", c.State)
+	}
+	e.clock.add(10 * time.Minute)
+	e.tick(t)
+	if c := e.check(t, "job"); c.State != api.CheckStateDown || *c.DownReason != api.CheckDownReasonMissed {
+		t.Fatalf("down: %+v", c)
+	}
+	evs := e.incidents(t, "checkin:job")
+	if actions(evs) != "open/active" || *evs[0].Title != "job never pinged" {
+		t.Fatalf("incident: %s %+v", actions(evs), evs)
+	}
+	e.ping(t, "/ping/job", "")
+	if got := actions(e.incidents(t, "checkin:job")); got != "open/active resolve/passive" {
+		t.Fatalf("first ping: %s", got)
+	}
+}
+
 func TestReminders(t *testing.T) {
 	e := newEnv(t)
 	e.ping(t, "/ping/job?create=1&period=1h&grace=0&reminder=2h", "")

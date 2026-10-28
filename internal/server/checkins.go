@@ -612,10 +612,11 @@ func downText(c checkin.Check) (string, string) {
 		return c.Key + " is down",
 			cut(fmt.Sprintf("A run started %s and has not ended; the next run was due after it, with %s of grace.", stamp(c.StartedAt), c.Schedule.Grace), 178)
 	}
-	last := "No ping yet."
-	if !c.LastPing.IsZero() {
-		last = "Last ping " + stamp(c.LastPing) + "."
+	if c.LastPing.IsZero() {
+		return c.Key + " never pinged",
+			cut(fmt.Sprintf("Created %s; no ping yet. The first was due %s, with %s of grace.", stamp(c.CreatedAt), stamp(c.DueAt), c.Schedule.Grace), 178)
 	}
+	last := "Last ping " + stamp(c.LastPing) + "."
 	return c.Key + " is down",
 		cut(fmt.Sprintf("%s Due %s, with %s of grace.", last, stamp(c.DueAt), c.Schedule.Grace), 178)
 }

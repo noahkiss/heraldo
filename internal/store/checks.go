@@ -283,8 +283,8 @@ func (s *Store) PutCheck(ctx context.Context, key, host string, sched checkin.Sc
 	return !found, tx.Commit()
 }
 
-// SetPaused pauses or resumes a check. Resuming makes it new: it is not
-// judged until its next ping. It returns ErrNotFound for an unknown key.
+// SetPaused pauses or resumes a check. Resuming makes it new: a scheduled
+// check is due at its first slot after the resume. It returns ErrNotFound for an unknown key.
 func (s *Store) SetPaused(ctx context.Context, key string, paused bool) error {
 	s.wmu.Lock()
 	defer s.wmu.Unlock()
@@ -312,7 +312,7 @@ func (s *Store) SetPaused(ctx context.Context, key string, paused bool) error {
 // check with an open incident or one that should have one, in key order.
 func (s *Store) JudgedChecks(ctx context.Context) ([]checkin.Check, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+checkCols+` FROM checkins
-		WHERE state IN ('up', 'late', 'started', 'down')
+		WHERE state IN ('new', 'up', 'late', 'started', 'down')
 		   OR key IN (SELECT substr(key, `+strconv.Itoa(len(checkin.IncidentPrefix)+1)+`) FROM incidents
 		              WHERE key LIKE '`+checkin.IncidentPrefix+`%' AND state != 'resolved')
 		ORDER BY key`)

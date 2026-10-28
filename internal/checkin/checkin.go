@@ -4,7 +4,9 @@
 //
 // A check is in one of these states:
 //
-//	new      known, but no ping has come yet. Time does not judge it.
+//	new      known, but no run has come yet. A scheduled check expects its
+//	         first ping at the first slot after it became new; it turns
+//	         late there, and down (missed) when the grace runs out.
 //	up       the last run succeeded and the next ping is not due yet.
 //	started  a run started and has not ended.
 //	late     the next ping is due, and the grace period has not run out.
@@ -264,7 +266,9 @@ func (c *Check) setState(state string, at time.Time) {
 }
 
 // Tick applies the passage of time at now and reports whether c changed.
-// up turns late at DueAt and down when the grace runs out. A started run is
+// up turns late at DueAt and down when the grace runs out. A scheduled new
+// check is due at the first slot after StateSince (its creation, or its
+// resume), so a check that never pings still goes down. A started run is
 // judged on its own clock: with max_runtime_s it goes down (overran) only
 // past that; without, it goes down (missed) only when the next scheduled
 // slot after its start passes, plus the grace. Nothing goes down before
@@ -272,6 +276,16 @@ func (c *Check) setState(state string, at time.Time) {
 // start, so pings lost while it was down raise nothing.
 func (c *Check) Tick(now, notBefore time.Time) bool {
 	switch c.State {
+	case StateNew:
+		first, ok := c.Schedule.Next(c.StateSince)
+		if !ok || now.Before(first) {
+			return false
+		}
+		// From here on it is judged as an up check whose ping is due.
+		c.DueAt = first
+		c.setState(StateLate, now)
+		c.Tick(now, notBefore)
+		return true
 	case StateUp, StateLate, StateStarted:
 	default:
 		return false
@@ -317,6 +331,11 @@ func (c Check) deadline() (time.Time, string) {
 // DownAfter is when c goes down if no ping comes, or zero.
 func (c Check) DownAfter() time.Time {
 	switch c.State {
+	case StateNew:
+		if first, ok := c.Schedule.Next(c.StateSince); ok {
+			return first.Add(c.Schedule.Grace)
+		}
+		return time.Time{}
 	case StateUp, StateLate, StateStarted:
 	default:
 		return time.Time{}

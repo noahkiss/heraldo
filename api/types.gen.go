@@ -713,7 +713,7 @@ type AppriseNotifyType string
 type Check struct {
 	CreatedAt time.Time `json:"created_at"`
 
-	// DownAfter next_due plus the grace. The check goes down then without a ping.
+	// DownAfter next_due plus the grace, or for a new check its first slot plus the grace. The check goes down then without a ping.
 	DownAfter  *time.Time       `json:"down_after,omitempty"`
 	DownReason *CheckDownReason `json:"down_reason,omitempty"`
 	Host       *string          `json:"host,omitempty"`

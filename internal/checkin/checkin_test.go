@@ -111,8 +111,8 @@ func TestApplyPaused(t *testing.T) {
 
 func TestTick(t *testing.T) {
 	c := check()
-	if c.Tick(t0.Add(48*time.Hour), t0) {
-		t.Fatal("a new check changed with time")
+	if u := New("k", Schedule{}, t0); u.Tick(t0.Add(48*time.Hour), t0) {
+		t.Fatal("an unscheduled new check changed with time")
 	}
 	c.Apply(Ping{At: t0, Duration: -1})
 	if c.Tick(t0.Add(59*time.Minute), t0) {
@@ -129,6 +129,66 @@ func TestTick(t *testing.T) {
 	}
 	if c.Tick(t0.Add(100*time.Hour), t0) {
 		t.Fatal("down changed with time")
+	}
+}
+
+// A scheduled check that never pings goes late at its first slot after
+// creation and down when the grace runs out.
+func TestTickNeverPinged(t *testing.T) {
+	c := check()
+	if c.Tick(t0.Add(59*time.Minute), t0) {
+		t.Fatal("changed before the first slot")
+	}
+	if !c.DownAfter().Equal(t0.Add(70 * time.Minute)) {
+		t.Fatalf("down after %v", c.DownAfter())
+	}
+	if !c.Tick(t0.Add(time.Hour), t0) || c.State != StateLate || !c.DueAt.Equal(t0.Add(time.Hour)) {
+		t.Fatalf("first slot: %+v", c)
+	}
+	if c.Tick(t0.Add(69*time.Minute), t0) {
+		t.Fatal("changed in the grace")
+	}
+	if !c.Tick(t0.Add(70*time.Minute), t0) || c.State != StateDown || c.DownReason != ReasonMissed {
+		t.Fatalf("grace out: %+v", c)
+	}
+
+	// One tick long after the slot goes straight to down.
+	c = check()
+	if !c.Tick(t0.Add(5*time.Hour), t0) || c.State != StateDown {
+		t.Fatalf("late tick: %+v", c)
+	}
+
+	// A cron check is due at its first fire after creation.
+	c = New("nightly", Schedule{Cron: "0 2 * * *", Grace: time.Hour}, t0)
+	if c.Tick(t0.Add(13*time.Hour+59*time.Minute), t0) {
+		t.Fatal("cron: changed before 02:00 next day")
+	}
+	if !c.Tick(t0.Add(14*time.Hour+59*time.Minute), t0) || c.State != StateLate {
+		t.Fatalf("cron at 02:59: %+v", c)
+	}
+	if !c.Tick(t0.Add(15*time.Hour), t0) || c.State != StateDown {
+		t.Fatalf("cron: %+v", c)
+	}
+
+	// Server start-up grace still applies: a server that starts after the
+	// first slot gives the grace from its own start.
+	c = check()
+	start := t0.Add(3 * time.Hour)
+	if !c.Tick(start, start) || c.State != StateLate {
+		t.Fatalf("at start: %+v", c)
+	}
+	if c.Tick(start.Add(9*time.Minute), start) {
+		t.Fatal("down inside the start-up grace")
+	}
+	if !c.Tick(start.Add(10*time.Minute), start) || c.State != StateDown {
+		t.Fatalf("after start-up grace: %+v", c)
+	}
+
+	// A resumed check counts from its resume.
+	c = check()
+	c.StateSince = t0.Add(10 * time.Hour)
+	if c.Tick(t0.Add(10*time.Hour+59*time.Minute), t0) {
+		t.Fatal("resumed: judged from creation")
 	}
 }
 

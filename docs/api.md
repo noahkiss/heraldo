@@ -650,7 +650,7 @@ schedule lives on the server: `PUT /v1/checkins/{slug}` changes it.
 
 | State | Means | Next |
 |---|---|---|
-| `new` | Known; no ping yet. Time does not judge it. | Any ping |
+| `new` | Known; no run yet. | Any ping. A scheduled check turns `late` at its first slot after it was created or resumed, and `down` (`missed`) at `down_after`, that slot plus `grace_s` |
 | `up` | The last run succeeded. | `late` at `next_due` |
 | `started` | A run started and has not ended. | `down` (`overran`) at `started_at` plus `max_runtime_s`. Without `max_runtime_s`: `down` (`missed`) at the next scheduled time after `started_at`, plus `grace_s`. Never `late`. |
 | `late` | The ping is due; the grace has not run out. | `down` at `down_after` (`next_due` plus `grace_s`) |
@@ -673,6 +673,8 @@ schedule lives on the server: `PUT /v1/checkins/{slug}` changes it.
   precedence.
 - The scheduler judges the checks every 15 seconds. All its state is in the
   database, so a restart picks up where it left off.
+- A scheduled check that never pings goes down like one that stopped. Its
+  incident reads "`<slug>` never pinged".
 - After the server starts, a check goes down for a missed ping only once
   its grace has passed since the start. Pings sent while the server was down
   were lost; this keeps them from raising false alarms.
