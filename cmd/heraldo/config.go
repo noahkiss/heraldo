@@ -16,6 +16,7 @@ const (
 	envWriteToken = "HERALDO_WRITE_TOKEN" // write token, for ack and resolve
 	envCursor     = "HERALDO_CURSOR"      // read cursor name; default: inbox, shared
 	envSource     = "HERALDO_SOURCE"      // source of ack and resolve events
+	envProject    = "HERALDO_PROJECT"     // send and mcp: the project, when --project is not given
 	envSendURL    = "HERALDO_SEND_URL"    // send: the notify URL; falls back to APPRISE_URL
 	envAppriseURL = "APPRISE_URL"
 	envExtraJSON  = "NOTIFY_EXTRA_JSON"

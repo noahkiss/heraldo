@@ -113,7 +113,12 @@ type statePage struct {
 }
 
 func (s *server) state(w http.ResponseWriter, r *http.Request) {
-	st, err := s.Store.State(r.Context())
+	projects, err := s.projectFilter(r.URL.Query())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "%v", err)
+		return
+	}
+	st, err := s.Store.State(r.Context(), projects)
 	if err != nil {
 		s.Logger.Error("state", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")

@@ -36,6 +36,8 @@ type Event struct {
 	Source string
 	Tag    string
 	Title  string
+	// Project is the project the event was filed under, or empty.
+	Project string
 }
 
 // Group counts unclassified events from one source and tag.
@@ -62,6 +64,10 @@ type Report struct {
 	StillOpen int
 	// Unclassified groups the events no rule matched.
 	Unclassified []Group
+	// Projects counts events per project, by name.
+	Projects []RuleHits
+	// Unfiled groups the events left with no project.
+	Unfiled []Group
 }
 
 // RuleHits is one rule's match count.
@@ -103,6 +109,9 @@ func Run(dir string, rs *rules.Set, v *validate.Validator) (*Report, error) {
 		if in.Title != nil {
 			e.Title = *in.Title
 		}
+		if in.Project != nil {
+			e.Project = *in.Project
+		}
 		r.Events = append(r.Events, e)
 		return nil
 	})
@@ -119,15 +128,16 @@ func (r *Report) tally(rs *rules.Set) {
 	hits := map[string]int{}
 	open := map[string]bool{}
 	groups := map[[2]string]*Group{}
+	projects := map[string]int{}
+	unfiled := map[[2]string]*Group{}
 	for _, e := range r.Events {
+		if e.Project != "" {
+			projects[e.Project]++
+		} else {
+			count(unfiled, e)
+		}
 		if e.Rule == "" {
-			k := [2]string{e.Source, e.Tag}
-			g := groups[k]
-			if g == nil {
-				g = &Group{Source: e.Source, Tag: e.Tag, Example: e.Title}
-				groups[k] = g
-			}
-			g.Count++
+			count(groups, e)
 			continue
 		}
 		hits[e.Rule]++
@@ -156,11 +166,33 @@ func (r *Report) tally(rs *rules.Set) {
 			r.Hits = append(r.Hits, RuleHits{Rule: rule.Name, Count: hits[rule.Name]})
 		}
 	}
-	for _, g := range groups {
-		r.Unclassified = append(r.Unclassified, *g)
+	r.Unclassified = sortGroups(groups)
+	for p, n := range projects {
+		r.Projects = append(r.Projects, RuleHits{Rule: p, Count: n})
 	}
-	sort.Slice(r.Unclassified, func(i, j int) bool {
-		a, b := r.Unclassified[i], r.Unclassified[j]
+	sort.Slice(r.Projects, func(i, j int) bool { return r.Projects[i].Rule < r.Projects[j].Rule })
+	r.Unfiled = sortGroups(unfiled)
+}
+
+// count adds e to its source and tag group.
+func count(groups map[[2]string]*Group, e Event) {
+	k := [2]string{e.Source, e.Tag}
+	g := groups[k]
+	if g == nil {
+		g = &Group{Source: e.Source, Tag: e.Tag, Example: e.Title}
+		groups[k] = g
+	}
+	g.Count++
+}
+
+// sortGroups lists groups biggest first.
+func sortGroups(groups map[[2]string]*Group) []Group {
+	var out []Group
+	for _, g := range groups {
+		out = append(out, *g)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
 		if a.Count != b.Count {
 			return a.Count > b.Count
 		}
@@ -169,6 +201,7 @@ func (r *Report) tally(rs *rules.Set) {
 		}
 		return a.Tag < b.Tag
 	})
+	return out
 }
 
 // Classified counts the events a rule matched.
@@ -223,7 +256,20 @@ func (r *Report) Write(w io.Writer) {
 	}
 
 	fmt.Fprintf(w, "\nunclassified source/tag groups: %d\n", len(r.Unclassified))
-	for _, g := range r.Unclassified {
+	writeGroups(w, r.Unclassified)
+
+	if len(r.Projects) > 0 {
+		fmt.Fprintln(w, "\nprojects:")
+		for _, p := range r.Projects {
+			fmt.Fprintf(w, "  %5d  %s\n", p.Count, p.Rule)
+		}
+	}
+	fmt.Fprintf(w, "\nsource/tag groups left without a project: %d\n", len(r.Unfiled))
+	writeGroups(w, r.Unfiled)
+}
+
+func writeGroups(w io.Writer, groups []Group) {
+	for _, g := range groups {
 		tag := g.Tag
 		if tag == "" {
 			tag = "(no tag)"

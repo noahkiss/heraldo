@@ -29,7 +29,7 @@ const checkinSource = "heraldo"
 
 // pingParams are the query parameters a ping takes.
 var pingParams = map[string]bool{
-	"rid": true, "create": true, "source": true, "host": true,
+	"rid": true, "create": true, "source": true, "host": true, "project": true,
 	"period": true, "cron": true, "tz": true, "grace": true, "max_runtime": true, "reminder": true,
 }
 
@@ -153,6 +153,9 @@ func (s *server) recordPing(w http.ResponseWriter, r *http.Request, slug string,
 	f := map[string]any{"source": source, "kind": "checkin", "key": slug, "action": action}
 	if h := q.Get("host"); h != "" {
 		f["host"] = h
+	}
+	if p := q.Get("project"); p != "" {
+		f["project"] = p
 	}
 	ck := map[string]any{}
 	if rid != "" {
@@ -317,7 +320,7 @@ func checkJSON(v store.CheckView) api.Check {
 		Host: strPtr(c.Host), LastEvent: strPtr(c.LastEvent), LastLog: strPtr(v.LastLog),
 		LastPing: timePtr(c.LastPing), LastSuccess: timePtr(c.LastSuccess), StartedAt: timePtr(c.StartedAt),
 		NextDue: timePtr(c.DueAt), DownAfter: timePtr(c.DownAfter()), LastLogAt: timePtr(v.LastLogAt),
-		PingKeyAt: timePtr(c.PingKeyAt),
+		PingKeyAt: timePtr(c.PingKeyAt), Project: strPtr(v.Project),
 	}
 	if c.LastLogEvent == "" {
 		out.LastLogAt = nil
@@ -367,7 +370,12 @@ func secPtr(d time.Duration) *int {
 }
 
 func (s *server) listChecks(w http.ResponseWriter, r *http.Request) {
-	vs, err := s.Store.Checks(r.Context())
+	projects, err := s.projectFilter(r.URL.Query())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "%v", err)
+		return
+	}
+	vs, err := s.Store.Checks(r.Context(), projects)
 	if err != nil {
 		s.Logger.Error("checks", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")

@@ -14,7 +14,7 @@ import (
 
 // filters are the event filters ls and tail share.
 type filters struct {
-	kind, source, host, key, tag string
+	kind, source, host, key, tag, project string
 }
 
 func (f *filters) add(fs interface {
@@ -25,6 +25,7 @@ func (f *filters) add(fs interface {
 	fs.StringVar(&f.host, "host", "", "only this host")
 	fs.StringVar(&f.key, "key", "", "only this key")
 	fs.StringVar(&f.tag, "tag", "", "only events with this tag")
+	fs.StringVar(&f.project, "project", "", "only these projects, comma-separated; - for none")
 }
 
 func (f filters) empty() bool { return f == filters{} }
@@ -43,6 +44,9 @@ func (f filters) match(e client.Event) bool {
 	if f.key != "" && str(e.Key) != f.key {
 		return false
 	}
+	if f.project != "" && !inProjects(str(e.Project), f.project) {
+		return false
+	}
 	if f.tag != "" {
 		if e.Tags == nil {
 			return false
@@ -54,6 +58,30 @@ func (f filters) match(e client.Event) bool {
 		return found
 	}
 	return true
+}
+
+// projectList splits a --project value into names; nil when it is empty.
+func projectList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// inProjects reports whether project, "" for none, is in list, a
+// comma-separated list of names in which - stands for none. The server
+// expands aliases; this client-side match does not.
+func inProjects(project, list string) bool {
+	for _, p := range strings.Split(list, ",") {
+		p = strings.ToLower(strings.TrimSpace(p))
+		if p == project || (p == "-" && project == "") {
+			return true
+		}
+	}
+	return false
 }
 
 func reverse(evs []client.Event) {
@@ -161,13 +189,16 @@ func (a *app) ls(ctx context.Context, args []string) error {
 		return err
 	}
 	if *open {
-		st, err := c.State(ctx)
+		st, err := c.StateIn(ctx, projectList(f.project))
 		if err != nil {
 			return stateErr(err)
 		}
+		// The server applied the project filter, aliases included.
+		g := f
+		g.project = ""
 		var evs []client.Event
 		for _, e := range st.Incidents {
-			if f.match(e) {
+			if g.match(e) {
 				evs = append(evs, e)
 			}
 		}
@@ -184,7 +215,7 @@ func (a *app) ls(ctx context.Context, args []string) error {
 		return nil
 	}
 	evs, err := newest(ctx, c, client.Query{
-		Kind: f.kind, Source: f.source, Host: f.host, Key: f.key, Tag: f.tag, Q: *q,
+		Kind: f.kind, Source: f.source, Host: f.host, Key: f.key, Tag: f.tag, Q: *q, Project: projectList(f.project),
 	}, *limit)
 	if err != nil {
 		return listErr(err)
@@ -240,8 +271,9 @@ func (a *app) show(ctx context.Context, args []string) error {
 // ---- peek --------------------------------------------------------------
 
 func (a *app) peek(ctx context.Context, args []string) error {
-	fs := a.flags("peek", "[--mark] [--limit n] [--json]")
+	fs := a.flags("peek", "[--mark | --project names] [--limit n] [--json]")
 	mark := fs.Bool("mark", false, "move the read cursor past the events shown")
+	project := fs.String("project", "", "only unread events in these projects, comma-separated; - for none")
 	limit := fs.Int("limit", 50, "most events to show, 1 to 500")
 	asJSON := fs.Bool("json", false, "print each event's JSON on one line")
 	if pos, err := parse(fs, args); err != nil {
@@ -249,6 +281,9 @@ func (a *app) peek(ctx context.Context, args []string) error {
 	} else if len(pos) > 0 {
 		fs.Usage()
 		return errUsage
+	}
+	if *mark && *project != "" {
+		return fmt.Errorf("--mark with --project would mark events it did not show")
 	}
 	c, err := a.client()
 	if err != nil {
@@ -276,13 +311,13 @@ func (a *app) peek(ctx context.Context, args []string) error {
 				name, len(evs))
 		}
 	} else {
-		p, err := c.List(ctx, client.Query{After: cur, Limit: *limit})
+		p, err := c.List(ctx, client.Query{After: cur, Limit: *limit, Project: projectList(*project)})
 		if err != nil {
 			return err
 		}
 		evs, last = p.Events, p.NextCursor
 		if len(evs) == *limit {
-			next, err := c.List(ctx, client.Query{After: p.NextCursor, Limit: 1})
+			next, err := c.List(ctx, client.Query{After: p.NextCursor, Limit: 1, Project: projectList(*project)})
 			more = err == nil && len(next.Events) > 0
 		}
 	}

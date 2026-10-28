@@ -225,6 +225,13 @@ func (c *Client) Checks(ctx context.Context) ([]api.Check, error) {
 	return l.Checkins, err
 }
 
+// Projects returns the projects the server's events name.
+func (c *Client) Projects(ctx context.Context) (api.ProjectList, error) {
+	var l api.ProjectList
+	err := c.do(ctx, http.MethodGet, "/v1/projects", nil, c.Token, nil, &l)
+	return l, err
+}
+
 // Check returns one check.
 func (c *Client) Check(ctx context.Context, slug string) (api.Check, error) {
 	var ch api.Check

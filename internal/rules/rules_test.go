@@ -33,32 +33,42 @@ func input(t *testing.T, v *validate.Validator, raw string) *validate.Input {
 
 func TestParseErrors(t *testing.T) {
 	cases := map[string]string{
-		"no name":            `rules: [{set: {kind: message}}]`,
-		"unknown field":      `rules: [{name: a, set: {kind: message}, stop: true}]`,
-		"unknown match":      `rules: [{name: a, match: {summary: x}, set: {kind: message}}]`,
-		"bad regex":          `rules: [{name: a, match: {title: '('}, set: {kind: message}}]`,
-		"no kind":            `rules: [{name: a, set: {}}]`,
-		"rule cannot status": `rules: [{name: a, set: {kind: status, key: k, action: set}}]`,
-		"action of kind":     `rules: [{name: a, set: {kind: incident, key: k, action: success}}]`,
-		"action on message":  `rules: [{name: a, set: {kind: message, action: open}}]`,
-		"bad level":          `rules: [{name: a, set: {kind: message, level: loud}}]`,
-		"incident no key":    `rules: [{name: a, set: {kind: incident, action: open}}]`,
-		"unknown capture":    `rules: [{name: a, match: {title: '(?P<x>.)'}, set: {kind: incident, key: '{y}'}}]`,
-		"capture twice":      `rules: [{name: a, match: {title: '(?P<x>.)', body: '(?P<x>.)'}, set: {kind: message}}]`,
-		"name twice":         "rules:\n  - {name: a, set: {kind: message}}\n  - {name: a, set: {kind: digest}}",
-		"not yaml":           `rules: [`,
-		"realert on message": `rules: [{name: a, set: {kind: message, realert: 10m}}]`,
-		"realert too short":  `rules: [{name: a, set: {kind: incident, key: k, realert: 30s}}]`,
-		"realert not a time": `rules: [{name: a, set: {kind: incident, key: k, realert: often}}]`,
-		"ping rule kind":     `rules: [{name: a, match: {kind: checkin}, set: {kind: checkin, key: k}}]`,
-		"ping rule action":   `rules: [{name: a, match: {kind: checkin}, set: {action: fail}}]`,
-		"ping rule realert":  `rules: [{name: a, match: {kind: checkin}, set: {realert: 10m}}]`,
-		"inhibit no name":    `inhibit: [{parent: a, children: b}]`,
-		"inhibit no parent":  `inhibit: [{name: a, children: b}]`,
-		"inhibit bad parent": `inhibit: [{name: a, parent: '(', children: b}]`,
-		"inhibit capture":    `inhibit: [{name: a, parent: '^host:(?P<h>.+)$', children: '^unit:{x}:'}]`,
-		"inhibit bad child":  `inhibit: [{name: a, parent: 'x', children: '('}]`,
-		"inhibit twice":      "inhibit:\n  - {name: a, parent: x, children: y}\n  - {name: a, parent: x, children: z}",
+		"no name":             `rules: [{set: {kind: message}}]`,
+		"unknown field":       `rules: [{name: a, set: {kind: message}, stop: true}]`,
+		"unknown match":       `rules: [{name: a, match: {summary: x}, set: {kind: message}}]`,
+		"bad regex":           `rules: [{name: a, match: {title: '('}, set: {kind: message}}]`,
+		"no kind":             `rules: [{name: a, set: {}}]`,
+		"rule cannot status":  `rules: [{name: a, set: {kind: status, key: k, action: set}}]`,
+		"action of kind":      `rules: [{name: a, set: {kind: incident, key: k, action: success}}]`,
+		"action on message":   `rules: [{name: a, set: {kind: message, action: open}}]`,
+		"bad level":           `rules: [{name: a, set: {kind: message, level: loud}}]`,
+		"incident no key":     `rules: [{name: a, set: {kind: incident, action: open}}]`,
+		"unknown capture":     `rules: [{name: a, match: {title: '(?P<x>.)'}, set: {kind: incident, key: '{y}'}}]`,
+		"capture twice":       `rules: [{name: a, match: {title: '(?P<x>.)', body: '(?P<x>.)'}, set: {kind: message}}]`,
+		"name twice":          "rules:\n  - {name: a, set: {kind: message}}\n  - {name: a, set: {kind: digest}}",
+		"not yaml":            `rules: [`,
+		"realert on message":  `rules: [{name: a, set: {kind: message, realert: 10m}}]`,
+		"realert too short":   `rules: [{name: a, set: {kind: incident, key: k, realert: 30s}}]`,
+		"realert not a time":  `rules: [{name: a, set: {kind: incident, key: k, realert: often}}]`,
+		"ping rule kind":      `rules: [{name: a, match: {kind: checkin}, set: {kind: checkin, key: k}}]`,
+		"ping rule action":    `rules: [{name: a, match: {kind: checkin}, set: {action: fail}}]`,
+		"ping rule realert":   `rules: [{name: a, match: {kind: checkin}, set: {realert: 10m}}]`,
+		"inhibit no name":     `inhibit: [{parent: a, children: b}]`,
+		"inhibit no parent":   `inhibit: [{name: a, children: b}]`,
+		"inhibit bad parent":  `inhibit: [{name: a, parent: '(', children: b}]`,
+		"inhibit capture":     `inhibit: [{name: a, parent: '^host:(?P<h>.+)$', children: '^unit:{x}:'}]`,
+		"inhibit bad child":   `inhibit: [{name: a, parent: 'x', children: '('}]`,
+		"inhibit twice":       "inhibit:\n  - {name: a, parent: x, children: y}\n  - {name: a, parent: x, children: z}",
+		"bad set.project":     `rules: [{name: a, set: {kind: message, project: 'a b'}}]`,
+		"set.project capture": `rules: [{name: a, set: {kind: message, project: '{x}'}}]`,
+		"projects no project": `projects: [{match: {source: x}}]`,
+		"projects bad name":   `projects: [{match: {source: x}, project: '-x'}]`,
+		"projects bad field":  `projects: [{match: {summary: x}, project: p}]`,
+		"projects capture":    `projects: [{match: {source: x}, project: '{y}'}]`,
+		"projects twice":      "projects:\n  - {name: a, project: p}\n  - {name: a, project: q}",
+		"alias bad name":      `aliases: {'a b': c}`,
+		"alias itself":        `aliases: {a: A}`,
+		"alias chain":         `aliases: {a: b, b: c}`,
 	}
 	for name, raw := range cases {
 		if _, err := Parse([]byte(raw)); err == nil {
@@ -383,5 +393,84 @@ func TestInhibited(t *testing.T) {
 	}
 	if _, _, ok := (*Set)(nil).Inhibited("unit:web.1:x", open); ok {
 		t.Fatal("nil set inhibits")
+	}
+}
+
+func TestProjects(t *testing.T) {
+	s, err := Parse([]byte(`
+rules:
+  - name: typed
+    match: {title: '^(?P<team>[a-z]+): failed'}
+    set: {kind: incident, key: 'job:{team}', action: open, project: '{team}'}
+  - name: odd
+    match: {title: '^(?P<team>.+)! failed'}
+    set: {kind: message, project: '{team}'}
+  - name: ping
+    match: {kind: '^checkin$', key: '^nightly-'}
+    set: {project: Batch}
+projects:
+  - name: printer
+    match: {source: '^printer$'}
+    project: printing
+  - match: {thread: '^backups$'}
+    project: old-fleet
+aliases:
+  old-fleet: fleet
+  Infra: fleet
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := validate.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := func(raw string) string {
+		t.Helper()
+		typed, _, err := Type(s, input(t, v, raw), v)
+		if err != nil {
+			t.Fatalf("%s: %v", raw, err)
+		}
+		out, _, err := WithProject(s, typed, v)
+		if err != nil {
+			t.Fatalf("%s: %v", raw, err)
+		}
+		p, _ := out.Fields["project"].(string)
+		if out.Typed.Project != nil && *out.Typed.Project != p {
+			t.Fatalf("%s: typed project %q, field %q", raw, *out.Typed.Project, p)
+		}
+		return p
+	}
+	for raw, want := range map[string]string{
+		`{"source":"cron","title":"ops: failed"}`:                     "ops",
+		`{"source":"cron","title":"ops: failed","project":"web"}`:     "web",
+		`{"source":"cron","title":"no good! failed"}`:                 "",
+		`{"source":"printer","kind":"message","title":"done"}`:        "printing",
+		`{"source":"cron","kind":"message","thread":"backups"}`:       "fleet",
+		`{"source":"cron","kind":"message","project":"infra"}`:        "fleet",
+		`{"source":"cron","kind":"message","project":"INFRA"}`:        "fleet",
+		`{"source":"printer","kind":"message","project":"elsewhere"}`: "elsewhere",
+		`{"source":"cron","kind":"message"}`:                          "",
+	} {
+		if got := project(raw); got != want {
+			t.Errorf("%s: project %q, want %q", raw, got, want)
+		}
+	}
+	ping, rule, err := ApplyPing(s, input(t, v, `{"source":"checkin","kind":"checkin","key":"nightly-db","action":"success"}`), v)
+	if err != nil || rule != "ping" || ping.Fields["project"] != "batch" {
+		t.Fatalf("ping: %v %q %v", ping.Fields["project"], rule, err)
+	}
+	if got := strings.Join(s.Expand([]string{"fleet"}), ","); got != "fleet,infra,old-fleet" {
+		t.Errorf("Expand(fleet) = %s", got)
+	}
+	if got := strings.Join(s.Expand([]string{"infra", "web"}), ","); got != "fleet,infra,old-fleet,web" {
+		t.Errorf("Expand(infra, web) = %s", got)
+	}
+	var none *Set
+	if got := strings.Join(none.Expand([]string{"web"}), ","); got != "web" || none.Alias("x") != "x" {
+		t.Errorf("nil set: Expand = %s", got)
+	}
+	if p, entry := s.MapProject(map[string]any{"source": "printer"}); p != "printing" || entry != "printer" {
+		t.Errorf("MapProject = %q, %q", p, entry)
 	}
 }

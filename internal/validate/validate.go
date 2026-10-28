@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -24,6 +25,16 @@ const MaxBodyBytes = 256 * 1024
 
 // ServerFields are the readOnly fields a sender may not set.
 var ServerFields = []string{"id", "received_at", "cursor", "hold", "delivery", "incident"}
+
+// projectName is the envelope's rule for a project name.
+var projectName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+
+// FoldProject is a project name as the server stores it: lower case,
+// without surrounding space.
+func FoldProject(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+
+// ValidProject reports whether s, already folded, is a valid project name.
+func ValidProject(s string) bool { return projectName.MatchString(s) }
 
 // Error is a validation failure, written for a person to read.
 type Error struct{ Msg string }
@@ -98,6 +109,11 @@ func (v *Validator) Fields(fields map[string]any) (*Input, error) {
 	}
 	if len(owned) > 0 {
 		return nil, fail("%s: set by the server, not allowed in input", strings.Join(owned, ", "))
+	}
+	// Project names fold to lower case, so a sender's spelling never splits
+	// a project in two.
+	if p, ok := fields["project"].(string); ok {
+		fields["project"] = FoldProject(p)
 	}
 	if err := v.input.Validate(any(fields)); err != nil {
 		return nil, fail("envelope: %s", oneLine(err))

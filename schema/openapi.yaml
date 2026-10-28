@@ -157,6 +157,7 @@ paths:
           description: Events whose hold.state is this value, such as held.
           schema:
             type: string
+        - $ref: "#/components/parameters/ProjectFilter"
       responses:
         "200":
           description: One page of events.
@@ -225,6 +226,7 @@ paths:
         - { name: action, in: query, schema: { $ref: "#/components/schemas/EventAction" } }
         - { name: ts, in: query, schema: { type: string, format: date-time } }
         - { name: host, in: query, schema: { type: string } }
+        - { name: project, in: query, schema: { type: string } }
         - { name: title, in: query, schema: { type: string } }
         - { name: summary, in: query, schema: { type: string } }
         - { name: body, in: query, schema: { type: string } }
@@ -266,6 +268,8 @@ paths:
         incident's last event carries the incident's state in its incident field:
         open or acked, with the time it opened.
       tags: [state]
+      parameters:
+        - $ref: "#/components/parameters/ProjectFilter"
       responses:
         "200":
           description: The current state.
@@ -648,7 +652,8 @@ paths:
       description: |
         The body takes Notify!'s fields: title, body, symbol, tint (hex, alpha first in
         8 digits), progress in percent, steps and step, endsIn in seconds, trailing,
-        status, metrics and button {title, url, open}. Null clears a field. The server
+        status, metrics and button {title, url, open}. Null clears a field. heraldo also
+        reads project on a start; an update keeps the activity's project. The server
         stores a progress event; docs/api.md, "Notify! compatibility".
       tags: [compat]
       security:
@@ -729,7 +734,7 @@ paths:
     post:
       operationId: notifyJSON
       summary: "Notify! compatibility: a plain notification, stored as a message event."
-      description: text is the body, groupType the thread, iconUrl the icon; timeSensitive true is level time-sensitive.
+      description: text is the body, groupType the thread, iconUrl the icon; timeSensitive true is level time-sensitive. heraldo also reads project.
       tags: [compat]
       security:
         - tokenQuery: []
@@ -927,6 +932,7 @@ paths:
       - $ref: "#/components/parameters/Create"
       - $ref: "#/components/parameters/PingSource"
       - $ref: "#/components/parameters/PingHost"
+      - $ref: "#/components/parameters/PingProject"
     get:
       operationId: pingSuccess
       summary: Record a successful run (healthchecks.io shape).
@@ -966,6 +972,7 @@ paths:
       - $ref: "#/components/parameters/Create"
       - $ref: "#/components/parameters/PingSource"
       - $ref: "#/components/parameters/PingHost"
+      - $ref: "#/components/parameters/PingProject"
     get:
       operationId: pingStart
       summary: Record the start of a run.
@@ -1005,6 +1012,7 @@ paths:
       - $ref: "#/components/parameters/Create"
       - $ref: "#/components/parameters/PingSource"
       - $ref: "#/components/parameters/PingHost"
+      - $ref: "#/components/parameters/PingProject"
     get:
       operationId: pingFail
       summary: Record a failed run.
@@ -1044,6 +1052,7 @@ paths:
       - $ref: "#/components/parameters/Create"
       - $ref: "#/components/parameters/PingSource"
       - $ref: "#/components/parameters/PingHost"
+      - $ref: "#/components/parameters/PingProject"
     get:
       operationId: pingLogGet
       summary: Record a ping that changes nothing but the last ping time.
@@ -1091,6 +1100,7 @@ paths:
       - $ref: "#/components/parameters/Create"
       - $ref: "#/components/parameters/PingSource"
       - $ref: "#/components/parameters/PingHost"
+      - $ref: "#/components/parameters/PingProject"
     get:
       operationId: pingExitCode
       summary: Record a run by its exit code.
@@ -1129,6 +1139,7 @@ paths:
       - $ref: "#/components/parameters/Rid"
       - $ref: "#/components/parameters/PingSource"
       - $ref: "#/components/parameters/PingHost"
+      - $ref: "#/components/parameters/PingProject"
     get:
       operationId: keyPingSuccess
       summary: Record a successful run (healthchecks.io shape).
@@ -1169,6 +1180,7 @@ paths:
       - $ref: "#/components/parameters/Rid"
       - $ref: "#/components/parameters/PingSource"
       - $ref: "#/components/parameters/PingHost"
+      - $ref: "#/components/parameters/PingProject"
     get:
       operationId: keyPingStart
       summary: Record the start of a run.
@@ -1209,6 +1221,7 @@ paths:
       - $ref: "#/components/parameters/Rid"
       - $ref: "#/components/parameters/PingSource"
       - $ref: "#/components/parameters/PingHost"
+      - $ref: "#/components/parameters/PingProject"
     get:
       operationId: keyPingFail
       summary: Record a failed run.
@@ -1249,6 +1262,7 @@ paths:
       - $ref: "#/components/parameters/Rid"
       - $ref: "#/components/parameters/PingSource"
       - $ref: "#/components/parameters/PingHost"
+      - $ref: "#/components/parameters/PingProject"
     get:
       operationId: keyPingLogGet
       summary: Record a ping that changes nothing but the last ping time.
@@ -1297,6 +1311,7 @@ paths:
       - $ref: "#/components/parameters/Rid"
       - $ref: "#/components/parameters/PingSource"
       - $ref: "#/components/parameters/PingHost"
+      - $ref: "#/components/parameters/PingProject"
     get:
       operationId: keyPingExitCode
       summary: Record a run by its exit code.
@@ -1331,11 +1346,32 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /v1/projects:
+    get:
+      operationId: listProjects
+      summary: The projects the stored events name, with their event counts.
+      description: |
+        A name the rules file's aliases map to another counts under that other name.
+        unfiled counts the events with no project.
+      tags: [events]
+      responses:
+        "200":
+          description: The projects, by name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectList"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
   /v1/checkins:
     get:
       operationId: listCheckins
       summary: Every check with its schedule, state, next due time, last duration and last log.
       tags: [checkins]
+      parameters:
+        - $ref: "#/components/parameters/ProjectFilter"
       responses:
         "200":
           description: The checks, in key order.
@@ -1740,6 +1776,25 @@ components:
       schema:
         type: string
         maxLength: 128
+    PingProject:
+      name: project
+      in: query
+      description: The event's project. Without one, the check keeps the project of its earlier pings.
+      schema:
+        type: string
+        maxLength: 64
+    ProjectFilter:
+      name: project
+      in: query
+      description: |
+        Only these projects. Give a comma-separated list, or repeat the parameter; any
+        one name matches. - matches items with no project. A name also matches the
+        names the rules file's aliases map to it. Upper case folds to lower case.
+      explode: true
+      schema:
+        type: array
+        items:
+          type: string
   requestBodies:
     PingLog:
       description: Log text for the run, stored as the event's body. The server keeps the first 100 kB.
@@ -2284,6 +2339,9 @@ components:
           description: The check's slug, the key of its check-in events.
         host:
           type: string
+        project:
+          type: string
+          description: The project of the check's last ping that carried one.
         state:
           type: string
           enum: [new, up, started, late, down, paused]
@@ -2346,6 +2404,30 @@ components:
         path:
           type: string
           description: The ping path, /p/<key>. Append /start, /fail, /log or an exit code.
+    ProjectList:
+      type: object
+      required: [projects, unfiled]
+      properties:
+        projects:
+          type: array
+          items:
+            $ref: "#/components/schemas/Project"
+        unfiled:
+          type: integer
+          description: The events with no project.
+    Project:
+      type: object
+      required: [name, events, last_at]
+      properties:
+        name:
+          type: string
+        events:
+          type: integer
+          description: The stored events with this project, or a name aliased to it.
+        last_at:
+          type: string
+          format: date-time
+          description: When the newest of them arrived.
     CheckList:
       type: object
       required: [checkins]
@@ -2377,6 +2459,9 @@ components:
         source:
           type: string
           description: 'The sender. Absent, it comes from a title prefix such as "name: ", else the token name or the client address.'
+        project:
+          type: string
+          description: The event's project. A name the envelope refuses is dropped, not an error.
         level:
           type: string
           description: A rung that replaces tag.

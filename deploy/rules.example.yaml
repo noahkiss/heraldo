@@ -57,3 +57,17 @@ inhibit:
   - name: host-down
     parent: '^host:(?P<host>[\w.-]+)$'
     children: '^unit:{host}:'
+
+# File events under a project when the sender named none. This runs on every
+# input after the rules, typed senders and pings included. The first match
+# wins. An event with a key and no project takes its key's project.
+projects:
+  - match: {source: '^printer-'}
+    project: printing
+  - match: {thread: '^units$'}
+    project: fleet
+
+# An old project name stored as its new one; a filter on the new name also
+# matches events stored under the old.
+aliases:
+  infra: fleet

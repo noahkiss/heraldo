@@ -14,19 +14,20 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 |---|---|---|
 | `GET /healthz` | Liveness, with `db`, the event count and, with push on, `unsent` ("Push"). 503 when the database does not answer. No auth. | served |
 | `POST /v1/events` | Stores one `EventInput`. Returns the stored `Event` (201), or the first event for a repeated `dedup` (200). | served |
-| `GET /v1/events?after=&before=&order=&limit=&source=&kind=&host=&key=&tag=&q=&hold=` | Lists events after a cursor, in arrival order. `q` is full-text search over title, summary and body. `order=desc` lists newest first. `hold` keeps events whose `hold.state` matches. | served |
+| `GET /v1/events?after=&before=&order=&limit=&source=&kind=&host=&key=&tag=&q=&hold=&project=` | Lists events after a cursor, in arrival order. `q` is full-text search over title, summary and body. `order=desc` lists newest first. `hold` keeps events whose `hold.state` matches. `project` takes a list (see "Projects"). | served |
 | `GET /v1/events/{id}` | Returns one event with its full body. | served |
 | `GET /v1/send?source=&kind=&...` | Same as `POST /v1/events` for GET-only clients. Scalar fields and `tags` (repeat the parameter) only. | served |
 | `GET` or `POST /ping/{slug}`, `/start`, `/fail`, `/log`, `/{exit_code}` | Check-in pings in the healthchecks.io shape, with a write token. `?rid=` pairs runs; `?create=1` creates an unknown check. Answers `OK`. See "Check-ins". | served |
 | `GET` or `POST /p/{key}`, `/start`, `/fail`, `/log`, `/{exit_code}` | The same pings with a check's ping key and no bearer token. | served |
-| `GET /v1/checkins`, `GET /v1/checkins/{slug}` | Every check, or one: schedule, state, next due time, last run length, last log. | served |
+| `GET /v1/checkins?project=`, `GET /v1/checkins/{slug}` | Every check, or one: schedule, state, next due time, last run length, last log. | served |
 | `PUT /v1/checkins/{slug}` | Creates a check, or replaces a known check's host and schedule. | served |
 | `POST /v1/checkins/{slug}/pause`, `/resume` | Pauses or resumes a check. | served |
 | `POST`, `DELETE /v1/checkins/{slug}/key` | Mints a check's ping key (replacing the old one), or removes it. | served |
 | `POST /notify/{key}`, `POST /v1/notify` | Apprise-compatible ingest: JSON, form or multipart. Answers 200 with a `Sent` line, or 424. See "Apprise compatibility". | served |
 | `GET /recent?n=&tag=&source=`, `GET /entry/{id}` | The newest events, or one, in the apprise-tee catalogue's shape. | served |
 | `GET /v1/hold?state=&peek=`, `POST /v1/hold/release`, `POST /v1/hold/suppress` | The alert hold: its queue, and closing entries. Also served as `/held`, `/held/release` and `/held/suppress`. See "Hold". | served |
-| `GET /v1/state` | Flat arrays of the latest event per key: incidents not resolved, progress not ended, every check-in, set statuses. The shape is a stand-in until stage 12. | served |
+| `GET /v1/state?project=` | Flat arrays of the latest event per key: incidents not resolved, progress not ended, every check-in, set statuses. The shape is a stand-in until stage 12. | served |
+| `GET /v1/projects` | The projects the stored events name, with counts. See "Projects". | served |
 | `GET /v1/stream` | Server-sent events: one `poke` per stored event, with the newest cursor. | served |
 | `GET /v1/cursors/{name}`, `PUT /v1/cursors/{name}` | The read cursor called `name`, shared by every client, with its `unread` count. | served |
 | `GET /v1/devices`, `POST /v1/devices` | Lists devices; registers a device or refreshes the one with that APNs token. | served |
@@ -295,6 +296,7 @@ event that did not push has no `delivery`.
     "source": "uptime",
     "key": "unit:web-1:nginx",
     "action": "open",
+    "project": "web",
     "url": "https://example.com/status",
     "image": "https://example.com/graph.png",
     "icon": "uptime",
@@ -465,14 +467,15 @@ activity as above.
 | `GET /live-activity/{activityId}?token=` | `{activityId, state, endReason, content, expiresAt}`. `state` is `starting`, `active`, `dismissed` or `ended`; `endReason` is `dismissed`, `script` (an end or a restart), or `abandoned`. |
 | `GET /live-activity/{deviceId}?token=` | `{activities: [...]}`: the token's running compat activities. |
 | `GET /link?id=&token=` | `{success: true, type: "device", id, name: "heraldo"}` for a write token. |
-| `POST /notify-json/{deviceId}?token=` | A `message`: `text` is the body, `title`, `groupType` the thread, `iconUrl` the icon, `timeSensitive` the level. |
+| `POST /notify-json/{deviceId}?token=` | A `message`: `text` is the body, `title`, `groupType` the thread, `iconUrl` the icon, `timeSensitive` the level, `project` the project. |
 
 Field mapping, Notify! to LiveContent: `progress` 0–100 to 0–1; `steps` and
 `step` to `steps {total, current}`; `endsIn` seconds to `ends_at`, from now;
 `tint` hex with or without `#`, alpha first in 8 digits, to `#RRGGBBAA`;
 `button {title, url, open}` to an `open` action when `open` is true, else
 `http`; `keepFor` to `keep_for`; `title`, `body`, `symbol`, `trailing`,
-`status`, `metrics` as they are. null clears a field.
+`status`, `metrics` as they are. null clears a field. heraldo also reads
+`project` on a start; an update or an end keeps the activity's project.
 
 - `expiresAt` is ten years out. heraldo hands a long activity over to a new
   one itself, so the sender must not roll it over.
@@ -500,6 +503,7 @@ multipart (files are dropped). Its fields:
 | `tag`, else `tags` | `tags`, split on commas and spaces; a JSON list works too. The first tag, the rung, picks the level (below). |
 | `level` | A rung that replaces `tag`. |
 | `source` | `source`. Absent: a title prefix `Name/host ...` or `name: `, else the token's name, else the client address. |
+| `project` | `project`, folded to lower case. A name the envelope refuses is dropped; the message is stored. |
 | `url`, `image` | `url` (`http` or `https`) and `image` (`https`). A value that is not a web URL is dropped. |
 | `type`, `format` | `details.notify.type` and `.format`. |
 
@@ -854,6 +858,7 @@ the run's log.
 | `create=1` | Creates the check when the slug is unknown. Without it, an unknown slug gets 404. |
 | `period`, `cron`, `tz`, `grace`, `max_runtime`, `reminder` | The schedule of a check that `create=1` makes. A duration is seconds or a Go duration such as `90m`. Ignored for a known check. |
 | `source`, `host` | The event's `source` (default `checkin`) and `host`. |
+| `project` | The event's `project`. Without it, the event takes the check's project (see "Projects"). |
 
 `/p/{key}` takes the same paths after the key, and the same parameters but
 `create` (400): a ping key pings a known check only.
@@ -1008,7 +1013,7 @@ a dead job, so the sender owns sleep:
 progress), `last_success`, `last_duration_ms`, `next_due`,
 `down_after` (when the check goes down without a ping: the grace included,
 for `up`, `late` and `started`), `last_log` (the body of the last ping that had one), `last_log_at`,
-`ping_key_at` (when the ping key was minted; never the key), and `incident` (`open`, `acked` or `resolved`, when the check ever had one).
+`ping_key_at` (when the ping key was minted; never the key), `incident` (`open`, `acked` or `resolved`, when the check ever had one), and `project` (the project of its last ping that named one).
 
 `PUT /v1/checkins/{slug}` takes a `CheckConfig`: `host` and the schedule
 fields. Every field is replaced; a field left out takes its default. It
@@ -1045,6 +1050,7 @@ Sender fields:
 | `ts` | date-time | When the event happened. |
 | `source` | string, 128 | The sender. One thread and icon per source by default. |
 | `host` | string, 128 | The machine the event is about. Status views group by host. |
+| `project` | name, 64 | The project the event belongs to. See "Projects". |
 | `key` | string, 255 | Groups related events. |
 | `title` | string, 256 | Notification title. |
 | `summary` | string, 178 | The one-line push text. A digest pushes only this. |
@@ -1153,6 +1159,7 @@ them.
 | `id` | `details.tee.id` and `dedup`. The event id is a ULID made from `ts` and this id, so a rerun makes the same id. A catalogue id that is already a ULID is kept. A line without an `id` gets a legacy id, and the import uses it in the same places. |
 | `ts` | `ts` and `received_at` |
 | `source` | `source`, or `apprise-tee` when the entry has none |
+| `project` | `project`, folded to lower case; dropped when it is not a valid name. The projects map runs after the rules. |
 | `title`, `body` | `title`, `body`, cut to the envelope limits |
 | `tag` | `tags`, split on commas and spaces |
 | `url`, `image` | `url`, `image` |
@@ -1209,13 +1216,15 @@ rules:
 - A capture of `dedup` gives each post its own key, such as
   `key: 'page:{id}'` with `dedup: '^(?P<id>.+)$'`. Each post is then its own
   incident: an ack stops its re-alerts, and the next post alerts again.
-- Named groups, `(?P<name>...)`, are captures. `{name}` in `key`, `host` or
-  `thread` is replaced with the captured text. A placeholder that names no
-  capture is an error when the file loads.
+- Named groups, `(?P<name>...)`, are captures. `{name}` in `key`, `host`,
+  `thread` or `project` is replaced with the captured text. A placeholder
+  that names no capture is an error when the file loads.
 - `set` takes `kind` (required: `message`, `digest`, `incident` or
-  `checkin`), `key`, `action`, `level`, `thread` and `host`. `incident` and
-  `checkin` need a `key`. A field the rule leaves out keeps the sender's
-  value. A value longer than the envelope allows is cut.
+  `checkin`), `key`, `action`, `level`, `thread`, `host` and `project`.
+  `incident` and `checkin` need a `key`. A field the rule leaves out keeps
+  the sender's value. A value longer than the envelope allows is cut. A
+  sender's `project` wins over the rule's. A `project` that is not a valid
+  name once filled in sets nothing.
 - An `incident` rule may also set `realert`, a Go duration of a minute or
   more, such as `15m`. The event stores it as `details.heraldo.realert_s`. It
   re-alerts only a `time-sensitive` or `critical` incident (see "Incidents").
@@ -1225,8 +1234,8 @@ rules:
 - A rule whose `match` names `kind` is a ping rule. It applies only to the
   check-in event a ping makes (`/ping/{slug}` and `/p/{key}`), never to an
   untyped input, and no other rule sees ping events. It keeps the event's
-  `kind`, `key` and `action`: its `set` takes `level`, `thread`, `host` and
-  `hold` only. A held failed run still moves the check to `down` and opens
+  `kind`, `key` and `action`: its `set` takes `level`, `thread`, `host`,
+  `project` and `hold` only. A held failed run still moves the check to `down` and opens
   its incident; the hold stops the run's own push.
 - The stored event records the rule in `details.heraldo.rule`.
 - When a rule's result is not a valid envelope (a capture came out empty, so
@@ -1272,4 +1281,99 @@ rules file in memory, with no database, and prints:
   their key, out of all recoveries, and each unpaired one;
 - the incidents still open at the end;
 - the hits per rule;
-- every source and first tag that no rule matched, with a count and a title.
+- every source and first tag that no rule matched, with a count and a title;
+- the events per project, and every source and first tag left without a
+  project. The replay runs the projects map but not key continuity, so a
+  keyed event the live server would file by its key can list here.
+
+## Projects
+
+An event may name the `project` it belongs to, such as `web` or `fleet`. A
+project is a label: the server keeps no list of projects and accepts any
+valid name. An event with no project is "no project".
+
+- A name is 1 to 64 of `a-z`, `0-9`, `.`, `_` and `-`, and starts with a
+  letter or a digit. The server folds upper case to lower case and trims
+  spaces before it checks the name, on every path. Any other bad name is a
+  400 on `POST /v1/events`, `GET /v1/send` and the pings. The Apprise paths,
+  `heraldo send` and `import-tee` drop a bad name and keep the message.
+- The project comes from, first to last: the sender; a typing rule's
+  `set.project`; the `projects` map; the project of the event's key.
+
+### The projects map
+
+`projects`, beside `rules` in the rules file, files the events that have no
+project yet. It runs on every input after the rules typed it: untyped and
+typed posts, the Apprise and Notify! paths, pings, the server's own events
+and `import-tee`. The first entry that matches wins.
+
+```yaml
+projects:
+  - match: {source: '^printer-'}
+    project: printing
+  - name: fleet-threads
+    match: {thread: '^(units|backups)$'}
+    project: fleet
+  - match: {source: '^team-(?P<team>[a-z]+)$'}
+    project: '{team}'
+```
+
+- `match` takes the fields a rule matches, plus `thread`, so an entry can
+  match the thread a rule just set. An entry with no `match` matches
+  everything.
+- `project` takes `{name}` placeholders. A result that is not a valid name
+  sets nothing.
+- `name` is optional. A name used twice, or a static `project` that is not a
+  valid name, is an error when the file loads.
+
+### Key continuity
+
+An `incident`, `checkin`, `progress` or `status` event with no project takes
+the project of its key's row: the project of that key's last event that
+named one. An ack or a resolve from `heraldo ack`, a progress update, or a
+ping with no `project` so lands beside the event that opened the key. A
+check-in incident, `checkin:<slug>`, with no project takes its check's
+project.
+
+### Aliases
+
+```yaml
+aliases:
+  infra: fleet
+```
+
+`aliases` maps an old project name to its new one. Several old names may map
+to one new name (a merge). A name may not map to an alias.
+
+- On ingest, an event that names `infra` is stored as `fleet`.
+- On read, `project=fleet` also matches the events stored as `infra`, and
+  `project=infra` reads as `project=fleet`.
+- `GET /v1/projects` counts `infra`'s events under `fleet`.
+- The server never rewrites a stored event's project.
+
+### Filters
+
+`GET /v1/events`, `GET /v1/state` and `GET /v1/checkins` take `project`. Give
+a comma-separated list, `project=web,fleet`, or repeat the parameter,
+`project=web&project=fleet`. Any one name matches. `-` matches the items with
+no project, so `project=-` lists the unfiled events. A bad name is a 400.
+`/v1/state` and `/v1/checkins` filter on the key's project, as key
+continuity keeps it.
+
+`GET /v1/projects` answers `{"projects": [{"name", "events", "last_at"}],
+"unfiled": n}`, by name. `last_at` is when the newest event arrived.
+
+The push payload carries the project as `heraldo.project`.
+
+### Backfill
+
+`heraldo-server backfill-projects [-dry-run] [-rules <file>]` gives the stored
+events that have no project one: the projects map's answer for the stored
+event, else the project of an earlier event with the same key. It sets only
+the `project` column and field, and never pushes. Then each state row with no
+project takes the project of its key's newest event that has one. `-rules`
+defaults to `$HERALDO_RULES`.
+
+`-dry-run` prints the counts per project and the state rows it would change,
+and changes nothing. A rerun changes nothing new. Run `-dry-run` first and
+read the counts.

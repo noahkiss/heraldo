@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/noahkiss/heraldo/internal/validate"
 )
 
 // connectTimeout bounds the TCP and TLS setup of each send attempt, so a
@@ -39,9 +41,13 @@ const (
 // URL is not the end: send posts the message as an event to that heraldo
 // server, such as a standby, and prints the sent line when it stores it.
 // stderr then names the fallback.
+//
+// --project, else HERALDO_PROJECT, names the message's project. It folds to
+// lower case; a name the envelope refuses is dropped with a warning, so a
+// bad name never costs the message.
 func (a *app) send(ctx context.Context, args []string) error {
-	fs := a.flags("send", "[-t title] [-m message] [--tag rung] [--source id] [--url u] [--image u] [--level rung]")
-	var title, message, tag, source, link, image, lvl string
+	fs := a.flags("send", "[-t title] [-m message] [--tag rung] [--source id] [--project name] [--url u] [--image u] [--level rung]")
+	var title, message, tag, source, project, link, image, lvl string
 	for _, n := range []string{"t", "title"} {
 		fs.StringVar(&title, n, "System Notification", "notification title")
 	}
@@ -50,6 +56,7 @@ func (a *app) send(ctx context.Context, args []string) error {
 	}
 	fs.StringVar(&tag, "tag", "", "Apprise tag, the ladder rung")
 	fs.StringVar(&source, "source", "", "short sender id")
+	fs.StringVar(&project, "project", "", "the project; default $"+envProject)
 	fs.StringVar(&link, "url", "", "link to attach")
 	fs.StringVar(&image, "image", "", "https image URL to attach")
 	fs.StringVar(&lvl, "level", "", "rung that replaces the tag for routing")
@@ -65,6 +72,17 @@ func (a *app) send(ctx context.Context, args []string) error {
 	}
 	if target == "" {
 		return nil
+	}
+	if project == "" {
+		project = a.setting(envProject)
+	}
+	if project != "" {
+		if p := validate.FoldProject(project); validate.ValidProject(p) {
+			project = p
+		} else {
+			fmt.Fprintf(a.stderr, "heraldo send: %q is not a project name; sending without one\n", project)
+			project = ""
+		}
 	}
 	if message == "" {
 		if a.stdinIsTTY() {
@@ -86,7 +104,7 @@ func (a *app) send(ctx context.Context, args []string) error {
 	}
 	payload["title"] = title
 	payload["body"] = message
-	for k, v := range map[string]string{"tag": tag, "source": source, "url": link, "image": image, "level": lvl} {
+	for k, v := range map[string]string{"tag": tag, "source": source, "project": project, "url": link, "image": image, "level": lvl} {
 		if v != "" {
 			payload[k] = v
 		}
@@ -127,6 +145,9 @@ func (a *app) send(ctx context.Context, args []string) error {
 		return errQuiet
 	}
 	ev := fallbackEvent(title, message, tag, source, link, image, lvl)
+	if project != "" {
+		ev["project"] = project
+	}
 	if err := postFallback(ctx, hc, fallback, fallbackTok, ev); err != nil {
 		fmt.Fprintf(a.stdout, failedLine, status)
 		fmt.Fprintf(a.stderr, "heraldo send: notify URL: HTTP %s; fallback: %v\n", status, err)

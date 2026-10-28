@@ -660,3 +660,62 @@ func TestSendFallback(t *testing.T) {
 		t.Fatalf("both fail: %+v", r)
 	}
 }
+
+func TestSendProject(t *testing.T) {
+	f := newFixture(t)
+	var got map[string]any
+	f.env["APPRISE_URL"] = tee(t, 200, "Sent", &got)
+	if r := f.run("send", "-m", "x", "--project", "Web"); r.code != 0 || got["project"] != "web" {
+		t.Fatalf("--project: %+v %v", r, got)
+	}
+	f.env["HERALDO_PROJECT"] = "fleet"
+	got = nil
+	if r := f.run("send", "-m", "x"); r.code != 0 || got["project"] != "fleet" {
+		t.Fatalf("HERALDO_PROJECT: %+v %v", r, got)
+	}
+	got = nil
+	if r := f.run("send", "-m", "x", "--project", "web"); r.code != 0 || got["project"] != "web" {
+		t.Fatalf("--project over HERALDO_PROJECT: %+v %v", r, got)
+	}
+	// A bad name costs the project, not the message.
+	got = nil
+	r := f.run("send", "-m", "x", "--project", "not a name")
+	if r.code != 0 || got["project"] != nil || !strings.Contains(r.stderr, "not a project name") {
+		t.Fatalf("bad name: %+v %v", r, got)
+	}
+}
+
+func TestListByProject(t *testing.T) {
+	f := newFixture(t)
+	f.post(writeTok, `{"source":"s","kind":"message","title":"in web","project":"web"}`)
+	f.post(writeTok, `{"source":"s","kind":"message","title":"in fleet","project":"fleet"}`)
+	f.post(writeTok, `{"source":"s","kind":"message","title":"in none"}`)
+	f.post(writeTok, `{"source":"s","kind":"incident","key":"k","action":"open","title":"web down","project":"web"}`)
+	for args, want := range map[string]string{
+		"ls --project web":        "in web,web down",
+		"ls --project fleet,-":    "in fleet,in none",
+		"ls --open --project web": "web down",
+		"ls --open --project x":   "",
+	} {
+		r := f.run(append(strings.Fields(args), "--json")...)
+		if r.code != 0 {
+			t.Fatalf("%s: %+v", args, r)
+		}
+		var titles []string
+		for _, line := range strings.Split(strings.TrimSpace(r.stdout), "\n") {
+			var e struct{ Title string }
+			if line != "" && json.Unmarshal([]byte(line), &e) == nil {
+				titles = append(titles, e.Title)
+			}
+		}
+		if got := strings.Join(titles, ","); got != want {
+			t.Errorf("%s = %q, want %q", args, got, want)
+		}
+	}
+	if r := f.run("peek", "--project", "web", "--mark"); r.code == 0 || !strings.Contains(r.stderr, "--mark with --project") {
+		t.Fatalf("peek --mark --project: %+v", r)
+	}
+	if !inProjects("", "web,-") || inProjects("fleet", "web") || !inProjects("web", " Web ") {
+		t.Fatal("inProjects")
+	}
+}

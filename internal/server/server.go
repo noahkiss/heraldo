@@ -131,6 +131,7 @@ func NewServer(o Options) *Server {
 	mux.HandleFunc("GET /v1/send", s.auth(auth.ScopeWrite, true, s.sendEvent))
 	mux.HandleFunc("GET /v1/stream", s.auth(auth.ScopeRead, false, s.stream))
 	mux.HandleFunc("GET /v1/state", s.auth(auth.ScopeRead, false, s.state))
+	mux.HandleFunc("GET /v1/projects", s.auth(auth.ScopeRead, false, s.listProjects))
 	mux.HandleFunc("GET /v1/cursors/{name}", s.auth(auth.ScopeRead, false, s.getCursor))
 	mux.HandleFunc("PUT /v1/cursors/{name}", s.auth(auth.ScopeRead, false, s.putCursor))
 	mux.HandleFunc("GET /v1/devices", s.auth(DeviceScope, false, s.listDevices))
@@ -353,7 +354,7 @@ func (s *server) postEvent(w http.ResponseWriter, r *http.Request) {
 var sendParams = map[string]bool{
 	"source": true, "kind": true, "key": true, "action": true, "ts": true, "host": true,
 	"title": true, "summary": true, "body": true, "level": true, "thread": true, "url": true,
-	"image": true, "icon": true, "sound": true, "dedup": true, "expires_at": true,
+	"image": true, "icon": true, "sound": true, "dedup": true, "expires_at": true, "project": true,
 }
 
 func (s *server) sendEvent(w http.ResponseWriter, r *http.Request) {
@@ -466,8 +467,12 @@ func (s *server) ingestPing(ctx context.Context, in *validate.Input) (store.Reco
 }
 
 // insert stores and announces a typed input. hold, when set, is the hold a
-// rule gave it.
+// rule gave it. It files the input under its project first, on every path.
 func (s *server) insert(ctx context.Context, in *validate.Input, hold map[string]any, trusted bool) (store.Record, bool, error) {
+	in, _, err := rules.WithProject(s.Rules.Rules(), in, s.Validator)
+	if err != nil {
+		s.Logger.Warn("rules: the project is not valid; stored without it", "err", err)
+	}
 	now := s.Now().UTC()
 	id := ids.New(now)
 	f := in.Fields
@@ -579,13 +584,19 @@ type page struct {
 
 func (s *server) listEvents(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+	projects, err := s.projectFilter(q)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "%v", err)
+		return
+	}
 	f := store.Filter{
-		Limit:  100,
-		Source: q.Get("source"),
-		Host:   q.Get("host"),
-		Key:    q.Get("key"),
-		Tag:    q.Get("tag"),
-		Q:      q.Get("q"),
+		Limit:    100,
+		Source:   q.Get("source"),
+		Host:     q.Get("host"),
+		Key:      q.Get("key"),
+		Tag:      q.Get("tag"),
+		Q:        q.Get("q"),
+		Projects: projects,
 	}
 	if v := q.Get("after"); v != "" {
 		seq, err := store.ParseCursor(v)

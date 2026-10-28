@@ -313,3 +313,29 @@ func TestRunWithRules(t *testing.T) {
 		t.Fatalf("digests: %d, %v", len(recs), err)
 	}
 }
+
+func TestClassifyProject(t *testing.T) {
+	_, v := setup(t)
+	rs, err := rules.Parse([]byte(`
+projects: [{match: {source: '^printer$'}, project: printing}]
+aliases: {infra: fleet}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for line, want := range map[string]any{
+		`{"id":"a1","ts":1790000000,"title":"t","project":"Web"}`:                  "web",
+		`{"id":"a2","ts":1790000000,"title":"t","project":"not a name"}`:           nil,
+		`{"id":"a3","ts":1790000000,"title":"t","source":"printer"}`:               "printing",
+		`{"id":"a4","ts":1790000000,"title":"t","source":"printer","project":"x"}`: "x",
+		`{"id":"a5","ts":1790000000,"title":"t","project":"infra"}`:                "fleet",
+	} {
+		m, err := Classify([]byte(line), v, rs)
+		if err != nil {
+			t.Fatalf("%s: %v", line, err)
+		}
+		if got := m.Event.Fields["project"]; got != want {
+			t.Errorf("%s: project %v, want %v", line, got, want)
+		}
+	}
+}

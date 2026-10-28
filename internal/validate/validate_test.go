@@ -37,3 +37,22 @@ func TestValid(t *testing.T) {
 		t.Fatalf("decoded %+v", in)
 	}
 }
+
+func TestProjectFolds(t *testing.T) {
+	v, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := v.Fields(map[string]any{"source": "s", "project": " Web.Front_1 "})
+	if err != nil || in.Fields["project"] != "web.front_1" || in.Typed.Project == nil || *in.Typed.Project != "web.front_1" {
+		t.Fatalf("fold: %v, %v", in, err)
+	}
+	for _, bad := range []string{"", "-web", "web/x", "a b", strings.Repeat("p", 65)} {
+		if _, err := v.Fields(map[string]any{"source": "s", "project": bad}); !IsValidation(err) || !strings.Contains(err.Error(), "project") {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+	if !ValidProject(strings.Repeat("p", 64)) || ValidProject("Web") {
+		t.Fatal("ValidProject")
+	}
+}

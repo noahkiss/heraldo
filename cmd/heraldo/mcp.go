@@ -14,8 +14,6 @@ import (
 	"github.com/noahkiss/heraldo/internal/version"
 )
 
-const envProject = "HERALDO_PROJECT" // send's default project
-
 // mcpTransport is the MCP transport; tests replace it.
 var mcpTransport = func() mcp.Transport { return &mcp.StdioTransport{} }
 

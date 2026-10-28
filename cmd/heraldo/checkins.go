@@ -16,7 +16,7 @@ import (
 
 // ---- checkins ----------------------------------------------------------
 
-const checkinsUsage = `[--json] | show <slug> | create <slug> [flags] | pause <slug> | resume <slug> | key [--remove] <slug>`
+const checkinsUsage = `[--json] [--project names] | show <slug> | create <slug> [flags] | pause <slug> | resume <slug> | key [--remove] <slug>`
 
 // checkins lists the checks, or runs one of its subcommands.
 func (a *app) checkins(ctx context.Context, args []string) error {
@@ -34,6 +34,7 @@ func (a *app) checkins(ctx context.Context, args []string) error {
 	}
 	fs := a.flags("checkins", checkinsUsage)
 	asJSON := fs.Bool("json", false, "print each check as JSON on one line")
+	project := fs.String("project", "", "only checks in these projects, comma-separated; - for none")
 	if pos, err := parse(fs, args); err != nil {
 		return err
 	} else if len(pos) > 0 {
@@ -44,12 +45,16 @@ func (a *app) checkins(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	checks, err := c.Checks(ctx)
+	entries, err := c.ChecksIn(ctx, projectList(*project))
 	if client.IsStatus(err, http.StatusNotFound) || client.IsStatus(err, http.StatusMethodNotAllowed) {
 		return a.lastCheckins(ctx, c, asJSON)
 	}
 	if err != nil {
 		return err
+	}
+	checks := make([]api.Check, len(entries))
+	for i, e := range entries {
+		checks[i] = e.Check
 	}
 	if *asJSON {
 		for _, ch := range checks {

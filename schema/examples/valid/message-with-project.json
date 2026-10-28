@@ -1,0 +1,8 @@
+{
+  "source": "deploy",
+  "project": "web",
+  "kind": "message",
+  "title": "Deployed web 2.4.1",
+  "level": "passive",
+  "thread": "deploys"
+}

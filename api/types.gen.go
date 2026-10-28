@@ -790,6 +790,9 @@ type AppriseNotify struct {
 	// Level A rung that replaces tag.
 	Level *string `json:"level,omitempty"`
 
+	// Project The event's project. A name the envelope refuses is dropped, not an error.
+	Project *string `json:"project,omitempty"`
+
 	// Source The sender. Absent, it comes from a title prefix such as "name: ", else the token name or the client address.
 	Source *string `json:"source,omitempty"`
 
@@ -837,6 +840,9 @@ type Check struct {
 
 	// PingKeyAt When the check's ping key was minted. Missing when it has none.
 	PingKeyAt *time.Time `json:"ping_key_at,omitempty"`
+
+	// Project The project of the check's last ping that carried one.
+	Project *string `json:"project,omitempty"`
 
 	// Schedule When a check expects pings. Set period_s, or cron with an optional tz, or neither for an unscheduled check that only a failed or overrun run takes down.
 	Schedule CheckSchedule `json:"schedule"`
@@ -1089,6 +1095,9 @@ type Event struct {
 	// Level Interruption level. Maps to the APNs interruption-level. Without the critical-alerts entitlement, the server sends critical as time-sensitive and records the downgrade in delivery.
 	Level *Level `json:"level,omitempty"`
 
+	// Project The project the event belongs to: a lowercase name of 1 to 64 letters, digits, dots, underscores and dashes, starting with a letter or digit. The server folds upper case to lower case before it checks the name. Without one, the server's projects map or the project of the event's key may fill it in.
+	Project *string `json:"project,omitempty"`
+
 	// ReceivedAt When the server stored the event, RFC 3339.
 	ReceivedAt time.Time `json:"received_at,omitempty"`
 
@@ -1169,6 +1178,9 @@ type EventInput struct {
 
 	// Level Interruption level. Maps to the APNs interruption-level. Without the critical-alerts entitlement, the server sends critical as time-sensitive and records the downgrade in delivery.
 	Level *Level `json:"level,omitempty"`
+
+	// Project The project the event belongs to: a lowercase name of 1 to 64 letters, digits, dots, underscores and dashes, starting with a letter or digit. The server folds upper case to lower case before it checks the name. Without one, the server's projects map or the project of the event's key may fill it in.
+	Project *string `json:"project,omitempty"`
 
 	// Relevance How relevant the event is next to others from the same app, 0 to 1. Maps to relevance-score.
 	Relevance *float32 `json:"relevance,omitempty"`
@@ -1428,6 +1440,24 @@ type PingKey struct {
 	Path string `json:"path"`
 }
 
+// Project defines model for Project.
+type Project struct {
+	// Events The stored events with this project, or a name aliased to it.
+	Events int `json:"events"`
+
+	// LastAt When the newest of them arrived.
+	LastAt time.Time `json:"last_at"`
+	Name   string    `json:"name"`
+}
+
+// ProjectList defines model for ProjectList.
+type ProjectList struct {
+	Projects []Project `json:"projects"`
+
+	// Unfiled The events with no project.
+	Unfiled int `json:"unfiled"`
+}
+
 // Schedule When the check expects a ping. The server uses it only to create a check it does not know yet, as healthchecks.io does with ?create=1; after that the check's config lives on the server. Set period_s, or cron with an optional tz, not both.
 type Schedule struct {
 	// Cron Cron expression for the expected pings.
@@ -1535,8 +1565,14 @@ type PingHost = string
 // PingKeyPath defines model for PingKeyPath.
 type PingKeyPath = string
 
+// PingProject defines model for PingProject.
+type PingProject = string
+
 // PingSource defines model for PingSource.
 type PingSource = string
+
+// ProjectFilter defines model for ProjectFilter.
+type ProjectFilter = []string
 
 // Rid defines model for Rid.
 type Rid = string
@@ -1592,6 +1628,9 @@ type KeyPingSuccessParams struct {
 
 	// Host The event's host, and the host of a check that this ping creates.
 	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+
+	// Project The event's project. Without one, the check keeps the project of its earlier pings.
+	Project *PingProject `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // KeyPingSuccessWithLogTextBody defines parameters for KeyPingSuccessWithLog.
@@ -1607,6 +1646,9 @@ type KeyPingSuccessWithLogParams struct {
 
 	// Host The event's host, and the host of a check that this ping creates.
 	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+
+	// Project The event's project. Without one, the check keeps the project of its earlier pings.
+	Project *PingProject `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // KeyPingFailParams defines parameters for KeyPingFail.
@@ -1619,6 +1661,9 @@ type KeyPingFailParams struct {
 
 	// Host The event's host, and the host of a check that this ping creates.
 	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+
+	// Project The event's project. Without one, the check keeps the project of its earlier pings.
+	Project *PingProject `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // KeyPingFailWithLogTextBody defines parameters for KeyPingFailWithLog.
@@ -1634,6 +1679,9 @@ type KeyPingFailWithLogParams struct {
 
 	// Host The event's host, and the host of a check that this ping creates.
 	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+
+	// Project The event's project. Without one, the check keeps the project of its earlier pings.
+	Project *PingProject `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // KeyPingLogGetParams defines parameters for KeyPingLogGet.
@@ -1646,6 +1694,9 @@ type KeyPingLogGetParams struct {
 
 	// Host The event's host, and the host of a check that this ping creates.
 	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+
+	// Project The event's project. Without one, the check keeps the project of its earlier pings.
+	Project *PingProject `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // KeyPingLogTextBody defines parameters for KeyPingLog.
@@ -1661,6 +1712,9 @@ type KeyPingLogParams struct {
 
 	// Host The event's host, and the host of a check that this ping creates.
 	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+
+	// Project The event's project. Without one, the check keeps the project of its earlier pings.
+	Project *PingProject `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // KeyPingStartParams defines parameters for KeyPingStart.
@@ -1673,6 +1727,9 @@ type KeyPingStartParams struct {
 
 	// Host The event's host, and the host of a check that this ping creates.
 	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+
+	// Project The event's project. Without one, the check keeps the project of its earlier pings.
+	Project *PingProject `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // KeyPingStartWithLogTextBody defines parameters for KeyPingStartWithLog.
@@ -1688,6 +1745,9 @@ type KeyPingStartWithLogParams struct {
 
 	// Host The event's host, and the host of a check that this ping creates.
 	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+
+	// Project The event's project. Without one, the check keeps the project of its earlier pings.
+	Project *PingProject `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // KeyPingExitCodeParams defines parameters for KeyPingExitCode.
@@ -1700,6 +1760,9 @@ type KeyPingExitCodeParams struct {
 
 	// Host The event's host, and the host of a check that this ping creates.
 	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+
+	// Project The event's project. Without one, the check keeps the project of its earlier pings.
+	Project *PingProject `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // KeyPingExitCodeWithLogTextBody defines parameters for KeyPingExitCodeWithLog.
@@ -1715,6 +1778,9 @@ type KeyPingExitCodeWithLogParams struct {
 
 	// Host The event's host, and the host of a check that this ping creates.
 	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+
+	// Project The event's project. Without one, the check keeps the project of its earlier pings.
+	Project *PingProject `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // PingSuccessParams defines parameters for PingSuccess.
@@ -1732,6 +1798,9 @@ type PingSuccessParams struct {
 
 	// Host The event's host, and the host of a check that this ping creates.
 	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+
+	// Project The event's project. Without one, the check keeps the project of its earlier pings.
+	Project *PingProject `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // PingSuccessWithLogTextBody defines parameters for PingSuccessWithLog.
@@ -1752,6 +1821,9 @@ type PingSuccessWithLogParams struct {
 
 	// Host The event's host, and the host of a check that this ping creates.
 	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+
+	// Project The event's project. Without one, the check keeps the project of its earlier pings.
+	Project *PingProject `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // PingFailParams defines parameters for PingFail.
@@ -1769,6 +1841,9 @@ type PingFailParams struct {
 
 	// Host The event's host, and the host of a check that this ping creates.
 	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+
+	// Project The event's project. Without one, the check keeps the project of its earlier pings.
+	Project *PingProject `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // PingFailWithLogTextBody defines parameters for PingFailWithLog.
@@ -1789,6 +1864,9 @@ type PingFailWithLogParams struct {
 
 	// Host The event's host, and the host of a check that this ping creates.
 	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+
+	// Project The event's project. Without one, the check keeps the project of its earlier pings.
+	Project *PingProject `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // PingLogGetParams defines parameters for PingLogGet.
@@ -1806,6 +1884,9 @@ type PingLogGetParams struct {
 
 	// Host The event's host, and the host of a check that this ping creates.
 	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+
+	// Project The event's project. Without one, the check keeps the project of its earlier pings.
+	Project *PingProject `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // PingLogTextBody defines parameters for PingLog.
@@ -1826,6 +1907,9 @@ type PingLogParams struct {
 
 	// Host The event's host, and the host of a check that this ping creates.
 	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+
+	// Project The event's project. Without one, the check keeps the project of its earlier pings.
+	Project *PingProject `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // PingStartParams defines parameters for PingStart.
@@ -1843,6 +1927,9 @@ type PingStartParams struct {
 
 	// Host The event's host, and the host of a check that this ping creates.
 	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+
+	// Project The event's project. Without one, the check keeps the project of its earlier pings.
+	Project *PingProject `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // PingStartWithLogTextBody defines parameters for PingStartWithLog.
@@ -1863,6 +1950,9 @@ type PingStartWithLogParams struct {
 
 	// Host The event's host, and the host of a check that this ping creates.
 	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+
+	// Project The event's project. Without one, the check keeps the project of its earlier pings.
+	Project *PingProject `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // PingExitCodeParams defines parameters for PingExitCode.
@@ -1880,6 +1970,9 @@ type PingExitCodeParams struct {
 
 	// Host The event's host, and the host of a check that this ping creates.
 	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+
+	// Project The event's project. Without one, the check keeps the project of its earlier pings.
+	Project *PingProject `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // PingExitCodeWithLogTextBody defines parameters for PingExitCodeWithLog.
@@ -1900,6 +1993,9 @@ type PingExitCodeWithLogParams struct {
 
 	// Host The event's host, and the host of a check that this ping creates.
 	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
+
+	// Project The event's project. Without one, the check keeps the project of its earlier pings.
+	Project *PingProject `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // NotifyRecentParams defines parameters for NotifyRecent.
@@ -1917,6 +2013,14 @@ type ListActivitiesParams struct {
 
 // ListActivitiesParamsAll defines parameters for ListActivities.
 type ListActivitiesParamsAll int
+
+// ListCheckinsParams defines parameters for ListCheckins.
+type ListCheckinsParams struct {
+	// Project Only these projects. Give a comma-separated list, or repeat the parameter; any
+	// one name matches. - matches items with no project. A name also matches the
+	// names the rules file's aliases map to it. Upper case folds to lower case.
+	Project *ProjectFilter `form:"project,omitempty" json:"project,omitempty"`
+}
 
 // ListEventsParams defines parameters for ListEvents.
 type ListEventsParams struct {
@@ -1944,6 +2048,11 @@ type ListEventsParams struct {
 
 	// Hold Events whose hold.state is this value, such as held.
 	Hold *string `form:"hold,omitempty" json:"hold,omitempty"`
+
+	// Project Only these projects. Give a comma-separated list, or repeat the parameter; any
+	// one name matches. - matches items with no project. A name also matches the
+	// names the rules file's aliases map to it. Upper case folds to lower case.
+	Project *ProjectFilter `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // ListEventsParamsOrder defines parameters for ListEvents.
@@ -1987,6 +2096,7 @@ type SendEventParams struct {
 	Action  *EventAction `form:"action,omitempty" json:"action,omitempty"`
 	Ts      *time.Time   `form:"ts,omitempty" json:"ts,omitempty"`
 	Host    *string      `form:"host,omitempty" json:"host,omitempty"`
+	Project *string      `form:"project,omitempty" json:"project,omitempty"`
 	Title   *string      `form:"title,omitempty" json:"title,omitempty"`
 	Summary *string      `form:"summary,omitempty" json:"summary,omitempty"`
 	Body    *string      `form:"body,omitempty" json:"body,omitempty"`
@@ -2002,6 +2112,14 @@ type SendEventParams struct {
 	Dedup     *string    `form:"dedup,omitempty" json:"dedup,omitempty"`
 	ExpiresAt *time.Time `form:"expires_at,omitempty" json:"expires_at,omitempty"`
 	Relevance *float32   `form:"relevance,omitempty" json:"relevance,omitempty"`
+}
+
+// GetStateParams defines parameters for GetState.
+type GetStateParams struct {
+	// Project Only these projects. Give a comma-separated list, or repeat the parameter; any
+	// one name matches. - matches items with no project. A name also matches the
+	// names the rules file's aliases map to it. Upper case folds to lower case.
+	Project *ProjectFilter `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // NotifyLiveActivityUpsertJSONRequestBody defines body for NotifyLiveActivityUpsert for application/json ContentType.

@@ -17,9 +17,14 @@ type State struct {
 	Statuses  []json.RawMessage
 }
 
-// State reads the current state.
-func (s *Store) State(ctx context.Context) (State, error) {
+// State reads the current state. projects, when not empty, keeps the rows
+// in these projects, as Filter.Projects does.
+func (s *Store) State(ctx context.Context, projects []string) (State, error) {
 	var st State
+	pw, pargs := projectWhere("t.project", projects)
+	if pw != "" {
+		pw = " AND " + pw
+	}
 	for _, q := range []struct {
 		dst   *[]json.RawMessage
 		table string
@@ -31,7 +36,7 @@ func (s *Store) State(ctx context.Context) (State, error) {
 		{&st.Statuses, "status", "1"},
 	} {
 		rows, err := s.db.QueryContext(ctx, `SELECT e.event FROM `+q.table+` t
-			JOIN events e ON e.id = t.last_event WHERE `+q.where+` ORDER BY t.key`)
+			JOIN events e ON e.id = t.last_event WHERE `+q.where+pw+` ORDER BY t.key`, pargs...)
 		if err != nil {
 			return State{}, err
 		}

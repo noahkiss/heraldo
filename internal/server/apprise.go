@@ -221,11 +221,12 @@ func deriveSource(title, fallback string) string {
 }
 
 // message is a post in the one message shape the hold and ingest use:
-// title, body, tag (the rung; level, when set, replaces it), source, url,
-// image, and Apprise's type and format. Every value is a string.
+// title, body, tag (the rung; level, when set, replaces it), source,
+// project, url, image, and Apprise's type and format. Every value is a
+// string.
 func message(f map[string]any, fallbackSource string) map[string]any {
 	m := map[string]any{}
-	for _, k := range []string{"title", "body", "url", "image", "type", "format"} {
+	for _, k := range []string{"title", "body", "project", "url", "image", "type", "format"} {
 		if v := str(f, k); v != "" {
 			m[k] = v
 		}
@@ -299,6 +300,10 @@ func envelope(m map[string]any, extra map[string]any) map[string]any {
 		} else if api.Level(first).Valid() {
 			ev["level"] = first
 		}
+	}
+	if p := validate.FoldProject(str(m, "project")); validate.ValidProject(p) {
+		// A name the envelope refuses is dropped: the message still counts.
+		ev["project"] = p
 	}
 	if u := webURL(str(m, "url"), false); u != "" {
 		ev["url"] = u
@@ -436,7 +441,7 @@ func teeEntry(raw json.RawMessage) map[string]any {
 		return map[string]any{"corrupt": cut(string(raw), 200)}
 	}
 	out := map[string]any{"id": ev["id"], "status": 200, "delivered": true}
-	for _, k := range []string{"source", "title", "body", "kind", "key", "action", "level", "url", "image"} {
+	for _, k := range []string{"source", "project", "title", "body", "kind", "key", "action", "level", "url", "image"} {
 		if v, ok := ev[k]; ok {
 			out[k] = v
 		}

@@ -228,6 +228,20 @@ func insert(ctx context.Context, tx *sql.Tx, ev NewEvent) (Record, error) {
 	if in.Kind == nil {
 		return Record{}, errors.New("store: event has no kind")
 	}
+	// An event with a key and no project files under its key's project,
+	// so an ack or a resolve from a sender that does not know it lands
+	// beside the open.
+	if in.Project == nil && in.Key != nil {
+		p, err := keyProject(ctx, tx, *in.Kind, *in.Key)
+		if err != nil {
+			return Record{}, err
+		}
+		if p != "" {
+			in.Project = &p
+			ev.Typed.Project = &p
+			ev.Fields["project"] = p
+		}
+	}
 	// An incident event carries the incident as it stands after the event,
 	// so a resolve knows how long the incident was open.
 	var inc *incidentRow
@@ -252,10 +266,10 @@ func insert(ctx context.Context, tx *sql.Tx, ev NewEvent) (Record, error) {
 		tags = string(b)
 	}
 	res, err := tx.ExecContext(ctx, `INSERT INTO events
-		(id, received_at, ts, source, host, kind, key, action, level, tags, dedup, event)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(id, received_at, ts, source, host, kind, key, action, level, tags, dedup, project, event)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ev.ID, ev.ReceivedAt.UTC().Format(timeFormat), ts.UTC().Format(timeFormat),
-		in.Source, in.Host, string(*in.Kind), in.Key, in.Action, in.Level, tags, in.Dedup, string(raw))
+		in.Source, in.Host, string(*in.Kind), in.Key, in.Action, in.Level, tags, in.Dedup, in.Project, string(raw))
 	if err != nil {
 		return Record{}, err
 	}
@@ -272,7 +286,48 @@ func insert(ctx context.Context, tx *sql.Tx, ev NewEvent) (Record, error) {
 	if err := derive(ctx, tx, ev, inc); err != nil {
 		return Record{}, err
 	}
+	if in.Project != nil && in.Key != nil {
+		if t := derivedTable(*in.Kind); t != "" {
+			if _, err := tx.ExecContext(ctx, `UPDATE `+t+` SET project = ? WHERE key = ?`, *in.Project, *in.Key); err != nil {
+				return Record{}, err
+			}
+		}
+	}
 	return Record{Seq: seq, ID: ev.ID, Event: raw}, nil
+}
+
+// derivedTable is the state table that keeps the events of kind by key, or
+// "" for a kind without one.
+func derivedTable(kind api.Kind) string {
+	switch kind {
+	case api.KindIncident:
+		return "incidents"
+	case api.KindCheckin:
+		return "checkins"
+	case api.KindProgress:
+		return "activities"
+	case api.KindStatus:
+		return "status"
+	}
+	return ""
+}
+
+// keyProject is the project of key's row in the state table of kind, or "".
+// A check-in incident with none takes its check's project.
+func keyProject(ctx context.Context, q queryer, kind api.Kind, key string) (string, error) {
+	t := derivedTable(kind)
+	if t == "" {
+		return "", nil
+	}
+	var p sql.NullString
+	err := q.QueryRowContext(ctx, `SELECT project FROM `+t+` WHERE key = ?`, key).Scan(&p)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	if p.String == "" && kind == api.KindIncident && strings.HasPrefix(key, CheckinKeyPrefix) {
+		return keyProject(ctx, q, api.KindCheckin, strings.TrimPrefix(key, CheckinKeyPrefix))
+	}
+	return p.String, nil
 }
 
 // derive updates the state tables for one event. inc is the incident row
@@ -367,6 +422,35 @@ type Filter struct {
 	Q string
 	// Hold keeps events whose hold.state is this value, such as held.
 	Hold string
+	// Projects keeps events in any of these projects; NoProject in it
+	// keeps the events with none.
+	Projects []string
+}
+
+// NoProject is the project filter value for "no project".
+const NoProject = "-"
+
+// projectWhere is the SQL condition for a project filter on col, and its
+// arguments, or "" when projects is empty.
+func projectWhere(col string, projects []string) (string, []any) {
+	if len(projects) == 0 {
+		return "", nil
+	}
+	var or []string
+	var args []any
+	var names []string
+	for _, p := range projects {
+		if p == NoProject {
+			or = append(or, col+" IS NULL")
+			continue
+		}
+		names = append(names, "?")
+		args = append(args, p)
+	}
+	if len(names) > 0 {
+		or = append(or, col+" IN ("+strings.Join(names, ", ")+")")
+	}
+	return "(" + strings.Join(or, " OR ") + ")", args
 }
 
 // List returns events after f.AfterSeq in arrival order, or newest first
@@ -393,6 +477,10 @@ func (s *Store) List(ctx context.Context, f Filter) ([]Record, error) {
 	if f.Hold != "" {
 		where = append(where, "json_extract(event, '$.hold.state') = ?")
 		args = append(args, f.Hold)
+	}
+	if w, a := projectWhere("project", f.Projects); w != "" {
+		where = append(where, w)
+		args = append(args, a...)
 	}
 	if q := ftsQuery(f.Q); q != "" {
 		where = append(where, "seq IN (SELECT rowid FROM events_fts WHERE events_fts MATCH ?)")

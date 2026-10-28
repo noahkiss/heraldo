@@ -559,8 +559,11 @@ func TestSend(t *testing.T) {
 	if _, _, isErr := s.call("send", map[string]any{"title": "x", "kind": "incident"}); !isErr {
 		t.Fatal("send took kind")
 	}
-	// This server has no project field: it refuses one.
-	s.fail("send", map[string]any{"title": "x", "project": "heraldo"}, "unsupported_filter")
+	// The server stores the project, folded to lower case.
+	out, _ = s.ok("send", map[string]any{"title": "x", "project": "Web"})
+	if e := f.do(http.MethodGet, "/v1/events/"+out["id"].(string), readTok, ""); e["project"] != "web" {
+		t.Fatalf("project: %v", e)
+	}
 	// HERALDO_SOURCE wins over the client's name.
 	o := connect(t, Options{API: f.client(readTok, writeTok), Write: true, Source: "my-agent"}, "claude-code")
 	out, _ = o.ok("send", map[string]any{"title": "x"})

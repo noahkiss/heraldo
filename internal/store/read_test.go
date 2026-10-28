@@ -56,7 +56,7 @@ func TestState(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	st, err := s.State(ctx)
+	st, err := s.State(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

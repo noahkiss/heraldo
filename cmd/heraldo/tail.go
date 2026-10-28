@@ -193,6 +193,7 @@ func (a *app) runExec(ctx context.Context, cmd string, e client.Event) {
 		"HERALDO_EVENT_LEVEL=" + level(e),
 		"HERALDO_EVENT_KEY=" + str(e.Key),
 		"HERALDO_EVENT_HOST=" + str(e.Host),
+		"HERALDO_EVENT_PROJECT=" + str(e.Project),
 		"HERALDO_EVENT_TITLE=" + oneLine(str(e.Title)),
 		"HERALDO_EVENT_TS=" + when(e).UTC().Format(time.RFC3339),
 	}

@@ -204,6 +204,10 @@ func (s *server) compatStore(w http.ResponseWriter, r *http.Request, key, action
 	if t, _ := body["title"].(string); t != "" && action == "start" {
 		f["title"] = t
 	}
+	// Updates and the end keep the activity's project by its key.
+	if p, _ := body["project"].(string); p != "" && action == "start" {
+		f["project"] = p
+	}
 	in, err := s.Validator.Fields(f)
 	if err != nil {
 		compatError(w, http.StatusBadRequest, err.Error())
@@ -320,6 +324,9 @@ func (s *server) compatNotify(w http.ResponseWriter, r *http.Request) {
 	}
 	if g, _ := body["groupType"].(string); g != "" {
 		f["thread"] = cut(g, 128)
+	}
+	if p, _ := body["project"].(string); p != "" {
+		f["project"] = p
 	}
 	if u, _ := body["iconUrl"].(string); u != "" && len(u) <= 512 {
 		f["icon"] = u

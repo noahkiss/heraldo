@@ -35,8 +35,8 @@ func TestMigrateFromEmpty(t *testing.T) {
 			t.Fatalf("migration %s: want the prefix %s", n, want)
 		}
 	}
-	if len(names) != 8 {
-		t.Fatalf("%d migrations, want 8", len(names))
+	if len(names) != 9 {
+		t.Fatalf("%d migrations, want 9", len(names))
 	}
 	v, err := s.Version(ctx)
 	if err != nil || v != len(names) {

@@ -29,6 +29,7 @@ The plan and its stages live in bm (project `heraldo`).
 | Back up a running server's database | `heraldo-server backup <new-path>` |
 | Backfill an apprise-tee catalogue | `heraldo-server import-tee [-since YYYY-MM] <dir>` |
 | Check a rules file against a catalogue | `heraldo-server replay-tee -rules <file> <dir>` |
+| File stored events under projects | `heraldo-server backfill-projects -dry-run`, then without `-dry-run` |
 | Build the image | `docker build -t heraldo .` (CI pushes `ghcr.io/noahkiss/heraldo` on main and `v*` tags) |
 | Release | Push a `v*` tag. CI builds the image, then dispatches the tap's `bump.yml` (formula `heraldo`) with repo secret `HOMEBREW_TAP_TOKEN` and waits for the verified bump |
 | Release the Mac app | After the `v*` tag: `apple/scripts/build.sh`, then `NOTARY_PROFILE=<profile> apple/scripts/notarize.sh` (makes `apple/build/Heraldo-<version>-macos.zip`), `gh release create <tag>` with the four CLI binaries (`-X` version flag, darwin and linux, amd64 and arm64), the zip and `SHA256SUMS` (CI creates no release), then `gh workflow run bump.yml -R noahkiss/homebrew-tap -f formula=heraldo-app -f tag=<tag>`. `MARKETING_VERSION` in `Names.xcconfig` matches the tag |

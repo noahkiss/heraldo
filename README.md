@@ -143,7 +143,8 @@ the server logs an error, keeps running and pushes nothing. `/healthz` reports
 | `heraldo-server` | Runs the server. SIGTERM or SIGINT shuts it down cleanly: it pushes what is still queued first. |
 | `heraldo-server backup <path>` | Copies the database to a new file with SQLite's online backup. The server keeps running. The copy is one file in rollback-journal mode, with no `-wal` or `-shm` beside it. |
 | `heraldo-server import-tee [-since YYYY-MM] <dir>` | Backfills an apprise-tee catalogue (`notifications-YYYY-MM.jsonl`), typed by `HERALDO_RULES` when set. `-since` reads that month and later only. A rerun stores nothing twice, and an imported event never pushes. |
-| `heraldo-server replay-tee [-rules <file>] <dir>` | Runs a catalogue through a rules file (default `HERALDO_RULES`) in memory and reports how many recoveries paired with their failure, the unpaired ones, the hits per rule and every source and tag no rule matched. It opens no database. |
+| `heraldo-server replay-tee [-rules <file>] <dir>` | Runs a catalogue through a rules file (default `HERALDO_RULES`) in memory and reports how many recoveries paired with their failure, the unpaired ones, the hits per rule, every source and tag no rule matched, and the events per project. It opens no database. |
+| `heraldo-server backfill-projects [-dry-run] [-rules <file>]` | Gives the stored events with no project one, from the rules file's projects map (default `HERALDO_RULES`) and from earlier events with the same key. `-dry-run` prints the counts and changes nothing. See [docs/api.md](docs/api.md#projects). |
 | `heraldo-server hash-token` | Prints the SHA-256 of a token read from stdin. |
 | `heraldo-server healthcheck` | Exits 0 when the local `/healthz` answers. The image's `HEALTHCHECK` runs it. |
 
@@ -159,11 +160,11 @@ any `-wal` and `-shm` files left beside the old database first.
 
 | Command | Does |
 |---|---|
-| `heraldo peek [--mark]` | Lists the events after the read cursor. `--mark` moves the cursor past them. With no cursor yet, it lists the newest events. |
+| `heraldo peek [--mark]` | Lists the events after the read cursor. `--mark` moves the cursor past them. With no cursor yet, it lists the newest events. `--project` keeps the unread events in those projects; not with `--mark`. |
 | `heraldo show [--json] <id>` | Prints one event with its full body. |
-| `heraldo ls` | Lists the newest events (20 by default, oldest first). Filters: `--kind`, `--source`, `--host`, `--key`, `--tag`, `-q` (full text). `--open` lists the incidents that are not resolved. |
+| `heraldo ls` | Lists the newest events (20 by default, oldest first). Filters: `--kind`, `--source`, `--host`, `--key`, `--tag`, `--project` (a comma-separated list; `-` for none), `-q` (full text). `--open` lists the incidents that are not resolved. |
 | `heraldo held` | Lists events held for triage (`hold.state` is `held`). |
-| `heraldo checkins` | Lists every check: state, next due time, last run length, first line of the last log. `checkins show <slug>` prints one check with its full last log. |
+| `heraldo checkins` | Lists every check: state, next due time, last run length, first line of the last log. `--project` keeps the checks in those projects. `checkins show <slug>` prints one check with its full last log. |
 | `heraldo checkins create <slug>` | Creates a check, or replaces a known check's schedule: `--period` or `--cron` with `--tz`, `--grace`, `--max-runtime`, `--reminder`, `--host`. Needs `HERALDO_WRITE_TOKEN`. |
 | `heraldo checkins pause <slug>`, `resume <slug>` | Pauses or resumes a check. Needs `HERALDO_WRITE_TOKEN`. |
 | `heraldo checkins key [--remove] <slug>` | Prints a new ping URL, `<HERALDO_URL>/p/<key>`, for the check; the old key stops working. `--remove` removes the key. Needs `HERALDO_WRITE_TOKEN`. |
@@ -187,6 +188,7 @@ Settings come from the environment first, then from an env file:
 | `HERALDO_CURSOR` | The read cursor's name. Default: `inbox`, the cursor every client shares. Set another name for a separate cursor. |
 | `HERALDO_SOURCE` | The `source` of `ack` and `resolve` events. Default: `heraldo-cli`. |
 | `HERALDO_SEND_URL`, `APPRISE_URL` | `send`'s notify URL; the first one set wins |
+| `HERALDO_PROJECT` | `send`: the project, when `--project` is not given |
 | `NOTIFY_EXTRA_JSON` | `send`: extra JSON fields for the payload, such as `"_nonce": "abc"` |
 | `HERALDO_FALLBACK_URL` | `send`: a heraldo server, such as a standby, for when the notify URL fails |
 | `HERALDO_FALLBACK_TOKEN` | `send`: a `write` token for the fallback |
@@ -208,7 +210,7 @@ a time, for at most a minute each. The command must be listed in
 comments. The CLI refuses the file when group or others can write to it.
 
 No shell runs. The command gets the event's JSON on stdin, and these variables:
-`HERALDO_EVENT_ID`, `_SOURCE`, `_KIND`, `_ACTION`, `_KEY`, `_HOST`, `_LEVEL`,
+`HERALDO_EVENT_ID`, `_SOURCE`, `_KIND`, `_ACTION`, `_KEY`, `_HOST`, `_PROJECT`, `_LEVEL`,
 `_TITLE`, `_TAGS` (comma-separated) and `_TS`. It does not get
 `HERALDO_TOKEN` or `HERALDO_WRITE_TOKEN`.
 
@@ -220,6 +222,9 @@ No shell runs. The command gets the event's JSON on stdin, and these variables:
   `-m`, the message comes from stdin; with a terminal on stdin, `send` fails.
 - `--tag`, `--source`, `--url`, `--image` and `--level` add those fields, for an
   apprise-tee front door.
+- `--project`, else `HERALDO_PROJECT`, adds `project`, folded to lower case.
+  A name that is not valid is dropped with a warning on stderr; the message
+  still goes. `send` never reads a project from the working directory.
 - With no notify URL set, `send` does nothing and exits 0.
 - Success prints `✅ Notification sent successfully.` and exits 0. Success
   means HTTP 200 with a `Sent` line in the answer.
@@ -229,7 +234,8 @@ No shell runs. The command gets the event's JSON on stdin, and these variables:
 - With `HERALDO_FALLBACK_URL` and `HERALDO_FALLBACK_TOKEN` set, a failed notify
   URL is retried as `POST /v1/events` on that server. The event has kind
   `message`; `--tag` becomes `tags`; a `--level` that is an envelope level
-  becomes `level`, any other `--level` becomes the first tag. When the
+  becomes `level`, any other `--level` becomes the first tag; `project` is
+  kept. When the
   fallback stores it, `send` prints the sent line and names the fallback on
   stderr. When both fail, the failed line carries the notify URL's status.
 

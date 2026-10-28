@@ -126,6 +126,13 @@
           "minLength": 1,
           "maxLength": 128
         },
+        "project": {
+          "type": "string",
+          "description": "The project the event belongs to: a lowercase name of 1 to 64 letters, digits, dots, underscores and dashes, starting with a letter or digit. The server folds upper case to lower case before it checks the name. Without one, the server's projects map or the project of the event's key may fill it in.",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+          "minLength": 1,
+          "maxLength": 64
+        },
         "kind": {
           "$ref": "#/$defs/Kind"
         },

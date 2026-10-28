@@ -29,6 +29,8 @@
 //	                                  backfill an apprise-tee catalogue
 //	heraldo-server replay-tee [-rules <file>] <dir>
 //	                                  run a catalogue through the rules, in memory
+//	heraldo-server backfill-projects [-dry-run] [-rules <file>]
+//	                                  file stored events with no project
 //	heraldo-server backup <path>      online backup of the database to path
 //	heraldo-server hash-token         print the SHA-256 of a token read from stdin
 //	heraldo-server healthcheck        exit 0 when the local /healthz answers ok
@@ -47,6 +49,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -77,6 +80,11 @@ commands:
   replay-tee [-rules <file>] <dir>
                      run a catalogue through the rules file (default
                      $HERALDO_RULES) in memory and report what they classified
+  backfill-projects [-dry-run] [-rules <file>]
+                     give the stored events with no project one, from the
+                     rules file's projects map (default $HERALDO_RULES) and
+                     from earlier events with the same key; -dry-run only
+                     reports
   backup <path>      copy the database to path with SQLite's online backup
   hash-token         print the SHA-256 of a token read from stdin
   healthcheck        exit 0 when this server's /healthz answers ok (for Docker)
@@ -110,6 +118,8 @@ func run(args []string, stdin io.Reader, stdout io.Writer, log *slog.Logger) err
 		return importTee(fs.Arg(0), *since, log)
 	case "replay-tee":
 		return replayTee(args, stdout)
+	case "backfill-projects":
+		return backfillProjects(args, stdout)
 	case "backup":
 		if len(args) != 1 {
 			return errors.New("usage: heraldo-server backup <path>")
@@ -356,6 +366,53 @@ func replayTee(args []string, stdout io.Writer) error {
 		return err
 	}
 	r.Write(stdout)
+	return nil
+}
+
+// backfillProjects files the stored events that have no project.
+func backfillProjects(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("backfill-projects", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	dry := fs.Bool("dry-run", false, "report, change nothing")
+	path := fs.String("rules", os.Getenv("HERALDO_RULES"), "rules file")
+	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
+		return errors.New("usage: heraldo-server backfill-projects [-dry-run] [-rules <file>]")
+	}
+	var rs *rules.Set
+	if *path != "" {
+		var err error
+		if rs, err = rules.Load(*path); err != nil {
+			return err
+		}
+	}
+	ctx := context.Background()
+	_, st, err := open(ctx)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	res, err := st.BackfillProjects(ctx, func(f map[string]any) string {
+		p, _ := rs.MapProject(f)
+		return p
+	}, *dry)
+	if err != nil {
+		return fmt.Errorf("backfill-projects: %w", err)
+	}
+	verb := "filed"
+	if *dry {
+		verb = "would file"
+	}
+	fmt.Fprintf(stdout, "events with no project: %d; %s %d, %d left without one\n",
+		res.Scanned, verb, res.Total(), res.Scanned-res.Total())
+	names := make([]string, 0, len(res.Changed))
+	for p := range res.Changed {
+		names = append(names, p)
+	}
+	sort.Strings(names)
+	for _, p := range names {
+		fmt.Fprintf(stdout, "  %5d  %s\n", res.Changed[p], p)
+	}
+	fmt.Fprintf(stdout, "state rows %s: %d\n", verb, res.Derived)
 	return nil
 }
 

@@ -110,3 +110,41 @@ func TestReplayTee(t *testing.T) {
 		t.Fatal("missing rules file: want an error")
 	}
 }
+
+func TestBackfillProjects(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HERALDO_DB", filepath.Join(dir, "h.db"))
+	t.Setenv("HERALDO_RULES", "")
+	if err := run([]string{"import-tee", "../../internal/teeimport/testdata/catalogue"}, nil, io.Discard, quiet); err != nil {
+		t.Fatal(err)
+	}
+	rules := filepath.Join(dir, "rules.yaml")
+	if err := os.WriteFile(rules, []byte("projects: [{match: {}, project: demo}]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"backfill-projects", "-dry-run", "-rules", rules}, nil, &out, quiet); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "would file") || !strings.Contains(out.String(), "demo") || strings.Contains(out.String(), "would file 0,") {
+		t.Fatalf("dry run:\n%s", out.String())
+	}
+	dry := out.String()
+	out.Reset()
+	if err := run([]string{"backfill-projects", "-rules", rules}, nil, &out, quiet); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Replace(dry, "would file", "filed", -1) != out.String() {
+		t.Fatalf("run:\n%s\ndry run:\n%s", out.String(), dry)
+	}
+	out.Reset()
+	if err := run([]string{"backfill-projects", "-rules", rules}, nil, &out, quiet); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(out.String(), "events with no project: 0; filed 0, 0 left without one") {
+		t.Fatalf("rerun:\n%s", out.String())
+	}
+	if err := run([]string{"backfill-projects", "stray"}, nil, io.Discard, quiet); err == nil {
+		t.Fatal("stray argument: want a usage error")
+	}
+}

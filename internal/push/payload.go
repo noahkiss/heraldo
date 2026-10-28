@@ -146,8 +146,10 @@ type Heraldo struct {
 	Source string `json:"source"`
 	Key    string `json:"key,omitempty"`
 	Action string `json:"action,omitempty"`
-	URL    string `json:"url,omitempty"`
-	Image  string `json:"image,omitempty"`
+	// Project is the event's project, so the extension can file it.
+	Project string `json:"project,omitempty"`
+	URL     string `json:"url,omitempty"`
+	Image   string `json:"image,omitempty"`
 	// Icon is the name of the source's icon in the server's registry, for
 	// GET /v1/icons/{name}. IconURL is an icon the event links to instead.
 	Icon    string `json:"icon,omitempty"`
@@ -222,6 +224,9 @@ func Build(ev *api.Event, d Decision, x Extra) ([]byte, Headers, error) {
 	}
 	if ev.Key != nil {
 		p.Heraldo.Key = *ev.Key
+	}
+	if ev.Project != nil {
+		p.Heraldo.Project = *ev.Project
 	}
 	if ev.Action != nil {
 		p.Heraldo.Action = string(*ev.Action)

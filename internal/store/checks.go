@@ -188,6 +188,8 @@ type CheckView struct {
 	// Incident is the state of the check's incident, checkin:<key>: open,
 	// acked or resolved, or empty when it never had one.
 	Incident string
+	// Project is the project of the check's last ping that named one.
+	Project string
 }
 
 // Check returns one check.
@@ -202,15 +204,20 @@ func (s *Store) Check(ctx context.Context, key string) (CheckView, error) {
 	return vs[0], nil
 }
 
-// Checks returns every check in key order.
-func (s *Store) Checks(ctx context.Context) ([]CheckView, error) {
-	return s.checkViews(ctx, ``)
+// Checks returns every check in key order. projects, when not empty,
+// keeps the checks in these projects, as Filter.Projects does.
+func (s *Store) Checks(ctx context.Context, projects []string) ([]CheckView, error) {
+	w, args := projectWhere("c.project", projects)
+	if w != "" {
+		w = "WHERE " + w
+	}
+	return s.checkViews(ctx, w, args...)
 }
 
 func (s *Store) checkViews(ctx context.Context, where string, args ...any) ([]CheckView, error) {
 	cols := "c." + strings.Join(checkColList, ", c.")
 	rows, err := s.db.QueryContext(ctx, `SELECT `+cols+`,
-		  json_extract(l.event, '$.body'), l.received_at, i.state
+		  json_extract(l.event, '$.body'), l.received_at, i.state, c.project
 		FROM checkins c
 		LEFT JOIN events l ON l.id = c.last_log_event
 		LEFT JOIN incidents i ON i.key = '`+checkin.IncidentPrefix+`' || c.key
@@ -222,14 +229,15 @@ func (s *Store) checkViews(ctx context.Context, where string, args ...any) ([]Ch
 	out := []CheckView{}
 	for rows.Next() {
 		var v CheckView
-		var log, logAt, inc sql.NullString
+		var log, logAt, inc, project sql.NullString
 		c, err := scanCheck(scanFunc(func(dst ...any) error {
-			return rows.Scan(append(dst, &log, &logAt, &inc)...)
+			return rows.Scan(append(dst, &log, &logAt, &inc, &project)...)
 		}))
 		if err != nil {
 			return nil, err
 		}
 		v.Check, v.LastLog, v.LastLogAt, v.Incident = c, log.String, parseTime(logAt.String), inc.String
+		v.Project = project.String
 		out = append(out, v)
 	}
 	return out, rows.Err()

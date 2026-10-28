@@ -4,13 +4,15 @@
 //
 // Each entry is an untyped event: the ingest rules, when given, type it as
 // they would a live post (package rules), and an entry no rule matches is
-// stored as kind message.
+// stored as kind message. The projects map then files it, as it files a
+// live post.
 //
 //	tee field              event field
 //	id                     details.tee.id and dedup; the event id is derived from ts and id.
 //	                       A line without one gets a legacy id (see LegacyID).
 //	ts (epoch seconds)     ts and received_at
 //	source                 source ("apprise-tee" when the entry has none)
+//	project                project (folded; dropped when it is not a valid name)
 //	title, body            title, body (cut to the envelope limits)
 //	tag                    tags (split on commas and spaces)
 //	url, image             url, image (when they are valid URIs)
@@ -200,6 +202,7 @@ type entry struct {
 	Delivered  *bool           `json:"delivered"`
 	Ms         *int64          `json:"ms"`
 	Source     *string         `json:"source"`
+	Project    *string         `json:"project"`
 	URL        *string         `json:"url"`
 	Image      *string         `json:"image"`
 	Level      *string         `json:"level"`
@@ -228,6 +231,9 @@ type Mapped struct {
 	// RuleErr is set when a rule matched but the event it made was not a
 	// valid envelope; the event is then the plain message.
 	RuleErr error
+	// ProjectEntry names the projects entry that filed the event, or is
+	// empty.
+	ProjectEntry string
 }
 
 // Classify maps one catalogue line as Map does, then classifies it with rs
@@ -255,6 +261,12 @@ func Classify(line []byte, v *validate.Validator, rs *rules.Set) (Mapped, error)
 	}
 	if e.Source != nil && *e.Source != "" {
 		in["source"] = cut(*e.Source, 128)
+	}
+	if e.Project != nil {
+		// A name the envelope refuses is dropped, as the tee drops it.
+		if p := validate.FoldProject(*e.Project); validate.ValidProject(p) {
+			in["project"] = p
+		}
 	}
 	if e.Title != nil && *e.Title != "" {
 		in["title"] = cut(*e.Title, 256)
@@ -303,6 +315,9 @@ func Classify(line []byte, v *validate.Validator, rs *rules.Set) (Mapped, error)
 		return Mapped{}, fmt.Errorf("%s: %w", e.ID, ruleErr)
 	}
 	checked, m.Rule, m.RuleErr = typed, rule, ruleErr
+	if filed, entry, err := rules.WithProject(rs, checked, v); err == nil {
+		checked, m.ProjectEntry = filed, entry
+	}
 	id := e.ID
 	if !ids.Valid(id) {
 		id = ids.Derived(at, Origin, e.ID)

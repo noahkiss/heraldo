@@ -22,9 +22,10 @@
 // reads as the empty string. Named groups, (?P<name>...), are captures:
 // {name} in a set value is replaced with the captured text.
 //
-// set gives kind, key, action, level, thread and host. kind is required and
-// must be message, digest, incident or checkin. A field left out keeps the
-// sender's value. An incident rule may also set realert, a Go duration of a
+// set gives kind, key, action, level, thread, host and project. kind is
+// required and must be message, digest, incident or checkin. A field left
+// out keeps the sender's value, and a sender's project wins over the rule's.
+// An incident rule may also set realert, a Go duration of a
 // minute or more: an open time-sensitive or critical incident is pushed
 // again at that interval until it is acked or resolved. It is stored as
 // details.heraldo.realert_s. Any rule may set hold: true; the server then
@@ -32,8 +33,29 @@
 //
 // A rule whose match names kind is a ping rule. It sees only the check-in
 // events the ping API makes (ApplyPing), never an untyped input, and it
-// keeps the event's kind, key and action: its set gives level, thread, host
-// and hold only.
+// keeps the event's kind, key and action: its set gives level, thread, host,
+// project and hold only.
+//
+// projects, beside rules, files events under a project. It runs on every
+// input after the rules typed it, typed senders and pings included, and only
+// when the event has no project yet. The first entry that matches wins:
+//
+//	projects:
+//	  - match: {source: '^printer-'}
+//	    project: printing
+//	  - match: {thread: '^(units|backups)$'}
+//	    project: fleet
+//
+// match takes the fields a rule matches, plus thread. name is optional.
+// project takes {name} placeholders. A project name folds to lower case; a
+// result that is not a valid name sets nothing.
+//
+// aliases maps an old project name to its new one. An event that names an
+// old one is stored under the new one, and a filter on the new one also
+// matches the events stored under the old:
+//
+//	aliases:
+//	  infra: fleet
 //
 // inhibit, beside rules, holds back the pushes of child incidents while a
 // parent incident is not resolved:
@@ -62,6 +84,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -76,9 +99,13 @@ import (
 // matchFields are the event fields a rule can match on.
 var matchFields = []string{"source", "host", "tag", "title", "body", "key", "action", "kind", "dedup"}
 
+// projectMatchFields are the fields a projects entry can match on: a rule's,
+// and the thread a rule may have set.
+var projectMatchFields = append(append([]string{}, matchFields...), "thread")
+
 // setLimits are the fields a rule can set that take a template, with the
 // envelope's length limit for each.
-var setLimits = map[string]int{"key": 255, "thread": 128, "host": 128}
+var setLimits = map[string]int{"key": 255, "thread": 128, "host": 128, "project": 64}
 
 // actions lists the actions each kind a rule may set accepts. progress and
 // status need content, which a rule cannot give, so rules cannot set them.
@@ -91,8 +118,16 @@ var actions = map[api.Kind][]api.EventAction{
 
 // file is the rules file as written.
 type file struct {
-	Rules   []ruleSpec    `yaml:"rules"`
-	Inhibit []inhibitSpec `yaml:"inhibit"`
+	Rules    []ruleSpec        `yaml:"rules"`
+	Inhibit  []inhibitSpec     `yaml:"inhibit"`
+	Projects []projectSpec     `yaml:"projects"`
+	Aliases  map[string]string `yaml:"aliases"`
+}
+
+type projectSpec struct {
+	Name    string            `yaml:"name"`
+	Match   map[string]string `yaml:"match"`
+	Project string            `yaml:"project"`
 }
 
 type inhibitSpec struct {
@@ -108,12 +143,13 @@ type ruleSpec struct {
 }
 
 type setSpec struct {
-	Kind   string `yaml:"kind"`
-	Key    string `yaml:"key"`
-	Action string `yaml:"action"`
-	Level  string `yaml:"level"`
-	Thread string `yaml:"thread"`
-	Host   string `yaml:"host"`
+	Kind    string `yaml:"kind"`
+	Key     string `yaml:"key"`
+	Action  string `yaml:"action"`
+	Level   string `yaml:"level"`
+	Thread  string `yaml:"thread"`
+	Host    string `yaml:"host"`
+	Project string `yaml:"project"`
 	// Realert is a Go duration, such as 15m.
 	Realert string `yaml:"realert"`
 	Hold    bool   `yaml:"hold"`
@@ -126,7 +162,7 @@ type Rule struct {
 	kind   api.Kind
 	action api.EventAction
 	level  api.Level
-	tmpl   map[string]string // key, thread, host
+	tmpl   map[string]string // key, thread, host, project
 	// realert is the re-alert interval; 0 means none.
 	realert time.Duration
 	// ping is set on a rule whose match names kind: it applies to ping
@@ -144,10 +180,20 @@ type Inhibit struct {
 	children string
 }
 
+// ProjectRule is one compiled projects entry.
+type ProjectRule struct {
+	Name    string
+	match   map[string]*regexp.Regexp
+	project string
+}
+
 // Set is a compiled rules file. The zero value and nil hold no rules.
 type Set struct {
 	Rules    []*Rule
 	Inhibits []*Inhibit
+	Projects []*ProjectRule
+	// Aliases maps an old project name to its new one.
+	Aliases map[string]string
 }
 
 // Len returns the number of rules.
@@ -213,7 +259,195 @@ func Parse(raw []byte) (*Set, error) {
 		inhibits[in.Name] = true
 		s.Inhibits = append(s.Inhibits, in)
 	}
+	projects := map[string]bool{}
+	for i, spec := range f.Projects {
+		label := spec.Name
+		if label == "" {
+			label = fmt.Sprintf("#%d", i+1)
+		}
+		pr, err := compileProject(spec, label)
+		if err != nil {
+			return nil, fmt.Errorf("projects %s: %w", label, err)
+		}
+		if projects[pr.Name] {
+			return nil, fmt.Errorf("projects %s: name used twice", pr.Name)
+		}
+		projects[pr.Name] = true
+		s.Projects = append(s.Projects, pr)
+	}
+	if err := s.compileAliases(f.Aliases); err != nil {
+		return nil, err
+	}
 	return s, nil
+}
+
+// compileMatch compiles a match map whose fields are in allowed, and returns
+// the names of its captures.
+func compileMatch(spec map[string]string, allowed []string) (map[string]*regexp.Regexp, map[string]bool, error) {
+	match := map[string]*regexp.Regexp{}
+	groups := map[string]bool{}
+	for field, expr := range spec {
+		if !slices.Contains(allowed, field) {
+			return nil, nil, fmt.Errorf("match: unknown field %q; want one of %s", field, strings.Join(allowed, ", "))
+		}
+		re, err := regexp.Compile(expr)
+		if err != nil {
+			return nil, nil, fmt.Errorf("match.%s: %w", field, err)
+		}
+		for _, g := range re.SubexpNames() {
+			if g == "" {
+				continue
+			}
+			if groups[g] {
+				return nil, nil, fmt.Errorf("match.%s: capture %q is named twice", field, g)
+			}
+			groups[g] = true
+		}
+		match[field] = re
+	}
+	return match, groups, nil
+}
+
+// checkProject checks a project template: its placeholders name captures,
+// and without any it is a valid name once folded.
+func checkProject(t string, groups map[string]bool) error {
+	phs := placeholder.FindAllStringSubmatch(t, -1)
+	for _, m := range phs {
+		if !groups[m[1]] {
+			return fmt.Errorf("{%s} names no capture in match", m[1])
+		}
+	}
+	if len(phs) == 0 && !validate.ValidProject(validate.FoldProject(t)) {
+		return fmt.Errorf("%q is not a project name: 1 to 64 of a-z, 0-9, dot, underscore and dash, starting with a letter or digit", t)
+	}
+	return nil
+}
+
+func compileProject(spec projectSpec, label string) (*ProjectRule, error) {
+	if spec.Project == "" {
+		return nil, errors.New("project is required")
+	}
+	match, groups, err := compileMatch(spec.Match, projectMatchFields)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkProject(spec.Project, groups); err != nil {
+		return nil, fmt.Errorf("project: %w", err)
+	}
+	return &ProjectRule{Name: label, match: match, project: spec.Project}, nil
+}
+
+func (s *Set) compileAliases(raw map[string]string) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	s.Aliases = map[string]string{}
+	for old, target := range raw {
+		o, t := validate.FoldProject(old), validate.FoldProject(target)
+		for _, n := range []string{o, t} {
+			if !validate.ValidProject(n) {
+				return fmt.Errorf("aliases: %q is not a project name", n)
+			}
+		}
+		if o == t {
+			return fmt.Errorf("aliases: %s names itself", o)
+		}
+		if _, dup := s.Aliases[o]; dup {
+			return fmt.Errorf("aliases: %s is given twice", o)
+		}
+		s.Aliases[o] = t
+	}
+	for o, t := range s.Aliases {
+		if _, chained := s.Aliases[t]; chained {
+			return fmt.Errorf("aliases: %s maps to %s, which is an alias too; map it to %s", o, t, s.Aliases[t])
+		}
+	}
+	return nil
+}
+
+// Alias returns the project name an event naming p is stored under: the
+// alias target, or p itself.
+func (s *Set) Alias(p string) string {
+	if s == nil {
+		return p
+	}
+	if t, ok := s.Aliases[p]; ok {
+		return t
+	}
+	return p
+}
+
+// Expand returns the stored names a filter on projects matches: each name,
+// and every alias that maps to it. A name that is itself an alias stands
+// for its target. The answer is sorted, without repeats.
+func (s *Set) Expand(projects []string) []string {
+	seen := map[string]bool{}
+	for _, p := range projects {
+		t := s.Alias(p)
+		seen[p], seen[t] = true, true
+		if s == nil {
+			continue
+		}
+		for o, x := range s.Aliases {
+			if x == t {
+				seen[o] = true
+			}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for p := range seen {
+		out = append(out, p)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// MapProject returns the project the first matching projects entry gives
+// fields, folded and through the aliases, and the entry's name. It returns
+// "" when none matches or the result is not a valid name.
+func (s *Set) MapProject(fields map[string]any) (project, entry string) {
+	if s == nil {
+		return "", ""
+	}
+	for _, pr := range s.Projects {
+		caps, ok := matchAll(pr.match, fields)
+		if !ok {
+			continue
+		}
+		p := validate.FoldProject(fill(pr.project, caps))
+		if !validate.ValidProject(p) {
+			return "", pr.Name
+		}
+		return s.Alias(p), pr.Name
+	}
+	return "", ""
+}
+
+// WithProject files a typed input under its project: a name the sender or
+// a rule gave goes through the aliases, and an input with none gets the
+// projects map's answer. It returns in unchanged when there is nothing to
+// do. entry names the projects entry that matched, or is empty.
+func WithProject(s *Set, in *validate.Input, v *validate.Validator) (out *validate.Input, entry string, err error) {
+	cur, _ := in.Fields["project"].(string)
+	want := cur
+	if cur != "" {
+		want = s.Alias(cur)
+	} else {
+		want, entry = s.MapProject(in.Fields)
+	}
+	if want == cur {
+		return in, entry, nil
+	}
+	f := make(map[string]any, len(in.Fields)+1)
+	for k, x := range in.Fields {
+		f[k] = x
+	}
+	f["project"] = want
+	out, err = v.Fields(f)
+	if err != nil {
+		return in, entry, fmt.Errorf("project %s: %w", want, err)
+	}
+	return out, entry, nil
 }
 
 func compileInhibit(spec inhibitSpec) (*Inhibit, error) {
@@ -292,32 +526,16 @@ func compile(spec ruleSpec) (*Rule, error) {
 	if spec.Name == "" {
 		return nil, errors.New("name is required")
 	}
-	r := &Rule{Name: spec.Name, match: map[string]*regexp.Regexp{}, tmpl: map[string]string{}}
-	groups := map[string]bool{}
-	for field, expr := range spec.Match {
-		if !isMatchField(field) {
-			return nil, fmt.Errorf("match: unknown field %q; want one of %s", field, strings.Join(matchFields, ", "))
-		}
-		re, err := regexp.Compile(expr)
-		if err != nil {
-			return nil, fmt.Errorf("match.%s: %w", field, err)
-		}
-		for _, g := range re.SubexpNames() {
-			if g == "" {
-				continue
-			}
-			if groups[g] {
-				return nil, fmt.Errorf("match.%s: capture %q is named twice", field, g)
-			}
-			groups[g] = true
-		}
-		r.match[field] = re
+	match, groups, err := compileMatch(spec.Match, matchFields)
+	if err != nil {
+		return nil, err
 	}
+	r := &Rule{Name: spec.Name, match: match, tmpl: map[string]string{}}
 
 	r.hold = spec.Set.Hold
 	if _, r.ping = r.match["kind"]; r.ping {
 		if spec.Set.Kind != "" || spec.Set.Key != "" || spec.Set.Action != "" || spec.Set.Realert != "" {
-			return nil, errors.New("set: a rule that matches kind keeps the event's kind, key and action; it sets level, thread, host and hold only")
+			return nil, errors.New("set: a rule that matches kind keeps the event's kind, key and action; it sets level, thread, host, project and hold only")
 		}
 		spec.Set.Kind = string(api.KindCheckin)
 	}
@@ -342,7 +560,12 @@ func compile(spec ruleSpec) (*Rule, error) {
 			return nil, fmt.Errorf("set.level: %q is not a level", spec.Set.Level)
 		}
 	}
-	for field, t := range map[string]string{"key": spec.Set.Key, "thread": spec.Set.Thread, "host": spec.Set.Host} {
+	if spec.Set.Project != "" {
+		if err := checkProject(spec.Set.Project, groups); err != nil {
+			return nil, fmt.Errorf("set.project: %w", err)
+		}
+	}
+	for field, t := range map[string]string{"key": spec.Set.Key, "thread": spec.Set.Thread, "host": spec.Set.Host, "project": spec.Set.Project} {
 		if t == "" {
 			continue
 		}
@@ -372,15 +595,6 @@ func compile(spec ruleSpec) (*Rule, error) {
 	return r, nil
 }
 
-func isMatchField(f string) bool {
-	for _, m := range matchFields {
-		if f == m {
-			return true
-		}
-	}
-	return false
-}
-
 // Eligible reports whether rules may classify an input: it has no kind.
 func Eligible(fields map[string]any) bool {
 	_, typed := fields["kind"]
@@ -391,7 +605,7 @@ func Eligible(fields map[string]any) bool {
 type Result struct {
 	Rule string
 	// Fields holds the envelope fields to set: kind always, and key,
-	// action, level, thread and host when the rule gives them.
+	// action, level, thread, host and project when the rule gives them.
 	Fields map[string]string
 	// Realert is the rule's re-alert interval; 0 means none.
 	Realert time.Duration
@@ -442,8 +656,14 @@ func (s *Set) Hold(name string) map[string]any {
 }
 
 func (r *Rule) matches(fields map[string]any) (map[string]string, bool) {
+	return matchAll(r.match, fields)
+}
+
+// matchAll reports whether every expression in match matches its field, and
+// returns the captures.
+func matchAll(match map[string]*regexp.Regexp, fields map[string]any) (map[string]string, bool) {
 	caps := map[string]string{}
-	for field, re := range r.match {
+	for field, re := range match {
 		var vals []string
 		if field == "tag" {
 			vals = tagsOf(fields)
@@ -503,16 +723,27 @@ func (r *Rule) result(caps map[string]string) Result {
 		res.Fields["level"] = string(r.level)
 	}
 	for field, t := range r.tmpl {
-		v := placeholder.ReplaceAllStringFunc(t, func(p string) string {
-			return caps[p[1:len(p)-1]]
-		})
-		v = strings.TrimSpace(v)
+		v := strings.TrimSpace(fill(t, caps))
+		if field == "project" {
+			// A capture that makes no valid name sets nothing, rather than
+			// spoil the typed event.
+			if v = validate.FoldProject(v); !validate.ValidProject(v) {
+				continue
+			}
+		}
 		if v == "" {
 			continue
 		}
 		res.Fields[field] = cut(v, setLimits[field])
 	}
 	return res
+}
+
+// fill replaces each {name} in t with the capture called name.
+func fill(t string, caps map[string]string) string {
+	return placeholder.ReplaceAllStringFunc(t, func(p string) string {
+		return caps[p[1:len(p)-1]]
+	})
 }
 
 // Apply classifies a checked input with s. It returns the input unchanged,
@@ -547,6 +778,10 @@ func apply(in *validate.Input, res Result, v *validate.Validator) (*validate.Inp
 		f[k] = x
 	}
 	for k, x := range res.Fields {
+		if k == "project" && f["project"] != nil {
+			// The sender's project wins over a rule's.
+			continue
+		}
 		f[k] = x
 	}
 	details := map[string]any{}
