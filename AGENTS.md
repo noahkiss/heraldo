@@ -27,7 +27,7 @@ The plan and its stages live in bm (project `heraldo`).
 | Run the CLI against a server | `HERALDO_URL=... HERALDO_TOKEN=... go run ./cmd/heraldo ls` (see the README, "CLI") |
 | Hash a token for the token list | `go run ./cmd/heraldo-server hash-token < token.txt` |
 | Back up a running server's database | `heraldo-server backup <new-path>` |
-| Backfill an apprise-tee catalogue | `heraldo-server import-tee <dir>` |
+| Backfill an apprise-tee catalogue | `heraldo-server import-tee [-since YYYY-MM] <dir>` |
 | Check a rules file against a catalogue | `heraldo-server replay-tee -rules <file> <dir>` |
 | Build the image | `docker build -t heraldo .` (CI pushes `ghcr.io/noahkiss/heraldo` on main and `v*` tags) |
 | Release | Push a `v*` tag. CI builds the image, then dispatches the tap's `bump.yml` (formula `heraldo`) with repo secret `HOMEBREW_TAP_TOKEN` and waits for the verified bump |

@@ -15,7 +15,8 @@
 // Subcommands:
 //
 //	heraldo-server                    serve (the default)
-//	heraldo-server import-tee <dir>   backfill an apprise-tee catalogue
+//	heraldo-server import-tee [-since YYYY-MM] <dir>
+//	                                  backfill an apprise-tee catalogue
 //	heraldo-server replay-tee [-rules <file>] <dir>
 //	                                  run a catalogue through the rules, in memory
 //	heraldo-server backup <path>      online backup of the database to path
@@ -58,7 +59,9 @@ const usage = `usage: heraldo-server [command]
 
 commands:
   serve              run the server (the default)
-  import-tee <dir>   backfill an apprise-tee catalogue directory
+  import-tee [-since YYYY-MM] <dir>
+                     backfill an apprise-tee catalogue directory, from month
+                     YYYY-MM on when -since is given
   replay-tee [-rules <file>] <dir>
                      run a catalogue through the rules file (default
                      $HERALDO_RULES) in memory and report what they classified
@@ -86,10 +89,13 @@ func run(args []string, stdin io.Reader, stdout io.Writer, log *slog.Logger) err
 	case "serve":
 		return serve(log)
 	case "import-tee":
-		if len(args) != 1 {
-			return errors.New("usage: heraldo-server import-tee <dir>")
+		fs := flag.NewFlagSet("import-tee", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		since := fs.String("since", "", "first month to read, YYYY-MM")
+		if err := fs.Parse(args); err != nil || fs.NArg() != 1 {
+			return errors.New("usage: heraldo-server import-tee [-since YYYY-MM] <dir>")
 		}
-		return importTee(args[0], log)
+		return importTee(fs.Arg(0), *since, log)
 	case "replay-tee":
 		return replayTee(args, stdout)
 	case "backup":
@@ -233,7 +239,7 @@ func startPush(ctx context.Context, cfg config.Config, st *store.Store, rw *rule
 	return p, lm, api.HealthPushOn
 }
 
-func importTee(dir string, log *slog.Logger) error {
+func importTee(dir, since string, log *slog.Logger) error {
 	ctx := context.Background()
 	cfg, st, err := open(ctx)
 	if err != nil {
@@ -250,7 +256,7 @@ func importTee(dir string, log *slog.Logger) error {
 			return fmt.Errorf("HERALDO_RULES: %w", err)
 		}
 	}
-	s, err := teeimport.Run(ctx, dir, st, v, rs, log)
+	s, err := teeimport.RunSince(ctx, dir, since, st, v, rs, log)
 	log.Info("tee import", "files", s.Files, "lines", s.Lines, "imported", s.Imported,
 		"already_imported", s.Skipped, "bad", s.Bad, "legacy_ids", s.LegacyIDs, "typed", s.Typed)
 	return err

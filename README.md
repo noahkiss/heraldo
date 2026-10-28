@@ -132,7 +132,7 @@ the server logs an error, keeps running and pushes nothing. `/healthz` reports
 |---|---|
 | `heraldo-server` | Runs the server. SIGTERM or SIGINT shuts it down cleanly. |
 | `heraldo-server backup <path>` | Copies the database to a new file with SQLite's online backup. The server keeps running. The copy is one file in rollback-journal mode, with no `-wal` or `-shm` beside it. |
-| `heraldo-server import-tee <dir>` | Backfills an apprise-tee catalogue (`notifications-YYYY-MM.jsonl`), typed by `HERALDO_RULES` when set. A rerun stores nothing twice. |
+| `heraldo-server import-tee [-since YYYY-MM] <dir>` | Backfills an apprise-tee catalogue (`notifications-YYYY-MM.jsonl`), typed by `HERALDO_RULES` when set. `-since` reads that month and later only. A rerun stores nothing twice, and an imported event never pushes. |
 | `heraldo-server replay-tee [-rules <file>] <dir>` | Runs a catalogue through a rules file (default `HERALDO_RULES`) in memory and reports how many recoveries paired with their failure, the unpaired ones, the hits per rule and every source and tag no rule matched. It opens no database. |
 | `heraldo-server hash-token` | Prints the SHA-256 of a token read from stdin. |
 | `heraldo-server healthcheck` | Exits 0 when the local `/healthz` answers. The image's `HEALTHCHECK` runs it. |

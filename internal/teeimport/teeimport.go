@@ -83,8 +83,14 @@ func LegacyID(line []byte) string {
 // Run imports every catalogue file in dir, classifying each entry with rs
 // (nil: no rules).
 func Run(ctx context.Context, dir string, st *store.Store, v *validate.Validator, rs *rules.Set, log *slog.Logger) (Stats, error) {
+	return RunSince(ctx, dir, "", st, v, rs, log)
+}
+
+// RunSince is Run over the files of month since (YYYY-MM) and later only;
+// an empty since reads them all.
+func RunSince(ctx context.Context, dir, since string, st *store.Store, v *validate.Validator, rs *rules.Set, log *slog.Logger) (Stats, error) {
 	var s Stats
-	files, err := Each(dir, func(file string, n int, line []byte) error {
+	files, err := EachSince(dir, since, func(file string, n int, line []byte) error {
 		s.Lines++
 		m, err := Classify(line, v, rs)
 		if err != nil {
@@ -122,11 +128,31 @@ func Run(ctx context.Context, dir string, st *store.Store, v *validate.Validator
 // line number. An error from fn stops the walk. It returns the number of
 // files read.
 func Each(dir string, fn func(file string, n int, line []byte) error) (int, error) {
-	files, err := filepath.Glob(filepath.Join(dir, "notifications-*.jsonl"))
+	return EachSince(dir, "", fn)
+}
+
+// EachSince is Each over the files of month since (YYYY-MM) and later only;
+// an empty since reads them all. A since that is not YYYY-MM is an error.
+func EachSince(dir, since string, fn func(file string, n int, line []byte) error) (int, error) {
+	if since != "" {
+		if _, err := time.Parse("2006-01", since); err != nil {
+			return 0, fmt.Errorf("since %q: want YYYY-MM", since)
+		}
+	}
+	all, err := filepath.Glob(filepath.Join(dir, "notifications-*.jsonl"))
 	if err != nil {
 		return 0, err
 	}
+	var files []string
+	for _, f := range all {
+		if since == "" || filepath.Base(f) >= "notifications-"+since+".jsonl" {
+			files = append(files, f)
+		}
+	}
 	if len(files) == 0 {
+		if since != "" {
+			return 0, fmt.Errorf("no notifications-*.jsonl files from %s on in %s", since, dir)
+		}
 		return 0, fmt.Errorf("no notifications-*.jsonl files in %s", dir)
 	}
 	sort.Strings(files)

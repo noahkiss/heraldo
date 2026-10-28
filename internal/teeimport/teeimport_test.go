@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -172,6 +173,30 @@ func TestRunEmptyDir(t *testing.T) {
 	st, v := setup(t)
 	if _, err := Run(context.Background(), t.TempDir(), st, v, nil, quiet); err == nil {
 		t.Fatal("want an error for a directory without catalogue files")
+	}
+}
+
+func TestEachSince(t *testing.T) {
+	dir := t.TempDir()
+	line := []byte(`{"id":"n-1","ts":1788249600,"title":"x"}` + "\n")
+	for _, m := range []string{"2026-08", "2026-09", "2026-10"} {
+		if err := os.WriteFile(filepath.Join(dir, "notifications-"+m+".jsonl"), line, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var got []string
+	n, err := EachSince(dir, "2026-09", func(file string, _ int, _ []byte) error {
+		got = append(got, file)
+		return nil
+	})
+	if err != nil || n != 2 || len(got) != 2 || got[0] != "notifications-2026-09.jsonl" {
+		t.Fatalf("read %d files %v, %v; want 2026-09 and 2026-10", n, got, err)
+	}
+	if _, err := EachSince(dir, "2026-11", func(string, int, []byte) error { return nil }); err == nil {
+		t.Error("since past the newest file: no error")
+	}
+	if _, err := EachSince(dir, "2026-9", func(string, int, []byte) error { return nil }); err == nil {
+		t.Error("since 2026-9: no error, want YYYY-MM")
 	}
 }
 

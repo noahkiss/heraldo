@@ -35,6 +35,12 @@ func TestImportAndBackup(t *testing.T) {
 	if err := run([]string{"import-tee", "../../internal/teeimport/testdata/catalogue"}, nil, io.Discard, quiet); err != nil {
 		t.Fatal(err)
 	}
+	if err := run([]string{"import-tee", "-since", "2026-09", "../../internal/teeimport/testdata/catalogue"}, nil, io.Discard, quiet); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"import-tee", "-since", "2026-10", "../../internal/teeimport/testdata/catalogue"}, nil, io.Discard, quiet); err == nil {
+		t.Fatal("import-tee -since past every file succeeded")
+	}
 	dst := filepath.Join(dir, "b.db")
 	if err := run([]string{"backup", dst}, nil, io.Discard, quiet); err != nil {
 		t.Fatal(err)

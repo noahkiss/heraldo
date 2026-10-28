@@ -852,8 +852,10 @@ that, the check's config lives on the server. See "Check-ins".
 
 ## Backfill from apprise-tee
 
-`heraldo-server import-tee <dir>` reads every `notifications-YYYY-MM.jsonl` file
-in `dir` and stores each line as an untyped event. When `HERALDO_RULES` is set,
+`heraldo-server import-tee [-since YYYY-MM] <dir>` reads every
+`notifications-YYYY-MM.jsonl` file in `dir`, or with `-since` that month's
+file and later ones, and stores each line as an untyped event. An imported
+event never pushes and never schedules a re-alert. When `HERALDO_RULES` is set,
 the rules type each event as they would a live post; without rules, or when
 no rule matches, it is a `message`. The summary counts
 those as `typed`. A rerun skips lines it already stored, so it never retypes
