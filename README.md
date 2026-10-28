@@ -8,10 +8,10 @@
 A self-hosted notification hub. Services post events to one server. The server
 stores every event and delivers it to an iPhone and Mac app you build yourself.
 
-Status: stage 4. The server stores and serves every event. It can push to
-Apple devices through APNs, but push is off until `HERALDO_PUSH=on`.
+Status: in use. The server stores and serves every event, and pushes it to
+Apple devices through APNs with `HERALDO_PUSH=on`. Push is off by default.
 
-## What it will do
+## What it does
 
 - One event shape, [envelope v1](schema/envelope.v1.schema.json), for messages,
   incidents, digests, progress, check-ins and status values.
