@@ -16,8 +16,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/auth"
 	"github.com/noahkiss/heraldo/internal/hold"
+	"github.com/noahkiss/heraldo/internal/push"
 	"github.com/noahkiss/heraldo/internal/store"
 	"github.com/noahkiss/heraldo/internal/validate"
 )
@@ -649,5 +651,80 @@ func TestOffHoldsNothing(t *testing.T) {
 	sentOK(t, rec)
 	if strings.Contains(rec.Body.String(), "Held") || holdOf(e.events()[0]) != nil || len(e.rows("")) != 0 {
 		t.Fatal("off mode held an alert")
+	}
+}
+
+// TestNativeHoldStates walks each path of the native hold and checks which
+// stored events push, as TestBridgedHoldStates does for the tee's shapes.
+// Only an alert the hold keeps back stays quiet; a bypass, a passed alert
+// and every forward push at their level.
+func TestNativeHoldStates(t *testing.T) {
+	release := func(e *holdEnv) {
+		var ids []string
+		for _, r := range e.rows("") {
+			ids = append(ids, r["id"].(string))
+		}
+		body, _ := json.Marshal(map[string]any{"ids": ids, "verdict": "REAL", "title": "t", "body": "b", "tag": "general"})
+		if rec := e.req("POST", "/v1/hold/release", writeTok, "", "application/json", body); rec.Code != 200 {
+			e.t.Fatalf("release: %d %s", rec.Code, rec.Body)
+		}
+	}
+	for _, c := range []struct {
+		name string
+		mode hold.Mode
+		run  func(e *holdEnv)
+		push []bool // per stored event, oldest first
+	}{
+		{"held on", hold.On, func(e *holdEnv) { e.send(`{"title":"a","body":"b","tag":"alert"}`) }, []bool{false}},
+		{"held shadow", hold.Shadow, func(e *holdEnv) { e.send(`{"title":"a","body":"b","tag":"alert"}`) }, []bool{true}},
+		{"bypass", hold.On, func(e *holdEnv) { e.send(`{"title":"a","body":"b","tag":"page"}`) }, []bool{true}},
+		{"release forward", hold.On, func(e *holdEnv) {
+			e.send(`{"title":"a","body":"b","tag":"alert"}`)
+			release(e)
+		}, []bool{false, true}},
+		{"deadline forward", hold.On, func(e *holdEnv) {
+			e.send(`{"title":"a","body":"b","tag":"alert"}`)
+			e.clock.add(15 * time.Minute)
+			e.held("")
+			e.clock.add(16 * time.Minute)
+			e.tick()
+		}, []bool{false, true}},
+		{"dead-man notice, forward and pass-through", hold.On, func(e *holdEnv) {
+			e.send(`{"title":"a","body":"b","tag":"alert"}`)
+			e.clock.add(21 * time.Minute)
+			e.tick()
+			e.send(`{"title":"c","body":"d","tag":"alert"}`)
+		}, []bool{false, true, true, true}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newHoldEnv(t, c.mode)
+			c.run(e)
+			ctx := context.Background()
+			recs, err := e.st.List(ctx, store.Filter{Limit: 500})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(recs) != len(c.push) {
+				t.Fatalf("events = %d, want %d", len(recs), len(c.push))
+			}
+			for i, rec := range recs {
+				var ev api.Event
+				if err := json.Unmarshal(rec.Event, &ev); err != nil {
+					t.Fatal(err)
+				}
+				d := push.Decide(&ev, e.clock.now())
+				if d.Push != c.push[i] {
+					t.Fatalf("event %d pushes %v (%s), want %v: %s", i, d.Push, d.Reason, c.push[i], rec.Event)
+				}
+				if c.push[i] && ev.Hold != nil {
+					if so, _ := (*ev.Hold)["store_only"].(bool); so {
+						t.Fatalf("event %d store_only: %s", i, rec.Event)
+					}
+				}
+				if got, err := e.st.Pushes(ctx, rec.Seq); err != nil || got != c.push[i] {
+					t.Fatalf("event %d badge rule %v %v, want %v", i, got, err, c.push[i])
+				}
+			}
+		})
 	}
 }
