@@ -293,6 +293,55 @@ func TestPushSkips(t *testing.T) {
 	}
 }
 
+// TestBridgedHoldStates sends each hold shape the apprise tee sends and
+// checks which push. Only an alert the hold kept back is stored only.
+func TestBridgedHoldStates(t *testing.T) {
+	for _, c := range []struct {
+		name, hold string
+		push       bool
+	}{
+		{"held on", `{"id":"h-1","state":"held","forwarded":false,"store_only":true}`, false},
+		{"held shadow", `{"id":"h-2","state":"held","forwarded":true,"shadow":true}`, true},
+		{"held dead-man", `{"id":"h-3","state":"held","forwarded":true,"shadow":false}`, true},
+		{"bypass", `{"state":"bypass"}`, true},
+		{"release forward", `{"ids":["h-4","h-5"],"forward":"release"}`, true},
+		{"deadline forward", `{"ids":["h-6"],"forward":"deadline"}`, true},
+		{"dead-man forward", `{"ids":["h-7"],"forward":"deadman"}`, true},
+		{"dead-man notice", `{"ids":[],"forward":"deadman-notice"}`, true},
+		// A sender's store_only on a forward does not stop it.
+		{"forward marked store_only", `{"ids":["h-8"],"forward":"release","store_only":true}`, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := newRig(t, 0)
+			r.register(t, prodToken, "production")
+			id := r.post(t, bridgeTok, `{"source":"s","title":"disk full","tags":["alert"],"level":"time-sensitive",
+				"details":{"tee":{"id":"n-1","hold":`+c.hold+`}}}`)
+			if got := len(r.prod.requests()) == 1; got != c.push {
+				t.Fatalf("pushed %v, want %v", got, c.push)
+			}
+			ds := r.delivery(t, id)
+			if c.push && (len(ds) != 1 || ds[0].Outcome != api.DeliveryOutcomeSent || *ds[0].Level != api.LevelTimeSensitive) {
+				t.Fatalf("delivery %+v", ds)
+			}
+			rec, err := r.st.Get(context.Background(), id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var ev api.Event
+			_ = json.Unmarshal(rec.Event, &ev)
+			if ev.Hold == nil {
+				t.Fatalf("no hold: %s", rec.Event)
+			}
+			if so, _ := (*ev.Hold)["store_only"].(bool); so == c.push {
+				t.Fatalf("store_only %v: %s", so, rec.Event)
+			}
+			if got, err := r.st.Pushes(context.Background(), rec.Seq); err != nil || got != c.push {
+				t.Fatalf("badge rule %v %v, want %v", got, err, c.push)
+			}
+		})
+	}
+}
+
 func TestPushRetiresDeadTokens(t *testing.T) {
 	for _, c := range []struct {
 		status int

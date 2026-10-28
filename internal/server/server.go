@@ -482,7 +482,11 @@ func (s *server) emit(ctx context.Context, fields map[string]any) error {
 
 // bridgedHold returns the stored hold for a bridged sender's triage state,
 // details.tee.hold, or nil when there is none. Only a trusted-ingest token
-// gets here. The event is marked store_only: later stages never push it.
+// gets here. Only an alert the hold kept back, state held and not
+// forwarded, is marked store_only. Everything else the bridge sends went
+// out on arrival and pushes at its level: a bypass, a held alert forwarded
+// at once (shadow mode, or the dead-man tripped), and the later forwards of
+// a release, a deadline or the dead-man notice ({forward, ids}).
 func bridgedHold(f map[string]any) map[string]any {
 	details, _ := f["details"].(map[string]any)
 	tee, _ := details["tee"].(map[string]any)
@@ -494,7 +498,12 @@ func bridgedHold(f map[string]any) map[string]any {
 	for k, v := range src {
 		h[k] = v
 	}
-	h["store_only"] = true
+	delete(h, "store_only")
+	state, _ := src["state"].(string)
+	forwarded, _ := src["forwarded"].(bool)
+	if state == "held" && !forwarded {
+		h["store_only"] = true
+	}
 	return h
 }
 

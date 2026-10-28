@@ -60,8 +60,14 @@ Auth:
 - The server stores each token's SHA-256 only. The README shows the token file.
 - A write token with the `trusted-ingest` capability is a bridge, such as
   apprise-tee. Its events get two extras:
-  - `details.tee.hold`, an object, is copied into `hold` with
-    `store_only: true`. A store-only event is never pushed.
+  - `details.tee.hold`, an object, is copied into `hold`. Only an alert the
+    hold kept back (`state: held` without `forwarded: true`) gets
+    `store_only: true`; a store-only event is never pushed. Every other
+    shape went out on arrival and pushes at its level: `state: bypass`,
+    `state: held` with `forwarded: true` (shadow mode, or the dead-man
+    tripped), and a later forward, `{forward, ids}` (release, deadline,
+    dead-man and the dead-man notice). A `store_only` the bridge sends on
+    those is dropped.
   - Its `dedup` id matches every earlier event, not only the last 24 hours.
     The tee sends its catalogue id as `dedup`.
 
@@ -204,7 +210,8 @@ Which events push, and how loud:
 | `progress` | any | no: Live Activities (below) | |
 | `status` | any | no (widgets) | |
 
-- Before the table: a held event (`hold.state` is `held`), a store-only event
+- Before the table: a held event (`hold.state` is `held` and
+  `hold.forwarded` is not `true`), a store-only event
   (`hold.store_only`), and an event past `expires_at` never push.
 - After the table: a mute ("Mutes") or an inhibit rule ("Inhibit rules") holds
   back an event that would push. `delivery` records `skipped` per device, with

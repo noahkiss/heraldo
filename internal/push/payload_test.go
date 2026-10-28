@@ -51,6 +51,8 @@ var decideCases = []struct {
 	{"progress", `{"source":"s","kind":"progress","key":"k","action":"start"}`, false, "", false},
 	{"status", `{"source":"s","kind":"status","key":"k","action":"set","content":{"title":"t"}}`, false, "", false},
 	{"held", `{"source":"s","kind":"message","hold":{"state":"held"}}`, false, "", false},
+	{"held, forwarded at once", `{"source":"s","kind":"message","hold":{"state":"held","forwarded":true}}`, true, api.LevelActive, false},
+	{"bypass", `{"source":"s","kind":"message","hold":{"state":"bypass"}}`, true, api.LevelActive, false},
 	{"store-only", `{"source":"s","kind":"message","hold":{"state":"released","store_only":true}}`, false, "", false},
 	{"other hold state pushes", `{"source":"s","kind":"message","hold":{"state":"open"}}`, true, api.LevelActive, false},
 }

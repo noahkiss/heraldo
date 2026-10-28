@@ -1486,8 +1486,9 @@ components:
         scope gets 403.
 
         A write token can carry the trusted-ingest capability, for a bridge such as
-        apprise-tee. The server copies its details.tee.hold object into hold, marked
-        store_only, and matches its dedup ids at any age instead of the last 24 hours.
+        apprise-tee. The server copies its details.tee.hold object into hold, and
+        marks it store_only only when it is state held and not forwarded. It matches
+        its dedup ids at any age instead of the last 24 hours.
     tokenQuery:
       type: apiKey
       in: query

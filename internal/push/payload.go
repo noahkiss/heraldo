@@ -57,7 +57,9 @@ func Decide(ev *api.Event, now time.Time) Decision {
 		if so, _ := h["store_only"].(bool); so {
 			return Decision{Reason: "store-only"}
 		}
-		if st, _ := h["state"].(string); st == "held" {
+		// A held alert the hold forwarded at once (forwarded: true) pushes.
+		fwd, _ := h["forwarded"].(bool)
+		if st, _ := h["state"].(string); st == "held" && !fwd {
 			return Decision{Reason: "held"}
 		}
 	}

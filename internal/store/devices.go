@@ -357,7 +357,8 @@ func withField(obj json.RawMessage, name string, v any) (json.RawMessage, error)
 // does not count either.
 const pushedWhere = `json_extract(event, '$.hold.store_only') IS NOT 1
 	AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.event_id = events.id AND d.outcome = 'skipped')
-	AND coalesce(json_extract(event, '$.hold.state'), '') != 'held'
+	AND NOT (coalesce(json_extract(event, '$.hold.state'), '') = 'held'
+	  AND json_extract(event, '$.hold.forwarded') IS NOT 1)
 	AND coalesce(level, '') != 'passive'
 	AND (kind = 'message'
 	  OR (kind = 'incident' AND coalesce(action, '') NOT IN ('ack', 'resolve'))
