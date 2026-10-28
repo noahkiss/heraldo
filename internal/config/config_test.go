@@ -167,3 +167,31 @@ func TestLoadAPNsKey(t *testing.T) {
 		t.Fatal("want an error for a missing key file")
 	}
 }
+
+func TestFromEnvHoldAndTrustedNets(t *testing.T) {
+	c, err := FromEnv(env(nil))
+	if err != nil || c.HoldMode != "off" || c.HoldDeadline != DefaultHoldDeadline || c.HoldDeadman != DefaultHoldDeadman || len(c.NotifyTrustedNets) != 0 {
+		t.Fatalf("defaults: %+v %v", c, err)
+	}
+	c, err = FromEnv(env(map[string]string{
+		"HERALDO_HOLD": "on", "HERALDO_HOLD_DEADLINE": "45m", "HERALDO_HOLD_DEADMAN": "1h",
+		"HERALDO_NOTIFY_TRUSTED_NETS": "192.0.2.7/24, 2001:db8::/32",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.HoldMode != "on" || c.HoldDeadline.Minutes() != 45 || c.HoldDeadman.Hours() != 1 {
+		t.Fatalf("hold: %+v", c)
+	}
+	if len(c.NotifyTrustedNets) != 2 || c.NotifyTrustedNets[0].String() != "192.0.2.0/24" {
+		t.Fatalf("nets = %v", c.NotifyTrustedNets)
+	}
+	for k, v := range map[string]string{
+		"HERALDO_HOLD": "sometimes", "HERALDO_HOLD_DEADLINE": "30s", "HERALDO_HOLD_DEADMAN": "soon",
+		"HERALDO_NOTIFY_TRUSTED_NETS": "192.0.2.7",
+	} {
+		if _, err := FromEnv(env(map[string]string{k: v})); err == nil {
+			t.Errorf("%s=%s accepted", k, v)
+		}
+	}
+}

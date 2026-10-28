@@ -20,6 +20,8 @@ Apple devices through APNs with `HERALDO_PUSH=on`. Push is off by default.
 - Incidents that go from failure to recovery in one thread.
 - Live Activities for long-running jobs.
 - Dead-man's-switch check-ins.
+- An Apprise-compatible front door: an Apprise sender changes only its URL.
+  An alert hold lets a triage job read alerts before they page.
 - A full history that the apps and the `heraldo` CLI sync by cursor.
 
 ## Layout
@@ -88,7 +90,9 @@ docker compose -f deploy/compose.yml up --build
 
    A fourth field, `trusted-ingest`, marks a bridge such as apprise-tee. Its
    `details.tee.hold` becomes the event's `hold`, and its `dedup` ids never
-   expire. [docs/api.md](docs/api.md) has the details.
+   expire. `notify-key` instead lets a `write` token be the key in an Apprise
+   URL, `/notify/<token>`, for a sender that cannot set a header.
+   [docs/api.md](docs/api.md) has the details.
 
 3. Start the server with `HERALDO_TOKENS_FILE` pointing at the file, and post an
    event:
@@ -109,7 +113,7 @@ The server reads its configuration from the environment.
 |---|---|---|
 | `HERALDO_ADDR` | `:7842` | Listen address, `host:port` |
 | `HERALDO_DB` | `heraldo.db` (`/data/heraldo.db` in the image) | SQLite database path. The server runs it in WAL mode, so keep the `-wal` and `-shm` files beside it. |
-| `HERALDO_TOKENS_FILE` | none | Token file, one `<name> <scope> <sha256> [trusted-ingest]` per line |
+| `HERALDO_TOKENS_FILE` | none | Token file, one `<name> <scope> <sha256> [trusted-ingest \| notify-key]` per line |
 | `HERALDO_TOKENS` | none | The same entries inline, separated by commas. Set this or the file, not both. |
 | `HERALDO_RULES` | none | Ingest rules file (YAML) that types untyped inputs (no `kind`), and can set the level or a hold on ping events; without it untyped inputs are stored as `message`. The server reloads it within 5 s of a change; a file that does not parse keeps the rules in force and logs an error. A broken file at startup stops the server. Format: [docs/api.md](docs/api.md#ingest-rules), example: `deploy/rules.example.yaml`. |
 | `HERALDO_PUSH` | `off` | `on` sends APNs pushes to the registered devices. Off, the server registers devices and pushes nothing. |
@@ -117,6 +121,11 @@ The server reads its configuration from the environment.
 | `HERALDO_APNS_KEY` | none | The same key inline, the `.p8` file's PEM text, for a secret store that passes values as environment variables. A value with no line breaks has each literal `\n` turned into one. Set this or the file, not both. |
 | `HERALDO_APNS_KEY_ID` | none | The key's id, 10 characters. |
 | `HERALDO_APNS_TEAM_ID` | none | The Apple developer team id. |
+| `HERALDO_NOTIFY_TRUSTED_NETS` | none | CIDRs, separated by commas, whose clients may use the Apprise compatibility and hold paths with no credential. Read the risk in [docs/api.md](docs/api.md#sender-auth) first. |
+| `HERALDO_HOLD` | `off` | The alert hold: `off`, `shadow` or `on` ([docs/api.md](docs/api.md#hold)). |
+| `HERALDO_HOLD_BYPASS_FILE` | none | The hold's bypass list, a JSON file, reloaded when it changes. Example: `deploy/hold-bypass.example.json`. |
+| `HERALDO_HOLD_DEADLINE` | `30m` | How long an alert waits for triage before it is forwarded as it is. |
+| `HERALDO_HOLD_DEADMAN` | `20m` | How long the hold waits for a triage poll before it stops holding. |
 
 With no tokens, the server refuses every call except `/healthz`.
 

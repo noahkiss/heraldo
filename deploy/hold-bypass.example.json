@@ -1,0 +1,12 @@
+[
+  {"why": "The page rung exists to skip the hold. Only alert is ever a candidate, so this rule documents intent.",
+   "tag": "page"},
+  {"why": "A disk at its critical threshold pages at once; the warning level waits for triage.",
+   "title_regex": "^🚨 Disk "},
+  {"why": "A failed SMART check; a SMART warning waits for triage.",
+   "title_regex": "SMART .*(FAILED|[Ff]ailed|[Ff]ailure)"},
+  {"why": "Output of the triage job itself must never wait in its own queue.",
+   "title_regex": "^(Alert triage|triage:)"},
+  {"why": "The freshness row that watches the hold, matched in the body.",
+   "body_regex": "hold-freshness@example"}
+]

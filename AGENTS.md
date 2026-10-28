@@ -11,9 +11,9 @@ The plan and its stages live in bm (project `heraldo`).
 | `schema/` | `envelope.v1.schema.json` and `openapi.yaml`. The one source of truth for the API. |
 | `api/` | Go types generated from `schema/` (`types.gen.go`; never edit it by hand). `internal/bundle` inlines the JSON Schema's `$defs` for oapi-codegen |
 | `cmd/heraldo-server`, `cmd/heraldo` | Server and CLI |
-| `internal/` | Server packages: `config` (env), `server` (handlers), `store` (SQLite, migrations in `store/migrations`), `validate` (envelope checks), `auth` (tokens), `ids` (ULIDs), `teeimport` (apprise-tee backfill), `rules` (ingest rules, `HERALDO_RULES`), `replay` (rules against a catalogue, in memory), `push` (APNs sender: provider token, payload, push table, queue), `live` (Live Activities for kind progress: push-to-start, throttled updates, the 8 hour chain, ghost handling), `version`; `client`, the API client the CLI uses |
+| `internal/` | Server packages: `config` (env), `server` (handlers), `store` (SQLite, migrations in `store/migrations`), `validate` (envelope checks), `auth` (tokens), `ids` (ULIDs), `teeimport` (apprise-tee backfill), `rules` (ingest rules, `HERALDO_RULES`), `hold` (the alert hold's mode and bypass list; the hold's state and endpoints are in `server`), `replay` (rules against a catalogue, in memory), `push` (APNs sender: provider token, payload, push table, queue), `live` (Live Activities for kind progress: push-to-start, throttled updates, the 8 hour chain, ghost handling), `version`; `client`, the API client the CLI uses |
 | `apple/` | XcodeGen project: multiplatform app `Heraldo`, `HeraldoNotificationService` (iOS), `HeraldoWidgets` (widgets and the Live Activity), package `HeraldoKit`; `LiveActivity/` holds code built into both the app and the widget extension |
-| `deploy/` | Generic `compose.yml`, `heraldo.example.env` and `rules.example.yaml` |
+| `deploy/` | Generic `compose.yml`, `heraldo.example.env`, `rules.example.yaml` and `hold-bypass.example.json` |
 | `design/icon/` | App and web icon and the wordmark. `heraldo.svg` is the source of truth; `build.py` derives the masters, layers, web set, logos, wordmarks, README banners and og-images, `apple/App/AppIcon.icon` and the logo assets in `apple/App/Shared/Assets.xcassets` |
 | `docs/` | API summary, Apple notes |
 

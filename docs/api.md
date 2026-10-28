@@ -23,7 +23,9 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `PUT /v1/checkins/{slug}` | Creates a check, or replaces a known check's host and schedule. | served |
 | `POST /v1/checkins/{slug}/pause`, `/resume` | Pauses or resumes a check. | served |
 | `POST`, `DELETE /v1/checkins/{slug}/key` | Mints a check's ping key (replacing the old one), or removes it. | served |
-| `POST /notify/apprise`, `POST /notify/{key}` | Apprise-compatible ingest. Answers 200 with `Sent`. | 11 |
+| `POST /notify/{key}`, `POST /v1/notify` | Apprise-compatible ingest: JSON, form or multipart. Answers 200 with a `Sent` line, or 424. See "Apprise compatibility". | served |
+| `GET /recent?n=&tag=&source=`, `GET /entry/{id}` | The newest events, or one, in the apprise-tee catalogue's shape. | served |
+| `GET /v1/hold?state=&peek=`, `POST /v1/hold/release`, `POST /v1/hold/suppress` | The alert hold: its queue, and closing entries. Also served as `/held`, `/held/release` and `/held/suppress`. See "Hold". | served |
 | `GET /v1/state` | Flat arrays of the latest event per key: incidents not resolved, progress not ended, every check-in, set statuses. The shape is a stand-in until stage 12. | served |
 | `GET /v1/stream` | Server-sent events: one `poke` per stored event, with the newest cursor. | served |
 | `GET /v1/cursors/{name}`, `PUT /v1/cursors/{name}` | The read cursor called `name`, shared by every client, with its `unread` count. | served |
@@ -58,6 +60,11 @@ Auth:
   checks takes a `read` token; `PUT`, pause, resume and the ping key calls
   take a `write` token.
 - The server stores each token's SHA-256 only. The README shows the token file.
+- The Apprise compatibility paths and the hold paths take a bearer token as
+  usual, or two other credentials ("Apprise compatibility", "Sender auth"): a
+  token with the `notify-key` capability as the `{key}` of `/notify/{key}`,
+  and, with no credential at all, a client address in
+  `HERALDO_NOTIFY_TRUSTED_NETS`.
 - A write token with the `trusted-ingest` capability is a bridge, such as
   apprise-tee. Its events get two extras:
   - `details.tee.hold`, an object, is copied into `hold`. Only an alert the
@@ -465,6 +472,199 @@ Field mapping, Notify! to LiveContent: `progress` 0–100 to 0–1; `steps` and
 - `expiresAt` is ten years out. heraldo hands a long activity over to a new
   one itself, so the sender must not roll it over.
 - A missing or unknown token answers 401, not Notify!'s 403.
+
+## Apprise compatibility
+
+A sender written for apprise-api, or for an apprise-tee in front of it, works
+with heraldo after one change: its URL. heraldo answers in Apprise's shape, so
+a sender that checks for HTTP 200 and a `Sent` line keeps working.
+
+| Call | heraldo |
+|---|---|
+| `POST /notify/{key}` | Apprise's keyed notify. `key` is `apprise` (Apprise's default key) or a `notify-key` token. |
+| `POST /v1/notify` | The same message, `body` required. The answer adds `id` (the event), `delivered` (false when held), `backends` and `hold_id`. |
+| `GET /recent?n=50&tag=&source=` | The newest `n` events (1 to 1000), newest last, in the tee catalogue's shape. |
+| `GET /entry/{id}` | One event in that shape, by event id. 404 for an unknown id. |
+
+The body is a JSON object, a form (`application/x-www-form-urlencoded`) or
+multipart (files are dropped). Its fields:
+
+| Field | Becomes |
+|---|---|
+| `title`, `body` | `title` (256 characters) and `body` (256 KiB). `/notify/{key}` takes a title alone; an empty post gets 400. |
+| `tag`, else `tags` | `tags`, split on commas and spaces; a JSON list works too. The first tag, the rung, picks the level (below). |
+| `level` | A rung that replaces `tag`. |
+| `source` | `source`. Absent: a title prefix `Name/host ...` or `name: `, else the token's name, else the client address. |
+| `url`, `image` | `url` (`http` or `https`) and `image` (`https`). A value that is not a web URL is dropped. |
+| `type`, `format` | `details.notify.type` and `.format`. |
+
+`details.notify` also records `client` (the connection's address) and `path`
+(`/notify/apprise`, `/notify/<key>` or `/v1/notify`).
+
+| Rung | Level |
+|---|---|
+| `ops` | `critical` (sent as `time-sensitive`) |
+| `page`, `alert` | `time-sensitive` |
+| `general` | `active` |
+| `quiet` | `passive` |
+| an envelope level, such as `passive` | that level |
+| anything else | none (`active` when pushed) |
+
+The post is untyped, so the ingest rules type it, as they typed the tee's
+copies. Answers:
+
+- **200** with `{"error": null, "details": [["INFO", "<time>", "Sent via heraldo as <event id>."]]}`.
+  A held alert answers 200 with `Held for triage as h-...; Sent to the hold
+  queue, not yet pushed.` It carries `Sent` on purpose: a sender with its own
+  Pushover fallback treats a missing `Sent` as a failure, and would page
+  around the hold.
+- **424** with `"error": "One or more notification could not be sent."` when
+  heraldo did not store the event. No detail line says `Sent`.
+- **400** for a body that does not parse or has no text. **401** and **403**
+  as for any call.
+
+"Sent" means stored, as it did for the tee's heraldo backend: an event with no
+registered device, or push off, still answers `Sent`.
+
+`/recent` entries carry `id`, `ts` (epoch seconds), `time`, `client`, `path`,
+`tag` (the tags joined with commas, `null` untagged), `title`, `body`,
+`source`, `status` (200), `delivered` (false for a held or store-only event),
+`kind`, `key`, `level`, `url`, `image`, and `hold`, `hold_id`, `hold_reason`,
+`hold_ids` for hold traffic. `tag=none` keeps untagged events; `source`
+matches exactly or by the part before `/`, ignoring case. A filtered call reads
+at most the newest 5000 events. An event imported from the tee shows the
+tee's `client` and `path`.
+
+### Sender auth
+
+Apprise senders post with no header, so these paths accept three credentials,
+tried in order:
+
+1. A bearer token, as on any call: `write` to post or close hold entries,
+   `read` to read `/recent`, `/entry` and the hold.
+2. For `/notify/{key}` only, a token with the `notify-key` capability as
+   `{key}`. Give each sender its own, with `write` scope. A key in a URL ends up
+   in the sender's config and in proxy logs; heraldo logs the path as
+   `/notify/<key>`.
+3. With no credential at all, a connection from a network in
+   `HERALDO_NOTIFY_TRUSTED_NETS`. It acts with the scope the call needs, under
+   the name `trusted-net`, on every compatibility and hold path, closing hold
+   entries included.
+
+The trusted network is a convenience with a cost. Anyone who reaches the port
+from that network can post, read recent events and close held alerts. heraldo
+reads the connection's address, never a forwarding header, so behind a NAT or
+a container port proxy every client may arrive from the proxy's address, and
+trusting that address trusts all of them. Keep the list empty unless the
+network is yours, and prefer keys.
+
+`heraldo send` (the CLI) works against `/notify/{key}`: point its notify URL
+there.
+
+## Hold
+
+The hold keeps alert-rung posts from paging until triage has read them, so
+the owner gets one diagnosis instead of a push per symptom. It replaces the
+apprise-tee hold and keeps its contract.
+
+A post is a candidate when it arrives on the Apprise compatibility ingest with
+the rung (`level`, else `tag`) exactly `alert`, ignoring case. Other rungs,
+tag lists and `POST /v1/events` are never held.
+
+| `HERALDO_HOLD` | A candidate that matches no bypass rule |
+|---|---|
+| `off` (default) | Stored and pushed as usual. Nothing is recorded. |
+| `shadow` | Stored and pushed, and recorded as an entry with `forwarded` and `shadow` true. |
+| `on` | Stored with `hold` `{id, state: "held", forwarded: false}`, so it does not push, and recorded with `forwarded` false. The sender gets 200 with `Sent` (above). |
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `HERALDO_HOLD_DEADLINE` | `30m` | An entry still `held` this long is forwarded as it is, title prefixed `[not triaged in 30 min]`, and marked `expired`. |
+| `HERALDO_HOLD_DEADMAN` | `20m` | When nothing polls the queue this long, the dead-man trips (below). Before the first poll, the server's start counts. |
+| `HERALDO_HOLD_BYPASS_FILE` | none | The bypass list. |
+
+### Bypass list
+
+A JSON list of rules; a rule matches when every key it sets matches: `tag`
+(equal, ignoring case), `title_regex` and `body_regex` (Go RE2, anywhere in
+the text). `why` is a comment. The file format is the tee's
+`hold-bypass.json`, so that file moves as it is. A bypassed post pushes at
+once and is stored with `hold` `{state: "bypass"}`. Example:
+`deploy/hold-bypass.example.json`.
+
+- The server checks the file's modification time on each candidate and every
+  30 seconds, and reloads it when it changed.
+- A file that does not parse keeps the rules in force and logs an error, so a
+  typo cannot start holding what the list exists to let through. A broken
+  file at startup stops the server.
+- A missing file means no rules, and logs a warning.
+
+### Endpoints
+
+```sh
+# The queue: open entries, plus entries closed in the last 24 h. Every GET
+# without peek=1 is a triage poll and resets the dead-man.
+curl -H "Authorization: Bearer $READ_TOKEN" "$HERALDO_URL/v1/hold"    # ?state=pending: open only
+# A look that is not a poll. A person or a CLI must use it, or it would hold
+# off the dead-man while triage is dead.
+curl -H "Authorization: Bearer $READ_TOKEN" "$HERALDO_URL/v1/hold?peek=1"
+# Close a group with one diagnosis. In on, this stores one message at tag.
+curl -H "Authorization: Bearer $WRITE_TOKEN" -X POST "$HERALDO_URL/v1/hold/release" \
+  -d '{"ids":["h-..."],"verdict":"REAL","title":"...","body":"...","tag":"general"}'
+# Close a group and send nothing.
+curl -H "Authorization: Bearer $WRITE_TOKEN" -X POST "$HERALDO_URL/v1/hold/suppress" \
+  -d '{"ids":["h-..."],"reason":"BLIP: recovered before triage looked"}'
+```
+
+`/held`, `/held/release` and `/held/suppress` are the same calls under the
+tee's paths, so a triage job switches by changing its base URL.
+
+The queue answers `mode`, `last_poll_ts`, `oldest_unforwarded_ts` (null when
+no open or expired entry is waiting to push; a freshness check should age
+this), `deadman_active`, and `held`: entries with `id`, `event_id`, `ts`,
+`deadline_ts`, `tag`, `title`, `body`, `client`, `source`, `forwarded`,
+`shadow`, `status` (`held`, `released`, `suppressed`, `expired`), and once
+closed `closed_ts`, `verdict` and `reason`. Times are epoch seconds, as the
+tee gave them.
+
+- A release takes `ids`, `verdict` (`REAL`, `BLIP`, `MAINTENANCE`, `FALSE`,
+  any case), `title`, `body` and `tag`; otherwise 400. In `on` it stores one
+  untyped message from source `triage`, with `hold` `{state: "forward",
+  reason: "release", ids, verdict}`, and answers `sent: true` and its
+  `event_id`. In `shadow` it only records. When the message cannot be stored,
+  the answer is 500 and nothing is closed, so the caller can send it again.
+- A suppress takes `ids` and an optional `reason`.
+- Both close only open entries. A list with none answers 409; a mixed list
+  closes the open ones and lists the rest under `unknown_or_closed`.
+
+### Dead-man and deadline
+
+A loop every 30 seconds:
+
+1. **Deadline.** An entry still `held` past its deadline is forwarded and
+   marked `expired`. A shadow entry already pushed, so it is only marked.
+2. **Dead-man.** When the dead-man time passes with no poll, the server logs
+   `hold: DEAD-MAN TRIPPED`, forwards every entry not yet forwarded, title
+   prefixed `[triage not polling]`, and lets new candidates through (stored
+   with `hold` `{id, state: "passed"}` and recorded) until the next poll, when
+   it logs `hold: dead-man cleared`. In `on` it also stores one `general`
+   notice from source `heraldo-hold`, "alert hold off: triage not polling".
+3. **Retry.** A forward that cannot be stored is tried again on the next
+   tick.
+
+A forward is the original post typed again by the ingest rules, with the
+prefix added after typing, so a rule anchored on the title still matches. It
+carries `hold` `{state: "forward", reason: "deadline" | "deadman", ids}`. An
+entry left from an `on` period is forwarded whatever the current mode, so
+switching `on` to `shadow` or `off` never strands an alert.
+
+- The stored event never changes. The entry is the live state: an event held
+  on arrival keeps `hold.state` `held` after its release, and
+  `?hold=held` on `/v1/events` lists what was held, not what is open.
+- A held incident event still opens or updates its incident; the hold only
+  stops its push. A held event never re-alerts.
+- A rule with `hold: true` ("Ingest rules") gives the event its own
+  store-only hold, which wins over every hold state but `held`.
 
 ## Incidents
 

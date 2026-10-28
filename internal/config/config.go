@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/noahkiss/heraldo/internal/auth"
+	"github.com/noahkiss/heraldo/internal/hold"
 )
 
 // DefaultAddr is the listen address when HERALDO_ADDR is unset.
@@ -16,6 +19,12 @@ const DefaultAddr = ":7842"
 
 // DefaultDB is the database path when HERALDO_DB is unset.
 const DefaultDB = "heraldo.db"
+
+// Hold timers when HERALDO_HOLD_DEADLINE and HERALDO_HOLD_DEADMAN are unset.
+const (
+	DefaultHoldDeadline = 30 * time.Minute
+	DefaultHoldDeadman  = 20 * time.Minute
+)
 
 // Config is the server configuration.
 type Config struct {
@@ -42,6 +51,20 @@ type Config struct {
 	APNsKeyID string
 	// APNsTeamID is the Apple developer team id. HERALDO_APNS_TEAM_ID.
 	APNsTeamID string
+	// NotifyTrustedNets are the networks whose senders may post to the
+	// Apprise compatibility paths with no credential. Empty means none.
+	// HERALDO_NOTIFY_TRUSTED_NETS, CIDRs separated by commas.
+	NotifyTrustedNets []netip.Prefix
+	// HoldMode is the alert hold's mode. HERALDO_HOLD, default off.
+	HoldMode hold.Mode
+	// HoldBypassFile is the hold's bypass list. HERALDO_HOLD_BYPASS_FILE.
+	HoldBypassFile string
+	// HoldDeadline is how long an alert waits for triage before it is
+	// forwarded as it is. HERALDO_HOLD_DEADLINE.
+	HoldDeadline time.Duration
+	// HoldDeadman is how long the hold waits for a triage poll before it
+	// stops holding. HERALDO_HOLD_DEADMAN.
+	HoldDeadman time.Duration
 }
 
 // FromEnv builds a Config from getenv, normally os.Getenv.
@@ -57,6 +80,36 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		APNsKey:     getenv("HERALDO_APNS_KEY"),
 		APNsKeyID:   getenv("HERALDO_APNS_KEY_ID"),
 		APNsTeamID:  getenv("HERALDO_APNS_TEAM_ID"),
+
+		HoldBypassFile: getenv("HERALDO_HOLD_BYPASS_FILE"),
+		HoldDeadline:   DefaultHoldDeadline,
+		HoldDeadman:    DefaultHoldDeadman,
+	}
+	var err error
+	if c.HoldMode, err = hold.ParseMode(getenv("HERALDO_HOLD")); err != nil {
+		return Config{}, fmt.Errorf("HERALDO_HOLD: %w", err)
+	}
+	for _, d := range []struct {
+		name string
+		dst  *time.Duration
+	}{{"HERALDO_HOLD_DEADLINE", &c.HoldDeadline}, {"HERALDO_HOLD_DEADMAN", &c.HoldDeadman}} {
+		v := getenv(d.name)
+		if v == "" {
+			continue
+		}
+		if *d.dst, err = time.ParseDuration(v); err != nil || *d.dst < time.Minute {
+			return Config{}, fmt.Errorf("%s %q: want a Go duration of a minute or more, such as 30m", d.name, v)
+		}
+	}
+	for _, f := range strings.Split(getenv("HERALDO_NOTIFY_TRUSTED_NETS"), ",") {
+		if f = strings.TrimSpace(f); f == "" {
+			continue
+		}
+		p, err := netip.ParsePrefix(f)
+		if err != nil {
+			return Config{}, fmt.Errorf("HERALDO_NOTIFY_TRUSTED_NETS: %q is not a CIDR such as 192.0.2.0/24", f)
+		}
+		c.NotifyTrustedNets = append(c.NotifyTrustedNets, p.Masked())
 	}
 	switch strings.ToLower(getenv("HERALDO_PUSH")) {
 	case "", "off", "false", "0":

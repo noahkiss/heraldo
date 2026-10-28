@@ -117,51 +117,6 @@ func (e ActivityInstanceState) Valid() bool {
 	}
 }
 
-// Defines values for AppriseNotifyFormat.
-const (
-	AppriseNotifyFormatHtml     AppriseNotifyFormat = "html"
-	AppriseNotifyFormatMarkdown AppriseNotifyFormat = "markdown"
-	AppriseNotifyFormatText     AppriseNotifyFormat = "text"
-)
-
-// Valid indicates whether the value is a known member of the AppriseNotifyFormat enum.
-func (e AppriseNotifyFormat) Valid() bool {
-	switch e {
-	case AppriseNotifyFormatHtml:
-		return true
-	case AppriseNotifyFormatMarkdown:
-		return true
-	case AppriseNotifyFormatText:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for AppriseNotifyType.
-const (
-	AppriseNotifyTypeFailure AppriseNotifyType = "failure"
-	AppriseNotifyTypeInfo    AppriseNotifyType = "info"
-	AppriseNotifyTypeSuccess AppriseNotifyType = "success"
-	AppriseNotifyTypeWarning AppriseNotifyType = "warning"
-)
-
-// Valid indicates whether the value is a known member of the AppriseNotifyType enum.
-func (e AppriseNotifyType) Valid() bool {
-	switch e {
-	case AppriseNotifyTypeFailure:
-		return true
-	case AppriseNotifyTypeInfo:
-		return true
-	case AppriseNotifyTypeSuccess:
-		return true
-	case AppriseNotifyTypeWarning:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for CheckDownReason.
 const (
 	CheckDownReasonFailed  CheckDownReason = "failed"
@@ -414,6 +369,51 @@ func (e HealthStatus) Valid() bool {
 	}
 }
 
+// Defines values for HoldEntryStatus.
+const (
+	HoldEntryStatusExpired    HoldEntryStatus = "expired"
+	HoldEntryStatusHeld       HoldEntryStatus = "held"
+	HoldEntryStatusReleased   HoldEntryStatus = "released"
+	HoldEntryStatusSuppressed HoldEntryStatus = "suppressed"
+)
+
+// Valid indicates whether the value is a known member of the HoldEntryStatus enum.
+func (e HoldEntryStatus) Valid() bool {
+	switch e {
+	case HoldEntryStatusExpired:
+		return true
+	case HoldEntryStatusHeld:
+		return true
+	case HoldEntryStatusReleased:
+		return true
+	case HoldEntryStatusSuppressed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for HoldQueueMode.
+const (
+	HoldQueueModeOff    HoldQueueMode = "off"
+	HoldQueueModeOn     HoldQueueMode = "on"
+	HoldQueueModeShadow HoldQueueMode = "shadow"
+)
+
+// Valid indicates whether the value is a known member of the HoldQueueMode enum.
+func (e HoldQueueMode) Valid() bool {
+	switch e {
+	case HoldQueueModeOff:
+		return true
+	case HoldQueueModeOn:
+		return true
+	case HoldQueueModeShadow:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for IconInfoContentType.
 const (
 	IconInfoContentTypeImagejpeg IconInfoContentType = "image/jpeg"
@@ -594,6 +594,66 @@ func (e ListEventsParamsOrder) Valid() bool {
 	}
 }
 
+// Defines values for HoldListParamsState.
+const (
+	HoldListParamsStatePending HoldListParamsState = "pending"
+)
+
+// Valid indicates whether the value is a known member of the HoldListParamsState enum.
+func (e HoldListParamsState) Valid() bool {
+	switch e {
+	case HoldListParamsStatePending:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for HoldListParamsPeek.
+const (
+	HoldListParamsPeekN1   HoldListParamsPeek = "1"
+	HoldListParamsPeekTrue HoldListParamsPeek = "true"
+	HoldListParamsPeekYes  HoldListParamsPeek = "yes"
+)
+
+// Valid indicates whether the value is a known member of the HoldListParamsPeek enum.
+func (e HoldListParamsPeek) Valid() bool {
+	switch e {
+	case HoldListParamsPeekN1:
+		return true
+	case HoldListParamsPeekTrue:
+		return true
+	case HoldListParamsPeekYes:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for HoldReleaseJSONBodyVerdict.
+const (
+	HoldReleaseJSONBodyVerdictBLIP        HoldReleaseJSONBodyVerdict = "BLIP"
+	HoldReleaseJSONBodyVerdictFalse       HoldReleaseJSONBodyVerdict = "false"
+	HoldReleaseJSONBodyVerdictMAINTENANCE HoldReleaseJSONBodyVerdict = "MAINTENANCE"
+	HoldReleaseJSONBodyVerdictREAL        HoldReleaseJSONBodyVerdict = "REAL"
+)
+
+// Valid indicates whether the value is a known member of the HoldReleaseJSONBodyVerdict enum.
+func (e HoldReleaseJSONBodyVerdict) Valid() bool {
+	switch e {
+	case HoldReleaseJSONBodyVerdictBLIP:
+		return true
+	case HoldReleaseJSONBodyVerdictFalse:
+		return true
+	case HoldReleaseJSONBodyVerdictMAINTENANCE:
+		return true
+	case HoldReleaseJSONBodyVerdictREAL:
+		return true
+	default:
+		return false
+	}
+}
+
 // Action A button on a notification, Live Activity or widget. type open: the device opens url. type http: the device calls url with method, so it can reach hosts only the device sees, such as the LAN. type server: heraldo handles it; id names the server action (ack, resolve or mute) and url is not used.
 type Action struct {
 	// Destructive Show the button as destructive.
@@ -692,22 +752,40 @@ type ActivityList struct {
 	Activities []Activity `json:"activities"`
 }
 
-// AppriseNotify An Apprise API notify request. Fields heraldo does not use are accepted and ignored.
-type AppriseNotify struct {
-	Body   string               `json:"body"`
-	Format *AppriseNotifyFormat `json:"format,omitempty"`
-
-	// Tag Apprise tags, comma or space separated. Stored as tags.
-	Tag   *string            `json:"tag,omitempty"`
-	Title *string            `json:"title,omitempty"`
-	Type  *AppriseNotifyType `json:"type,omitempty"`
+// AppriseAnswer defines model for AppriseAnswer.
+type AppriseAnswer struct {
+	Backends  *map[string]interface{}   `json:"backends,omitempty"`
+	Delivered *bool                     `json:"delivered,omitempty"`
+	Details   [][]string                `json:"details"`
+	Error     nullable.Nullable[string] `json:"error"`
+	HoldId    *string                   `json:"hold_id,omitempty"`
+	Id        *string                   `json:"id,omitempty"`
 }
 
-// AppriseNotifyFormat defines model for AppriseNotify.Format.
-type AppriseNotifyFormat string
+// AppriseNotify An Apprise API notify request, plus the apprise-tee message fields. Other fields are ignored.
+type AppriseNotify struct {
+	// Body Required on /v1/notify; /notify/{key} takes a title alone.
+	Body   *string `json:"body,omitempty"`
+	Format *string `json:"format,omitempty"`
+	Image  *string `json:"image,omitempty"`
 
-// AppriseNotifyType defines model for AppriseNotify.Type.
-type AppriseNotifyType string
+	// Level A rung that replaces tag.
+	Level *string `json:"level,omitempty"`
+
+	// Source The sender. Absent, it comes from a title prefix such as "name: ", else the token name or the client address.
+	Source *string `json:"source,omitempty"`
+
+	// Tag The ladder rung, or Apprise tags, comma or space separated (a JSON list works too). Stored as tags; the first picks the level.
+	Tag *string `json:"tag,omitempty"`
+
+	// Tags Read when tag is absent. A JSON list works too.
+	Tags  *string `json:"tags,omitempty"`
+	Title *string `json:"title,omitempty"`
+
+	// Type Apprise's type (info, success, warning, failure), kept in details.notify.type.
+	Type *string `json:"type,omitempty"`
+	Url  *string `json:"url,omitempty"`
+}
 
 // Check defines model for Check.
 type Check struct {
@@ -1141,6 +1219,44 @@ type HealthPush string
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
 
+// HoldEntry defines model for HoldEntry.
+type HoldEntry struct {
+	Body       *string         `json:"body,omitempty"`
+	Client     *string         `json:"client,omitempty"`
+	ClosedTs   *float32        `json:"closed_ts,omitempty"`
+	DeadlineTs float32         `json:"deadline_ts"`
+	EventId    *string         `json:"event_id,omitempty"`
+	Forwarded  bool            `json:"forwarded"`
+	Id         string          `json:"id"`
+	Reason     *string         `json:"reason,omitempty"`
+	Shadow     bool            `json:"shadow"`
+	Source     *string         `json:"source,omitempty"`
+	Status     HoldEntryStatus `json:"status"`
+	Tag        *string         `json:"tag,omitempty"`
+	Title      *string         `json:"title,omitempty"`
+	Ts         float32         `json:"ts"`
+	Verdict    *string         `json:"verdict,omitempty"`
+}
+
+// HoldEntryStatus defines model for HoldEntry.Status.
+type HoldEntryStatus string
+
+// HoldQueue defines model for HoldQueue.
+type HoldQueue struct {
+	DeadmanActive *bool       `json:"deadman_active,omitempty"`
+	Held          []HoldEntry `json:"held"`
+
+	// LastPollTs Epoch seconds.
+	LastPollTs nullable.Nullable[float32] `json:"last_poll_ts,omitempty"`
+	Mode       HoldQueueMode              `json:"mode"`
+
+	// OldestUnforwardedTs Epoch seconds of the oldest entry that no pushing event carries yet; null when none.
+	OldestUnforwardedTs nullable.Nullable[float32] `json:"oldest_unforwarded_ts,omitempty"`
+}
+
+// HoldQueueMode defines model for HoldQueue.Mode.
+type HoldQueueMode string
+
 // IconInfo defines model for IconInfo.
 type IconInfo struct {
 	Bytes       int                 `json:"bytes"`
@@ -1359,6 +1475,9 @@ type Rid = string
 
 // Slug defines model for Slug.
 type Slug = string
+
+// AppriseSent defines model for AppriseSent.
+type AppriseSent = AppriseAnswer
 
 // Repeat One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery and, on an incident, incident.
 type Repeat = Event
@@ -1715,6 +1834,13 @@ type PingExitCodeWithLogParams struct {
 	Host *PingHost `form:"host,omitempty" json:"host,omitempty"`
 }
 
+// NotifyRecentParams defines parameters for NotifyRecent.
+type NotifyRecentParams struct {
+	N      *int    `form:"n,omitempty" json:"n,omitempty"`
+	Tag    *string `form:"tag,omitempty" json:"tag,omitempty"`
+	Source *string `form:"source,omitempty" json:"source,omitempty"`
+}
+
 // ListActivitiesParams defines parameters for ListActivities.
 type ListActivitiesParams struct {
 	// All 1 lists ended activities too.
@@ -1755,6 +1881,36 @@ type ListEventsParams struct {
 // ListEventsParamsOrder defines parameters for ListEvents.
 type ListEventsParamsOrder string
 
+// HoldListParams defines parameters for HoldList.
+type HoldListParams struct {
+	State *HoldListParamsState `form:"state,omitempty" json:"state,omitempty"`
+	Peek  *HoldListParamsPeek  `form:"peek,omitempty" json:"peek,omitempty"`
+}
+
+// HoldListParamsState defines parameters for HoldList.
+type HoldListParamsState string
+
+// HoldListParamsPeek defines parameters for HoldList.
+type HoldListParamsPeek string
+
+// HoldReleaseJSONBody defines parameters for HoldRelease.
+type HoldReleaseJSONBody struct {
+	Body    string                     `json:"body"`
+	Ids     []string                   `json:"ids"`
+	Tag     string                     `json:"tag"`
+	Title   string                     `json:"title"`
+	Verdict HoldReleaseJSONBodyVerdict `json:"verdict"`
+}
+
+// HoldReleaseJSONBodyVerdict defines parameters for HoldRelease.
+type HoldReleaseJSONBodyVerdict string
+
+// HoldSuppressJSONBody defines parameters for HoldSuppress.
+type HoldSuppressJSONBody struct {
+	Ids    []string `json:"ids"`
+	Reason *string  `json:"reason,omitempty"`
+}
+
 // SendEventParams defines parameters for SendEvent.
 type SendEventParams struct {
 	Source  string       `form:"source" json:"source"`
@@ -1786,17 +1942,14 @@ type NotifyLiveActivityUpsertJSONRequestBody = NotifyLiveActivityUpsertJSONBody
 // NotifyJSONJSONRequestBody defines body for NotifyJSON for application/json ContentType.
 type NotifyJSONJSONRequestBody = NotifyJSONJSONBody
 
-// NotifyAppriseJSONRequestBody defines body for NotifyApprise for application/json ContentType.
-type NotifyAppriseJSONRequestBody = AppriseNotify
-
-// NotifyAppriseFormdataRequestBody defines body for NotifyApprise for application/x-www-form-urlencoded ContentType.
-type NotifyAppriseFormdataRequestBody = AppriseNotify
-
 // NotifyAppriseKeyJSONRequestBody defines body for NotifyAppriseKey for application/json ContentType.
 type NotifyAppriseKeyJSONRequestBody = AppriseNotify
 
 // NotifyAppriseKeyFormdataRequestBody defines body for NotifyAppriseKey for application/x-www-form-urlencoded ContentType.
 type NotifyAppriseKeyFormdataRequestBody = AppriseNotify
+
+// NotifyAppriseKeyMultipartRequestBody defines body for NotifyAppriseKey for multipart/form-data ContentType.
+type NotifyAppriseKeyMultipartRequestBody = AppriseNotify
 
 // KeyPingSuccessWithLogTextRequestBody defines body for KeyPingSuccessWithLog for text/plain ContentType.
 type KeyPingSuccessWithLogTextRequestBody = KeyPingSuccessWithLogTextBody
@@ -1846,5 +1999,20 @@ type UpdateDeviceJSONRequestBody = DeviceRegistration
 // PostEventJSONRequestBody defines body for PostEvent for application/json ContentType.
 type PostEventJSONRequestBody = EventInput
 
+// HoldReleaseJSONRequestBody defines body for HoldRelease for application/json ContentType.
+type HoldReleaseJSONRequestBody HoldReleaseJSONBody
+
+// HoldSuppressJSONRequestBody defines body for HoldSuppress for application/json ContentType.
+type HoldSuppressJSONRequestBody HoldSuppressJSONBody
+
 // CreateMuteJSONRequestBody defines body for CreateMute for application/json ContentType.
 type CreateMuteJSONRequestBody = MuteInput
+
+// NotifyMessageJSONRequestBody defines body for NotifyMessage for application/json ContentType.
+type NotifyMessageJSONRequestBody = AppriseNotify
+
+// NotifyMessageFormdataRequestBody defines body for NotifyMessage for application/x-www-form-urlencoded ContentType.
+type NotifyMessageFormdataRequestBody = AppriseNotify
+
+// NotifyMessageMultipartRequestBody defines body for NotifyMessage for multipart/form-data ContentType.
+type NotifyMessageMultipartRequestBody = AppriseNotify

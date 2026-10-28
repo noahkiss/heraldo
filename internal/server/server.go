@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"path"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/auth"
+	"github.com/noahkiss/heraldo/internal/hold"
 	"github.com/noahkiss/heraldo/internal/ids"
 	"github.com/noahkiss/heraldo/internal/rules"
 	"github.com/noahkiss/heraldo/internal/store"
@@ -53,6 +55,11 @@ type Options struct {
 	// Live gets every newly stored progress event; nil drives no Live
 	// Activities.
 	Live Live
+	// TrustedNets may post to the Apprise compatibility paths with no
+	// credential. Empty means none.
+	TrustedNets []netip.Prefix
+	// Hold is the alert hold; the zero value is off.
+	Hold HoldOptions
 }
 
 // Pusher queues stored events for push. Enqueue must not block.
@@ -69,6 +76,9 @@ type server struct {
 	// cmu serialises check judging, so a ping and a scheduler tick never
 	// open the same incident twice.
 	cmu sync.Mutex
+	// hmu guards deadmanActive, the hold's dead-man as the last tick saw it.
+	hmu           sync.Mutex
+	deadmanActive bool
 }
 
 // Server is the HTTP handler and the check-in scheduler.
@@ -98,6 +108,15 @@ func NewServer(o Options) *Server {
 	if o.PushState == "" {
 		o.PushState = api.HealthPushOff
 	}
+	if o.Hold.Mode == "" {
+		o.Hold.Mode = hold.Off
+	}
+	if o.Hold.Deadline == 0 {
+		o.Hold.Deadline = 30 * time.Minute
+	}
+	if o.Hold.Deadman == 0 {
+		o.Hold.Deadman = 20 * time.Minute
+	}
 	s := &server{Options: o, hub: newHub(), started: o.Now()}
 	if e, ok := o.Live.(interface {
 		SetEmit(func(context.Context, map[string]any) error)
@@ -123,6 +142,8 @@ func NewServer(o Options) *Server {
 	mux.HandleFunc("GET /v1/activities/{key...}", s.auth(auth.ScopeRead, false, s.getActivity))
 	mux.HandleFunc("PUT /v1/activity-instances/{id}", s.auth(DeviceScope, false, s.reportInstance))
 	s.compatRoutes(mux)
+	s.appriseRoutes(mux)
+	s.holdRoutes(mux)
 	mux.HandleFunc("GET /v1/mutes", s.auth(auth.ScopeWrite, false, s.listMutes))
 	mux.HandleFunc("POST /v1/mutes", s.auth(auth.ScopeWrite, false, s.createMute))
 	mux.HandleFunc("DELETE /v1/mutes/{id}", s.auth(auth.ScopeWrite, false, s.endMute))
@@ -183,8 +204,8 @@ func (w *statusWriter) WriteHeader(code int) {
 func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // logRequests logs one line per request. It logs the path, never the query
-// string, because /v1/send may carry a token there; and a ping key in a /p/
-// path is logged as <key>.
+// string, because /v1/send may carry a token there; and a key in a /p/ or
+// /notify/ path is logged as <key>.
 func (s *server) logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -192,7 +213,7 @@ func (s *server) logRequests(next http.Handler) http.Handler {
 		var who string
 		r = r.WithContext(context.WithValue(r.Context(), ctxKey{}, &who))
 		clean := cleanPath(r.URL.Path)
-		if strings.HasPrefix(clean, "/p/") && clean != r.URL.Path {
+		if (strings.HasPrefix(clean, "/p/") || strings.HasPrefix(clean, "/notify/")) && clean != r.URL.Path {
 			// ServeMux would answer a redirect, which a cron line's curl does
 			// not follow: serve the clean ping path instead.
 			u := *r.URL
@@ -221,8 +242,12 @@ func cleanPath(p string) string {
 	return path.Clean(p)
 }
 
-// redactPath hides the ping key in a clean /p/<key>[/op] path.
+// redactPath hides the ping key in a clean /p/<key>[/op] path, and the key
+// in /notify/<key> unless it is Apprise's default key, apprise.
 func redactPath(p string) string {
+	if key, ok := strings.CutPrefix(p, "/notify/"); ok && key != "apprise" {
+		return "/notify/<key>"
+	}
 	rest, ok := strings.CutPrefix(p, "/p/")
 	if !ok {
 		return p

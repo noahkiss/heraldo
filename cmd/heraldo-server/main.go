@@ -11,6 +11,11 @@
 //	HERALDO_APNS_KEY_FILE, HERALDO_APNS_KEY_ID, HERALDO_APNS_TEAM_ID
 //	                     the APNs auth key (.p8), its key id and the team id
 //	HERALDO_APNS_KEY     the .p8 key's PEM text inline, instead of the file
+//	HERALDO_NOTIFY_TRUSTED_NETS  CIDRs whose senders may use the Apprise paths
+//	                     with no credential (default none)
+//	HERALDO_HOLD         the alert hold: off, shadow or on (default off)
+//	HERALDO_HOLD_BYPASS_FILE  the hold's bypass list, a JSON file
+//	HERALDO_HOLD_DEADLINE, HERALDO_HOLD_DEADMAN  the hold's timers (30m, 20m)
 //
 // Subcommands:
 //
@@ -44,6 +49,7 @@ import (
 	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/auth"
 	"github.com/noahkiss/heraldo/internal/config"
+	"github.com/noahkiss/heraldo/internal/hold"
 	"github.com/noahkiss/heraldo/internal/live"
 	"github.com/noahkiss/heraldo/internal/push"
 	"github.com/noahkiss/heraldo/internal/replay"
@@ -167,6 +173,10 @@ func serve(log *slog.Logger) error {
 		}
 		go rw.Watch(ctx, rules.DefaultInterval)
 	}
+	bypass, err := hold.NewBypass(cfg.HoldBypassFile, log)
+	if err != nil {
+		return fmt.Errorf("HERALDO_HOLD_BYPASS_FILE: %w", err)
+	}
 	// The pusher outlives ctx: at shutdown it drains its queue first.
 	pushCtx, stopPush := context.WithCancel(context.Background())
 	defer stopPush()
@@ -174,8 +184,18 @@ func serve(log *slog.Logger) error {
 	h := server.NewServer(server.Options{
 		Version: version.String(), Store: st, Tokens: tokens, Validator: v, Rules: rw, Logger: log,
 		Done: ctx.Done(), Pusher: pusher, PushState: pushState, Live: lm,
+		TrustedNets: cfg.NotifyTrustedNets,
+		Hold: server.HoldOptions{
+			Mode: cfg.HoldMode, Bypass: bypass, Deadline: cfg.HoldDeadline, Deadman: cfg.HoldDeadman,
+		},
 	})
+	if len(cfg.NotifyTrustedNets) > 0 {
+		log.Warn("notify: senders in these networks post to the Apprise paths with no credential",
+			"nets", fmt.Sprint(cfg.NotifyTrustedNets))
+	}
+	log.Info("hold", "mode", cfg.HoldMode, "deadline", cfg.HoldDeadline.String(), "deadman", cfg.HoldDeadman.String())
 	go h.RunCheckins(ctx, checkinTick)
+	go h.RunHold(ctx, holdTick)
 	srv := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           h,
@@ -220,6 +240,9 @@ const sweepWindow = time.Hour
 
 // checkinTick is how often the scheduler judges the checks.
 const checkinTick = 15 * time.Second
+
+// holdTick is how often the hold checks its deadlines and the dead-man.
+const holdTick = 30 * time.Second
 
 // startPush starts the APNs pusher and the Live Activity manager when
 // HERALDO_PUSH is on and a key loads. A missing or bad key logs an error and

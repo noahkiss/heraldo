@@ -2,9 +2,12 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,11 +27,19 @@ func TestMigrateFromEmpty(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "h.db")
 	s := open(t, path)
-	v, err := s.Version(ctx)
-	if err != nil || v != 6 {
-		t.Fatalf("version = %d, %v; want 6", v, err)
+	// The version counts the migration files, so each must be numbered in
+	// turn: 0001, 0002, ... with no gap.
+	names, _ := fs.Glob(migrations, "migrations/*.sql")
+	for i, n := range names {
+		if want := fmt.Sprintf("migrations/%04d_", i+1); !strings.HasPrefix(n, want) {
+			t.Fatalf("migration %s: want the prefix %s", n, want)
+		}
 	}
-	for _, table := range []string{"events", "events_fts", "incidents", "checkins", "activities", "status", "imports", "cursors", "devices", "deliveries", "mutes", "icons"} {
+	v, err := s.Version(ctx)
+	if err != nil || v != len(names) {
+		t.Fatalf("version = %d, %v; want %d", v, err, len(names))
+	}
+	for _, table := range []string{"events", "events_fts", "incidents", "checkins", "activities", "status", "imports", "cursors", "devices", "deliveries", "mutes", "icons", "hold_entries", "hold_meta"} {
 		var n int
 		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM `+table).Scan(&n); err != nil {
 			t.Fatalf("%s: %v", table, err)
@@ -42,7 +53,7 @@ func TestMigrateFromEmpty(t *testing.T) {
 	// A second open applies nothing and keeps the version.
 	s = open(t, path)
 	defer s.Close()
-	if v, _ := s.Version(ctx); v != 6 {
+	if v, _ := s.Version(ctx); v != len(names) {
 		t.Fatalf("version after reopen = %d", v)
 	}
 }

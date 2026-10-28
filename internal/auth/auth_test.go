@@ -71,4 +71,11 @@ func TestCapabilities(t *testing.T) {
 	if !b.Has(CapTrustedIngest) || p.Has(CapTrustedIngest) {
 		t.Fatalf("caps: bridge %v, plain %v", b.Caps, p.Caps)
 	}
+	k, err := Parse(strings.NewReader("keyed write "+Hash("k")+" notify-key"), ',')
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kt, _ := k.Lookup("k"); !kt.Has(CapNotifyKey) || kt.Has(CapTrustedIngest) {
+		t.Fatalf("caps: keyed %v", kt.Caps)
+	}
 }

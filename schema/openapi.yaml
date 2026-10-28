@@ -31,6 +31,8 @@ tags:
     description: The icon registry. Pushes name an icon; the apps fetch it.
   - name: checkins
     description: Checks that expect pings on a schedule, and the ping API.
+  - name: hold
+    description: The alert hold, where alert-rung posts wait for triage.
 paths:
   /healthz:
     get:
@@ -1427,38 +1429,26 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
-  /notify/apprise:
-    post:
-      operationId: notifyApprise
-      summary: Apprise-compatible ingest, stateless form.
-      description: |
-        Takes an Apprise API notify request and stores it as a message. Answers 200
-        with the body "Sent", as the Apprise front door does today.
-      x-stage: 11
-      tags: [compat]
-      requestBody:
-        $ref: "#/components/requestBodies/AppriseNotify"
-      responses:
-        "200":
-          $ref: "#/components/responses/AppriseSent"
-        "400":
-          $ref: "#/components/responses/Error"
-        "401":
-          $ref: "#/components/responses/Error"
   /notify/{key}:
     post:
       operationId: notifyAppriseKey
-      summary: Apprise-compatible ingest for a configuration key.
+      summary: Apprise-compatible ingest.
       description: |
-        Takes an Apprise API notify request for a stored configuration key. The key
-        selects the sender rules. Answers 200 with the body "Sent".
-      x-stage: 11
+        Takes an Apprise API notify request (JSON, form or multipart; files are
+        dropped) and stores it as an untyped event, so the ingest rules type it.
+        `key` is Apprise's config key: `apprise`, or a token with the notify-key
+        capability, which is then the credential. Without a bearer token or a
+        notify-key token, a client in HERALDO_NOTIFY_TRUSTED_NETS may post. An
+        alert-rung post may be held (see the hold paths). Answers 200 with a
+        detail line containing "Sent", or 424 when the event was not stored.
+        docs/api.md, "Apprise compatibility".
       tags: [compat]
+      security: [{bearerAuth: []}, {}]
       parameters:
         - name: key
           in: path
           required: true
-          description: The Apprise configuration key.
+          description: The Apprise config key, or a notify-key token.
           schema:
             type: string
       requestBody:
@@ -1467,9 +1457,164 @@ paths:
         "200":
           $ref: "#/components/responses/AppriseSent"
         "400":
-          $ref: "#/components/responses/Error"
+          $ref: "#/components/responses/AppriseAnswer"
         "401":
           $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "424":
+          $ref: "#/components/responses/AppriseAnswer"
+  /v1/notify:
+    post:
+      operationId: notifyMessage
+      summary: Apprise-compatible ingest with the outcome.
+      description: |
+        The same message as /notify/{key}, `body` required. The answer adds `id`
+        (the event), `delivered` (false when held), `backends` and `hold_id`.
+      tags: [compat]
+      security: [{bearerAuth: []}, {}]
+      requestBody:
+        $ref: "#/components/requestBodies/AppriseNotify"
+      responses:
+        "200":
+          $ref: "#/components/responses/AppriseSent"
+        "400":
+          $ref: "#/components/responses/AppriseAnswer"
+        "401":
+          $ref: "#/components/responses/Error"
+        "424":
+          $ref: "#/components/responses/AppriseAnswer"
+  /recent:
+    get:
+      operationId: notifyRecent
+      summary: The newest events in the apprise-tee catalogue's shape.
+      description: |
+        The newest n events, newest last, as apprise-tee's /recent gave them.
+        `tag=none` keeps untagged events; `source` matches exactly or by the part
+        before "/", ignoring case. A read token, or a trusted network.
+      tags: [compat]
+      security: [{bearerAuth: []}, {}]
+      parameters:
+        - {name: n, in: query, schema: {type: integer, minimum: 1, maximum: 1000, default: 50}}
+        - {name: tag, in: query, schema: {type: string}}
+        - {name: source, in: query, schema: {type: string}}
+      responses:
+        "200":
+          description: Catalogue entries, newest last.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Error"
+  /entry/{id}:
+    get:
+      operationId: notifyEntry
+      summary: One event in the catalogue's shape.
+      tags: [compat]
+      security: [{bearerAuth: []}, {}]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: The entry.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/hold:
+    get:
+      operationId: holdList
+      summary: The alert hold's queue.
+      description: |
+        Open entries, and entries closed in the last 24 hours (`state=pending`:
+        open only). Every call without `peek=1` is a triage poll and resets the
+        dead-man. Also served as GET /held. docs/api.md, "Hold".
+      tags: [hold]
+      security: [{bearerAuth: []}, {}]
+      parameters:
+        - {name: state, in: query, schema: {type: string, enum: [pending]}}
+        - {name: peek, in: query, schema: {type: string, enum: ["1", "true", "yes"]}}
+      responses:
+        "200":
+          description: The queue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HoldQueue"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/hold/release:
+    post:
+      operationId: holdRelease
+      summary: Close held entries with one message.
+      description: |
+        In mode on, stores one message at `tag` from source `triage`; in shadow it
+        only records. 409 when no id names an open entry. Also POST /held/release.
+      tags: [hold]
+      security: [{bearerAuth: []}, {}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids, verdict, title, body, tag]
+              properties:
+                ids: {type: array, minItems: 1, items: {type: string}}
+                verdict: {type: string, enum: [REAL, BLIP, MAINTENANCE, FALSE]}
+                title: {type: string}
+                body: {type: string}
+                tag: {type: string}
+      responses:
+        "200":
+          description: Closed. `released`, `unknown_or_closed`, `mode`, `sent`, `event_id`.
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          description: No open entry among ids.
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+  /v1/hold/suppress:
+    post:
+      operationId: holdSuppress
+      summary: Close held entries and send nothing.
+      description: 409 when no id names an open entry. Also POST /held/suppress.
+      tags: [hold]
+      security: [{bearerAuth: []}, {}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids: {type: array, minItems: 1, items: {type: string}}
+                reason: {type: string}
+      responses:
+        "200":
+          description: Closed. `suppressed`, `unknown_or_closed`, `mode`.
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          description: No open entry among ids.
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
 components:
   securitySchemes:
     bearerAuth:
@@ -1560,6 +1705,9 @@ components:
         application/x-www-form-urlencoded:
           schema:
             $ref: "#/components/schemas/AppriseNotify"
+        multipart/form-data:
+          schema:
+            $ref: "#/components/schemas/AppriseNotify"
   responses:
     Error:
       description: The request failed.
@@ -1587,12 +1735,17 @@ components:
             type: string
             const: OK
     AppriseSent:
-      description: The notification was accepted.
+      description: The notification was stored, or held for triage. A detail line contains "Sent".
       content:
-        text/plain:
+        application/json:
           schema:
-            type: string
-            const: Sent
+            $ref: "#/components/schemas/AppriseAnswer"
+    AppriseAnswer:
+      description: Not stored, in Apprise's shape. No detail line contains "Sent".
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AppriseAnswer"
   schemas:
     EventInput:
       $ref: "envelope.v1.schema.json"
@@ -2084,23 +2237,80 @@ components:
             $ref: "#/components/schemas/Check"
     AppriseNotify:
       type: object
-      description: An Apprise API notify request. Fields heraldo does not use are accepted and ignored.
-      required: [body]
+      description: An Apprise API notify request, plus the apprise-tee message fields. Other fields are ignored.
       properties:
         title:
           type: string
         body:
           type: string
+          description: Required on /v1/notify; /notify/{key} takes a title alone.
         type:
           type: string
-          enum: [info, success, warning, failure]
-          default: info
+          description: Apprise's type (info, success, warning, failure), kept in details.notify.type.
         tag:
           type: string
-          description: Apprise tags, comma or space separated. Stored as tags.
+          description: The ladder rung, or Apprise tags, comma or space separated (a JSON list works too). Stored as tags; the first picks the level.
+        tags:
+          type: string
+          description: Read when tag is absent. A JSON list works too.
         format:
           type: string
-          enum: [text, markdown, html]
+        source:
+          type: string
+          description: 'The sender. Absent, it comes from a title prefix such as "name: ", else the token name or the client address.'
+        level:
+          type: string
+          description: A rung that replaces tag.
+        url:
+          type: string
+        image:
+          type: string
+    AppriseAnswer:
+      type: object
+      required: [error, details]
+      properties:
+        error:
+          type: [string, "null"]
+        details:
+          type: array
+          items:
+            type: array
+            items: {type: string}
+        id: {type: string}
+        delivered: {type: boolean}
+        hold_id: {type: string}
+        backends: {type: object, additionalProperties: true}
+    HoldQueue:
+      type: object
+      required: [mode, held]
+      properties:
+        mode: {type: string, enum: ["off", shadow, "on"]}
+        last_poll_ts: {type: [number, "null"], description: Epoch seconds.}
+        oldest_unforwarded_ts: {type: [number, "null"], description: "Epoch seconds of the oldest entry that no pushing event carries yet; null when none."}
+        deadman_active: {type: boolean}
+        held:
+          type: array
+          items:
+            $ref: "#/components/schemas/HoldEntry"
+    HoldEntry:
+      type: object
+      required: [id, ts, deadline_ts, forwarded, shadow, status]
+      properties:
+        id: {type: string}
+        event_id: {type: string}
+        ts: {type: number}
+        deadline_ts: {type: number}
+        closed_ts: {type: number}
+        tag: {type: string}
+        title: {type: string}
+        body: {type: string}
+        client: {type: string}
+        source: {type: string}
+        forwarded: {type: boolean}
+        shadow: {type: boolean}
+        status: {type: string, enum: [held, released, suppressed, expired]}
+        verdict: {type: string}
+        reason: {type: string}
     Health:
       type: object
       required: [status, version, db]
