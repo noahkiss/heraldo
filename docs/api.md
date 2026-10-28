@@ -12,7 +12,7 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 
 | Method and path | Does | Stage |
 |---|---|---|
-| `GET /healthz` | Liveness, with `db` and the event count. 503 when the database does not answer. No auth. | served |
+| `GET /healthz` | Liveness, with `db`, the event count and, with push on, `unsent` ("Push"). 503 when the database does not answer. No auth. | served |
 | `POST /v1/events` | Stores one `EventInput`. Returns the stored `Event` (201), or the first event for a repeated `dedup` (200). | served |
 | `GET /v1/events?after=&before=&order=&limit=&source=&kind=&host=&key=&tag=&q=&hold=` | Lists events after a cursor, in arrival order. `q` is full-text search over title, summary and body. `order=desc` lists newest first. `hold` keeps events whose `hold.state` matches. | served |
 | `GET /v1/events/{id}` | Returns one event with its full body. | served |
@@ -192,9 +192,22 @@ every 50 minutes, and at once when APNs answers `ExpiredProviderToken`. The
 device's `environment` picks the APNs host.
 
 Ingest never waits for APNs. A stored event goes into an in-memory queue and
-workers send it. A full queue (1024 events) drops the push and logs it, and a
-restart drops queued pushes. The event is stored either way: the app syncs
-history by cursor, so a missed push loses nothing.
+workers send it. A full queue (1024 events) drops the push and logs it. The
+event is stored either way: the app syncs history by cursor.
+
+- At SIGTERM or SIGINT the server stops taking requests, then pushes what is
+  still queued. Both steps share 8 seconds, inside a container runtime's
+  usual 10 second stop timeout. What is left then waits for the next start.
+- At start, the server queues the events of the last hour that have no
+  delivery row, such as those still queued when it last stopped. The push
+  table decides each one as if it were new. Imported and store-only events
+  are left out. A push APNs refused (`failed`) is not retried.
+- `/healthz` reports `unsent` when push is on: the events received between
+  24 hours and 15 minutes ago that should have pushed an alert and reached no
+  device. APNs refused every device, no device is registered, or the push
+  never ran. Point a monitor at it and alert above 0. It counts by the
+  badge's rule ("Read cursors"), so held, store-only, passive and muted
+  events do not count.
 
 Which events push, and how loud:
 

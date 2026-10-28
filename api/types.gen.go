@@ -1120,9 +1120,15 @@ type Health struct {
 
 	// Push APNs push. off: HERALDO_PUSH is off. on: pushes go out. no-key: HERALDO_PUSH is
 	// on but no usable APNs key is configured, so nothing is pushed.
-	Push    *HealthPush  `json:"push,omitempty"`
-	Status  HealthStatus `json:"status"`
-	Version string       `json:"version"`
+	Push   *HealthPush  `json:"push,omitempty"`
+	Status HealthStatus `json:"status"`
+
+	// Unsent With push on: the events received between 24 hours and 15 minutes ago that
+	// should have pushed an alert and reached no device. APNs refused every device,
+	// no device is registered, or the push never ran. A monitor alerts when it is
+	// above 0. Missing when push is not on or the database does not answer.
+	Unsent  *int   `json:"unsent,omitempty"`
+	Version string `json:"version"`
 }
 
 // HealthDb Whether the database answered a query.

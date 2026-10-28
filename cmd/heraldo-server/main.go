@@ -167,7 +167,10 @@ func serve(log *slog.Logger) error {
 		}
 		go rw.Watch(ctx, rules.DefaultInterval)
 	}
-	pusher, lm, pushState := startPush(ctx, cfg, st, rw, log)
+	// The pusher outlives ctx: at shutdown it drains its queue first.
+	pushCtx, stopPush := context.WithCancel(context.Background())
+	defer stopPush()
+	pusher, lm, pushState := startPush(ctx, pushCtx, cfg, st, rw, log)
 	h := server.NewServer(server.Options{
 		Version: version.String(), Store: st, Tokens: tokens, Validator: v, Rules: rw, Logger: log,
 		Done: ctx.Done(), Pusher: pusher, PushState: pushState, Live: lm,
@@ -194,16 +197,26 @@ func serve(log *slog.Logger) error {
 	case <-ctx.Done():
 	}
 	log.Info("shutting down")
-	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// One budget for both steps, inside a container runtime's usual 10 s
+	// stop timeout.
+	shutdown, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdown); err != nil {
 		return err
 	}
+	if p, ok := pusher.(*push.Pusher); ok && !p.Drain(shutdown) {
+		log.Warn("push: queue not drained at shutdown; the next start sweeps it")
+	}
+	stopPush()
 	if err := <-errc; !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
 }
+
+// sweepWindow is how far back the start-up sweep looks for events that
+// have no delivery.
+const sweepWindow = time.Hour
 
 // checkinTick is how often the scheduler judges the checks.
 const checkinTick = 15 * time.Second
@@ -211,7 +224,11 @@ const checkinTick = 15 * time.Second
 // startPush starts the APNs pusher and the Live Activity manager when
 // HERALDO_PUSH is on and a key loads. A missing or bad key logs an error and
 // leaves push off: ingest keeps working.
-func startPush(ctx context.Context, cfg config.Config, st *store.Store, rw *rules.Watcher, log *slog.Logger) (server.Pusher, server.Live, api.HealthPush) {
+//
+// The pusher runs on pushCtx, which the caller ends after draining its
+// queue; the Live Activity manager runs on ctx. Before it returns, it queues
+// the events of the last sweepWindow that have no delivery yet.
+func startPush(ctx, pushCtx context.Context, cfg config.Config, st *store.Store, rw *rules.Watcher, log *slog.Logger) (server.Pusher, server.Live, api.HealthPush) {
 	if !cfg.Push {
 		if cfg.HasAPNsKey() {
 			log.Info("push: an APNs key is set, but HERALDO_PUSH is off; nothing is pushed")
@@ -233,7 +250,12 @@ func startPush(ctx context.Context, cfg config.Config, st *store.Store, rw *rule
 		return nil, nil, api.HealthPushNoKey
 	}
 	p := push.New(push.Config{Key: key, KeyID: cfg.APNsKeyID, TeamID: cfg.APNsTeamID, Store: st, Logger: log, Rules: rw.Rules})
-	go p.Run(ctx)
+	go p.Run(pushCtx)
+	if n, err := p.Sweep(ctx, time.Now().Add(-sweepWindow)); err != nil {
+		log.Error("push: start-up sweep", "err", err)
+	} else if n > 0 {
+		log.Info("push: queued events left unpushed", "events", n)
+	}
 	lm := live.New(live.Config{Store: st, Sender: p, Logger: log})
 	go lm.Run(ctx)
 	return p, lm, api.HealthPushOn

@@ -283,10 +283,25 @@ func (s *server) health(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, api.Health{
-		Status: api.HealthStatusOk, Version: s.Version, Db: api.HealthDbOk, Events: &n, Push: &s.PushState,
-	})
+	h := api.Health{Status: api.HealthStatusOk, Version: s.Version, Db: api.HealthDbOk, Events: &n, Push: &s.PushState}
+	if s.PushState == api.HealthPushOn {
+		now := s.Now()
+		if u, err := s.Store.Unsent(r.Context(), now.Add(-UnsentWindow), now.Add(-UnsentAfter)); err != nil {
+			s.Logger.Error("health: unsent", "err", err)
+		} else {
+			h.Unsent = &u
+		}
+	}
+	writeJSON(w, http.StatusOK, h)
 }
+
+// /healthz counts as unsent the events received in the UnsentWindow before
+// now that should have pushed and reached no device UnsentAfter after they
+// arrived.
+const (
+	UnsentAfter  = 15 * time.Minute
+	UnsentWindow = 24 * time.Hour
+)
 
 func (s *server) postEvent(w http.ResponseWriter, r *http.Request) {
 	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxRequestBytes))

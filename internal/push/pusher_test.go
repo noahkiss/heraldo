@@ -775,3 +775,125 @@ func TestPingRuleHoldsFail(t *testing.T) {
 		t.Fatalf("check %s", rec.Body)
 	}
 }
+
+// insertQuiet stores an event the way the server does, but queues no push:
+// an event the server accepted and then stopped before pushing.
+func (r *rig) insertQuiet(t *testing.T, js string, imported bool) string {
+	t.Helper()
+	var fields map[string]any
+	dec := json.NewDecoder(strings.NewReader(js))
+	dec.UseNumber()
+	if err := dec.Decode(&fields); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := fields["kind"]; !ok {
+		fields["kind"] = "message"
+	}
+	var typed api.EventInput
+	_ = json.Unmarshal([]byte(js), &typed)
+	if typed.Kind == nil {
+		k := api.KindMessage
+		typed.Kind = &k
+	}
+	now := r.clock.now()
+	id := ids.New(now)
+	fields["id"], fields["received_at"], fields["ts"] = id, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)
+	ev := store.NewEvent{ID: id, ReceivedAt: now, Fields: fields, Typed: typed}
+	if imported {
+		if _, err := r.st.Import(context.Background(), "tee", id, ev); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	if _, _, err := r.st.Insert(context.Background(), ev); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func TestSweepPushesUnpushed(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t, 0)
+	r.register(t, prodToken, "production")
+	old := r.insertQuiet(t, `{"source":"s","title":"before the window"}`, false)
+	r.clock.add(2 * time.Hour)
+	since := r.clock.now().Add(-time.Hour)
+	pushed := r.post(t, writeTok, `{"source":"s","title":"pushed already"}`)
+	lost := r.insertQuiet(t, `{"source":"s","title":"lost at shutdown"}`, false)
+	r.insertQuiet(t, `{"source":"s","title":"imported","dedup":"n-1"}`, true)
+	r.insertQuiet(t, `{"source":"s","title":"held","hold":{"state":"held","store_only":true}}`, false)
+	r.insertQuiet(t, `{"source":"s","kind":"checkin","key":"k","action":"success"}`, false)
+	n, err := r.p.Sweep(ctx, since)
+	r.p.Wait()
+	if err != nil || n != 2 {
+		// lost, and the check-in success, which the push table then skips.
+		t.Fatalf("swept %d, %v; want 2", n, err)
+	}
+	if got := len(r.prod.requests()); got != 2 {
+		t.Fatalf("%d pushes, want 2 (pushed, lost)", got)
+	}
+	for _, id := range []string{pushed, lost} {
+		if ds := r.delivery(t, id); len(ds) != 1 || ds[0].Outcome != api.DeliveryOutcomeSent {
+			t.Fatalf("%s: delivery %+v", id, ds)
+		}
+	}
+	if ds := r.delivery(t, old); len(ds) != 0 {
+		t.Fatalf("old event pushed: %+v", ds)
+	}
+	// A second sweep finds nothing new to push.
+	if _, err := r.p.Sweep(ctx, since); err != nil {
+		t.Fatal(err)
+	}
+	r.p.Wait()
+	if got := len(r.prod.requests()); got != 2 {
+		t.Fatalf("%d pushes after a second sweep", got)
+	}
+}
+
+func TestDrain(t *testing.T) {
+	r := newRig(t, 0)
+	r.register(t, prodToken, "production")
+	release := make(chan struct{})
+	r.prod.setReply(func(int, fakeReq) (int, string) { <-release; return http.StatusOK, "" })
+	r.do(t, http.MethodPost, "/v1/events", writeTok, `{"source":"s","title":"queued"}`)
+	short, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if r.p.Drain(short) {
+		t.Fatal("drained with a push in flight")
+	}
+	close(release)
+	if !r.p.Drain(context.Background()) || len(r.prod.requests()) != 1 {
+		t.Fatalf("drain: %d pushes", len(r.prod.requests()))
+	}
+}
+
+func TestHealthUnsent(t *testing.T) {
+	r := newRig(t, 0)
+	r.register(t, prodToken, "production")
+	unsent := func() int {
+		t.Helper()
+		var h api.Health
+		_ = json.Unmarshal(r.do(t, http.MethodGet, "/healthz", "", "").Body.Bytes(), &h)
+		if h.Unsent == nil {
+			t.Fatal("no unsent with push on")
+		}
+		return *h.Unsent
+	}
+	r.post(t, writeTok, `{"source":"s","title":"sent"}`)
+	r.prod.setReply(func(int, fakeReq) (int, string) { return http.StatusInternalServerError, "InternalServerError" })
+	r.post(t, writeTok, `{"source":"s","title":"refused"}`)
+	r.post(t, writeTok, `{"source":"s","title":"quiet","level":"passive"}`)
+	r.insertQuiet(t, `{"source":"s","title":"never pushed"}`, false)
+	r.insertQuiet(t, `{"source":"s","title":"imported","dedup":"n-1"}`, true)
+	if n := unsent(); n != 0 {
+		t.Fatalf("unsent %d inside the first 15 minutes", n)
+	}
+	r.clock.add(server.UnsentAfter)
+	if n := unsent(); n != 2 {
+		t.Fatalf("unsent %d, want 2 (refused, never pushed)", n)
+	}
+	r.clock.add(24 * time.Hour)
+	if n := unsent(); n != 0 {
+		t.Fatalf("unsent %d after the window", n)
+	}
+}

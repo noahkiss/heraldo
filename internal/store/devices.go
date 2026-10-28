@@ -382,6 +382,47 @@ func (s *Store) UnreadAfter(ctx context.Context, seq int64) (int, error) {
 	return n, err
 }
 
+// Unpushed returns the live events received since since that have no
+// delivery row, oldest first: the pusher never got to them, such as when the
+// server stopped with them queued. Imported and store-only events are left
+// out; the pusher's own push table decides the rest.
+func (s *Store) Unpushed(ctx context.Context, since time.Time) ([]Record, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT seq, id, event FROM events
+		WHERE received_at >= ? AND kind IN ('message', 'incident', 'checkin')
+		AND json_extract(event, '$.hold.store_only') IS NOT 1
+		AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.event_id = events.id)
+		AND id NOT IN (SELECT event_id FROM imports)
+		ORDER BY seq`, since.UTC().Format(timeFormat))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Record
+	for rows.Next() {
+		var r Record
+		var raw string
+		if err := rows.Scan(&r.Seq, &r.ID, &raw); err != nil {
+			return nil, err
+		}
+		r.Event = json.RawMessage(raw)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// Unsent counts the live events received between from and to that should
+// have pushed an alert, by pushedWhere, and have no sent delivery: APNs
+// refused every device, no device is registered, or the push never ran.
+func (s *Store) Unsent(ctx context.Context, from, to time.Time) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM events
+		WHERE received_at >= ? AND received_at <= ?
+		AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.event_id = events.id AND d.outcome = 'sent')
+		AND id NOT IN (SELECT event_id FROM imports)
+		AND `+pushedWhere, from.UTC().Format(timeFormat), to.UTC().Format(timeFormat)).Scan(&n)
+	return n, err
+}
+
 // Pushes reports whether the event seq pushes an alert by pushedWhere.
 // push's tests use it to check pushedWhere against Decide.
 func (s *Store) Pushes(ctx context.Context, seq int64) (bool, error) {

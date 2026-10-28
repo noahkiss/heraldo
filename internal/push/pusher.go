@@ -129,8 +129,40 @@ func (p *Pusher) Enqueue(rec store.Record) bool {
 // Wait blocks until every queued event is handled. Tests use it.
 func (p *Pusher) Wait() { p.pending.Wait() }
 
+// Drain waits until every queued event is handled or ctx ends, and reports
+// whether the queue emptied. The server calls it at shutdown, after it stops
+// taking events and before it stops Run.
+func (p *Pusher) Drain(ctx context.Context) bool {
+	done := make(chan struct{})
+	go func() { p.pending.Wait(); close(done) }()
+	select {
+	case <-done:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// Sweep queues the events received since since that have no delivery yet,
+// such as those still queued when the server last stopped, and returns how
+// many it queued. The push table decides each one as if it were new. The
+// server calls it once at start-up.
+func (p *Pusher) Sweep(ctx context.Context, since time.Time) (int, error) {
+	recs, err := p.cfg.Store.Unpushed(ctx, since)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, rec := range recs {
+		if p.Enqueue(rec) {
+			n++
+		}
+	}
+	return n, nil
+}
+
 // Run drains the queue and sends due re-alerts until ctx ends. Events still
-// queued then are not pushed.
+// queued then are not pushed: call Drain first.
 func (p *Pusher) Run(ctx context.Context) {
 	var wg sync.WaitGroup
 	wg.Add(1)
