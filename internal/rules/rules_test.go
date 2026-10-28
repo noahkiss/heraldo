@@ -151,6 +151,20 @@ func TestKeyIsCut(t *testing.T) {
 	}
 }
 
+func TestMatchDedup(t *testing.T) {
+	s, err := Parse([]byte(`rules: [{name: page, match: {tag: '^page$', dedup: '^(?P<id>.+)$'}, set: {kind: incident, key: 'page:{id}'}}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, ok := s.Match(map[string]any{"tags": []any{"page"}, "dedup": "n-42"})
+	if !ok || res.Fields["key"] != "page:n-42" {
+		t.Fatalf("matched %v, key %q; want page:n-42", ok, res.Fields["key"])
+	}
+	if _, ok := s.Match(map[string]any{"tags": []any{"page"}}); ok {
+		t.Error("no dedup: matched, want no match")
+	}
+}
+
 func TestApply(t *testing.T) {
 	v, err := validate.New()
 	if err != nil {

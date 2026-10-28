@@ -480,6 +480,7 @@ Re-alerts:
 - The server checks every 30 seconds. After downtime it sends one re-alert,
   not one per missed interval. Only a server with push on sends re-alerts.
 - A mute or an inhibit rule holds a re-alert back, and the schedule moves on.
+- An imported event (`import-tee`) never schedules a re-alert: it is history.
 
 ## Mutes
 
@@ -913,9 +914,12 @@ rules:
 - Rules run in file order. The first rule that matches wins; the rest are
   not tried.
 - `match` takes Go RE2 regular expressions on `source`, `host`, `tag`,
-  `title`, `body`, `key`, `action` and `kind`. Every field a rule names must match. `tag` matches when
+  `title`, `body`, `key`, `action`, `kind` and `dedup`. Every field a rule names must match. `tag` matches when
   any one tag does, and `^$` matches an untagged event. A missing field reads
   as the empty string. A rule with no `match` matches everything.
+- A capture of `dedup` gives each post its own key, such as
+  `key: 'page:{id}'` with `dedup: '^(?P<id>.+)$'`. Each post is then its own
+  incident: an ack stops its re-alerts, and the next post alerts again.
 - Named groups, `(?P<name>...)`, are captures. `{name}` in `key`, `host` or
   `thread` is replaced with the captured text. A placeholder that names no
   capture is an error when the file loads.

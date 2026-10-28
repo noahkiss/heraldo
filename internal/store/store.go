@@ -126,6 +126,9 @@ type NewEvent struct {
 	// permanent record id use it, so a backfill and live traffic never
 	// store the same record twice.
 	DedupAnyAge bool
+	// imported is set by Import: the event is history, so it never
+	// schedules a re-alert.
+	imported bool
 }
 
 // Record is one stored event.
@@ -204,7 +207,7 @@ func (s *Store) Import(ctx context.Context, origin, originID string, ev NewEvent
 	if !errors.Is(err, sql.ErrNoRows) {
 		return false, err
 	}
-	ev.DedupAnyAge = true
+	ev.DedupAnyAge, ev.imported = true, true
 	if _, found, err := s.findDedup(ctx, tx, ev); err != nil || found {
 		return false, err
 	}

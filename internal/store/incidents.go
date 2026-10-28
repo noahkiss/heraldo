@@ -81,7 +81,7 @@ func realertLevel(l *api.Level) bool {
 // An open, update or untyped event at level time-sensitive or critical with
 // a re-alert interval schedules a re-alert of itself while the incident is
 // open. ack and resolve clear the schedule. A key that starts with
-// CheckinKeyPrefix never schedules one.
+// CheckinKeyPrefix never schedules one, nor does an imported event.
 func nextIncident(ctx context.Context, tx *sql.Tx, ev NewEvent) (*incidentRow, error) {
 	in := ev.Typed
 	key := *in.Key
@@ -138,7 +138,7 @@ func nextIncident(ctx context.Context, tx *sql.Tx, ev NewEvent) (*incidentRow, e
 		}
 		if r.state == "open" {
 			// Check-in incidents send their own reminders (stage 6).
-			if every := RealertOf(in.Details); every > 0 && realertLevel(in.Level) && !strings.HasPrefix(key, CheckinKeyPrefix) {
+			if every := RealertOf(in.Details); every > 0 && realertLevel(in.Level) && !ev.imported && !strings.HasPrefix(key, CheckinKeyPrefix) {
 				r.realert, r.nextAlert, r.alertEvent = every, at.Add(every), ev.ID
 			}
 		} else {

@@ -17,7 +17,7 @@
 //	      level: time-sensitive
 //
 // match holds regular expressions (Go RE2 syntax) on source, host, tag, title,
-// body, key, action and kind. Every field a rule names must match; a rule with no match fields
+// body, key, action, kind and dedup. Every field a rule names must match; a rule with no match fields
 // matches everything. tag matches when any one tag does. A missing field
 // reads as the empty string. Named groups, (?P<name>...), are captures:
 // {name} in a set value is replaced with the captured text.
@@ -74,7 +74,7 @@ import (
 )
 
 // matchFields are the event fields a rule can match on.
-var matchFields = []string{"source", "host", "tag", "title", "body", "key", "action", "kind"}
+var matchFields = []string{"source", "host", "tag", "title", "body", "key", "action", "kind", "dedup"}
 
 // setLimits are the fields a rule can set that take a template, with the
 // envelope's length limit for each.

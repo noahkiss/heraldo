@@ -152,6 +152,24 @@ func TestRealertSchedule(t *testing.T) {
 	}
 }
 
+func TestImportNeverSchedulesRealert(t *testing.T) {
+	ctx := context.Background()
+	s := open(t, filepath.Join(t.TempDir(), "h.db"))
+	defer s.Close()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	ev := incidentEvent(t, "01K3ZX0000CCCCCCCCCCCCCC01", t0, "page", "open", "critical", 300)
+	if ok, err := s.Import(ctx, "tee", "n-1", ev); !ok || err != nil {
+		t.Fatalf("import %v %v", ok, err)
+	}
+	if d, err := s.DueAlerts(ctx, t0.Add(time.Hour)); err != nil || len(d) != 0 {
+		t.Fatalf("due after import: %+v %v", d, err)
+	}
+	// The imported open still opens the incident.
+	if keys, err := s.OpenIncidentKeys(ctx); err != nil || len(keys) != 1 || keys[0] != "page" {
+		t.Fatalf("open keys %v %v", keys, err)
+	}
+}
+
 func TestMutes(t *testing.T) {
 	ctx := context.Background()
 	s := open(t, filepath.Join(t.TempDir(), "h.db"))
