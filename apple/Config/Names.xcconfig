@@ -8,7 +8,7 @@ APP_NSE_BUNDLE_ID = $(APP_BUNDLE_ID).nse
 APP_WIDGETS_BUNDLE_ID = $(APP_BUNDLE_ID).widgets
 APP_GROUP_ID = group.$(APP_BUNDLE_ID)
 
-MARKETING_VERSION = 0.4.0
+MARKETING_VERSION = 0.5.0
 // Local and simulator builds only. build.sh and testflight.sh set the build
 // number to the UTC time (YYYYMMDDHHMM), so it rises on every archive.
 CURRENT_PROJECT_VERSION = 1
