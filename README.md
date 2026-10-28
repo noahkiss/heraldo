@@ -32,7 +32,7 @@ Apple devices through APNs with `HERALDO_PUSH=on`. Push is off by default.
 | `api/` | Go types generated from `schema/` |
 | `cmd/heraldo-server` | The server |
 | `cmd/heraldo` | The CLI |
-| `internal/` | Server packages: store, validation, auth, ingest rules, the tee import and replay; `client`, the API client the CLI uses |
+| `internal/` | Server packages: store, validation, auth, ingest rules, the tee import and replay; `client`, the API client the CLI uses; `mcptools`, the MCP tools |
 | `apple/` | Xcode project (XcodeGen): the Heraldo app for iOS and macOS, its extensions, HeraldoKit |
 | `deploy/` | A generic compose file, an example env file and an example rules file |
 | `docs/` | Design notes |
@@ -170,6 +170,7 @@ any `-wal` and `-shm` files left beside the old database first.
 | `heraldo tail` | Prints new events as they arrive. It takes the `ls` filters, `--unread` (start at the read cursor), `--mark` (move the cursor; not with filters) and `--exec <command>`. |
 | `heraldo ack <key>`, `heraldo resolve <key>` | Posts an `ack` or `resolve` event for an open incident. `-m` adds a note; `--force` posts for a key with no open incident. |
 | `heraldo send` | Posts a notification to an Apprise-compatible notify URL, with an optional heraldo fallback. |
+| `heraldo mcp [--read-only]` | Serves the MCP tools for coding agents on stdio. See [docs/mcp.md](docs/mcp.md). |
 
 Every list command takes `--json` and prints each event's stored JSON on one
 line.

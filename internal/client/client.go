@@ -86,6 +86,9 @@ type Query struct {
 	Limit                        int
 	Source, Kind, Host, Key, Tag string
 	Q, Hold                      string
+	// Project keeps events of these projects. A server without the field
+	// ignores it.
+	Project []string
 }
 
 func (q Query) values() url.Values {
@@ -97,6 +100,9 @@ func (q Query) values() url.Values {
 		if p.v != "" {
 			v.Set(p.k, p.v)
 		}
+	}
+	for _, p := range q.Project {
+		v.Add("project", p)
 	}
 	if q.Desc {
 		v.Set("order", "desc")

@@ -41,6 +41,9 @@ writing:
                    print a new ping URL for a check; the old one stops working
   send             send a notification through HERALDO_SEND_URL or APPRISE_URL
 
+  mcp [--read-only]
+                   serve the MCP tools for coding agents on stdio (docs/mcp.md)
+
   version          print the version
 
 Settings come from the environment, then from $XDG_CONFIG_HOME/heraldo/env
@@ -103,6 +106,7 @@ func (a *app) run(ctx context.Context, args []string) int {
 	cmds := map[string]func(context.Context, []string) error{
 		"peek": a.peek, "show": a.show, "ls": a.ls, "held": a.held, "checkins": a.checkins,
 		"tail": a.tail, "ack": a.ack, "resolve": a.resolve, "send": a.send,
+		"mcp": a.mcp,
 	}
 	name := args[0]
 	switch name {
