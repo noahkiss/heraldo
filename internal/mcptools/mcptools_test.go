@@ -564,6 +564,10 @@ func TestSend(t *testing.T) {
 	if e := f.do(http.MethodGet, "/v1/events/"+out["id"].(string), readTok, ""); e["project"] != "web" {
 		t.Fatalf("project: %v", e)
 	}
+	// A bad name is the sender's mistake: the server's message comes through.
+	if text := s.fail("send", map[string]any{"title": "x", "project": "web/x"}, "invalid"); !strings.Contains(text, "project") {
+		t.Fatalf("bad project: %s", text)
+	}
 	// HERALDO_SOURCE wins over the client's name.
 	o := connect(t, Options{API: f.client(readTok, writeTok), Write: true, Source: "my-agent"}, "claude-code")
 	out, _ = o.ok("send", map[string]any{"title": "x"})
@@ -637,6 +641,10 @@ func fakeServer(t *testing.T, noOrder bool) string {
 		fmt.Fprint(w, `{"incidents":[{"id":"01JBA6Y8Q2K9M3T4V5W6X7Y8Z9","source":"s","kind":"incident","key":"k","ts":"2026-10-27T21:04:05Z","incident":{"state":"open","opened_at":"2026-10-27T21:04:05Z"}},`+
 			`{"id":"01JBA6Y8Q2K9M3T4V5W6X7Y8Z8","source":"s","kind":"incident","action":"ack","key":"old","ts":"2026-10-27T21:04:05Z","received_at":"2026-10-27T21:04:05Z"}],"progress":[],"checkins":[],"statuses":[]}`)
 	})
+	mux.HandleFunc("POST /v1/events", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"error":"/project: not allowed here"}`)
+	})
 	mux.HandleFunc("GET /v1/checkins", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{"checkins":[]}`) })
 	mux.HandleFunc("GET /v1/activities", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{"activities":[]}`) })
 	mux.HandleFunc("GET /v1/activities/{key...}", func(w http.ResponseWriter, r *http.Request) {
@@ -669,6 +677,8 @@ func TestOldServer(t *testing.T) {
 	s = connect(t, Options{API: &client.Client{BaseURL: u, Token: readTok}}, "x")
 	s.fail("events_search", map[string]any{"project": []string{"heraldo"}}, "unsupported_filter")
 	s.fail("overview", map[string]any{"project": []string{"heraldo"}}, "unsupported_filter")
+	w := connect(t, Options{API: &client.Client{BaseURL: u, Token: readTok, WriteToken: writeTok}, Write: true}, "x")
+	w.fail("send", map[string]any{"title": "x", "project": "heraldo"}, "unsupported_filter")
 	if out, _ := s.ok("events_search", map[string]any{}); out["events"].([]any)[0].(map[string]any)["project"] != nil {
 		t.Fatalf("project: %v", out)
 	}

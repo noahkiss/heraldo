@@ -326,7 +326,10 @@ func (t *tools) send(ctx context.Context, req *mcp.CallToolRequest, in sendIn) (
 	e, created, err := t.API.PostNew(ctx, post)
 	if err != nil {
 		var ce *client.Error
-		if project != "" && asStatus(err, &ce, http.StatusBadRequest) && strings.Contains(ce.Message, "project") {
+		// A server from before the project field refuses it as an unknown
+		// field. Any other complaint about project is a bad name, and the
+		// server's message says so.
+		if project != "" && asStatus(err, &ce, http.StatusBadRequest) && strings.Contains(ce.Message, "/project: not allowed here") {
 			return result{}, toolErr("unsupported_filter", "this heraldo server has no project field yet: it refused project",
 				"send again without project, or upgrade the server")
 		}
