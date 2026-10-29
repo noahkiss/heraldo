@@ -126,6 +126,16 @@ final class ModelTests: XCTestCase {
         let p = try XCTUnwrap(obj["permissions"] as? [String: Any])
         XCTAssertEqual(p["time_sensitive"] as? Bool, false)
         XCTAssertNil(p["live_activities"], "an unknown permission is left out")
+        XCTAssertNil(p["critical_alerts"], "a build without the entitlement never sends it")
+    }
+
+    func testRegistrationEncodesCriticalAlerts() throws {
+        let r = DeviceRegistration(token: "ab12", environment: .production, topic: "com.example.app",
+                                   name: "Phone", platform: "iOS", appVersion: "1.0 (1)",
+                                   permissions: Permissions(alerts: true, criticalAlerts: true))
+        let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(r)) as? [String: Any])
+        let p = try XCTUnwrap(obj["permissions"] as? [String: Any])
+        XCTAssertEqual(p["critical_alerts"] as? Bool, true)
     }
 
     func testPushInfo() {

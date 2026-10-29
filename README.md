@@ -122,7 +122,9 @@ docker compose -f deploy/compose.yml up --build
    A fourth field, `trusted-ingest`, marks a bridge such as apprise-tee. Its
    `details.tee.hold` becomes the event's `hold`, and its `dedup` ids never
    expire. `notify-key` instead lets a `write` token be the key in an Apprise
-   URL, `/notify/<token>`, for a sender that cannot set a header.
+   URL, `/notify/<token>`, for a sender that cannot set a header. `critical`
+   lets a `write` token send level `critical`, an emergency; from any other
+   token, `critical` is pushed as time-sensitive.
    [docs/api.md](docs/api.md) has the details.
 
 3. Start the server with `HERALDO_TOKENS_FILE` pointing at the file, and post an
@@ -144,7 +146,7 @@ The server reads its configuration from the environment.
 |---|---|---|
 | `HERALDO_ADDR` | `:7842` | Listen address, `host:port` |
 | `HERALDO_DB` | `heraldo.db` (`/data/heraldo.db` in the image) | SQLite database path. The server runs it in WAL mode, so keep the `-wal` and `-shm` files beside it. |
-| `HERALDO_TOKENS_FILE` | none | Token file, one `<name> <scope> <sha256> [capability]` per line. The capabilities are `trusted-ingest`, `notify-key` and `standby` ([docs/api.md](docs/api.md)). |
+| `HERALDO_TOKENS_FILE` | none | Token file, one `<name> <scope> <sha256> [capability]` per line. The capabilities are `trusted-ingest`, `notify-key`, `standby` and `critical` ([docs/api.md](docs/api.md)). |
 | `HERALDO_TOKENS` | none | The same entries inline, separated by commas. Set this or the file, not both. |
 | `HERALDO_RULES` | none | Ingest rules file (YAML) that types untyped inputs (no `kind`), and can set the level or a hold on ping events; without it untyped inputs are stored as `message`. The server reloads it within 5 s of a change; a file that does not parse keeps the rules in force and logs an error. A broken file at startup stops the server. Format: [docs/api.md](docs/api.md#ingest-rules), example: `deploy/rules.example.yaml`. |
 | `HERALDO_PUSH` | `off` | `on` sends APNs pushes to the registered devices. Off, the server registers devices and pushes nothing. |
@@ -187,6 +189,23 @@ default and source.
   set.
 
 [docs/api.md](docs/api.md#settings) lists the keys.
+
+### Emergencies
+
+An emergency is an event at level `critical`. Mark one with an ingest rule
+that sets `level: critical`, or send it with a `write` token that has the
+`critical` capability. Any other `critical` is pushed as time-sensitive.
+
+- On a device whose app has Apple's critical-alerts entitlement and the
+  person's permission, a critical push plays the critical sound through the
+  silent switch and every Focus. Other devices get it as time-sensitive.
+- With `escalation.enabled`, the server also sends each critical event to
+  Pushover's emergency priority, which repeats until acknowledged. It does not
+  need APNs: it works with push off and with no device registered. An ack or
+  resolve in heraldo cancels it. The Pushover token and user key are secrets:
+  `heraldo settings set escalation.pushover.token - < token.txt`.
+
+[docs/api.md](docs/api.md#critical-alerts) has the details.
 
 Set a key (`HERALDO_APNS_KEY_FILE` or `HERALDO_APNS_KEY`), its id and the team
 id, or none; a partial set stops the server. With `HERALDO_PUSH=on` and no key,
@@ -357,7 +376,10 @@ app group.
   event's project (write token). Delivery says why the event did or did not
   push, stage by stage, and the outcome on each device.
 - **Push**: the app registers its APNs token with `POST /v1/devices` on every
-  launch, and again when a permission changes. A Debug build reports
+  launch, and again when a permission changes. A permissions sheet shows at
+  first launch and from Settings > Permissions: Notifications, Time Sensitive
+  (a link to Settings, since an app cannot ask for it), Critical Alerts (only
+  in a build with the entitlement) and Live Activities. A Debug build reports
   `sandbox`; a TestFlight or App Store build reports `production`.
 - **Notifications**: `incident` has Ack, Snooze 1 h, Mute 1 h and Open;
   `event` has Mute 1 h and Open. Mute 1 h mutes an incident's key, or an
@@ -544,6 +566,21 @@ The app keeps six rules for this path:
 A Mac build without a Developer ID profile signs ad hoc. It has no push, and it
 keeps the credentials in this Mac's login keychain. See
 `apple/Config/Local.example.xcconfig`, step 3.
+
+### Critical alerts build switch
+
+`HERALDO_CRITICAL_ALERTS` in `apple/Config/Names.xcconfig` is `NO` by default.
+
+- `NO`: the app has no critical-alerts entitlement and never asks for critical
+  alerts. Forks and the Developer ID build sign without Apple's grant. The
+  server sends `critical` to such a device as time-sensitive.
+- `YES`: the build adds the `com.apple.developer.usernotifications.critical-alerts`
+  entitlement (`App/iOS/AppCritical.entitlements`,
+  `App/macOS/AppCritical.entitlements`), asks for `.criticalAlert` with the
+  other notification permissions, shows the Critical Alerts row in the
+  permissions sheet, and reports `permissions.critical_alerts` to the server.
+  It signs only with a provisioning profile that carries Apple's grant
+  ([docs/apple/critical-alerts-request.md](docs/apple/critical-alerts-request.md)).
 
 ## License
 

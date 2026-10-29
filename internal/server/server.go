@@ -53,6 +53,9 @@ type Options struct {
 	Heartbeat time.Duration
 	// Pusher gets every newly stored event; nil pushes nothing.
 	Pusher Pusher
+	// Escalator gets every newly stored event too, with push on or off, so
+	// an emergency escalates without APNs; nil escalates nothing.
+	Escalator Pusher
 	// PushState is what /healthz reports as push; empty means off.
 	PushState api.HealthPush
 	// Live gets every newly stored progress event; nil drives no Live
@@ -509,7 +512,7 @@ func (s *server) ingest(ctx context.Context, in *validate.Input, trusted bool) (
 		// lose it.
 		s.Logger.Warn("rules: matched, but the typed event is not valid; stored as a message", "err", err)
 	}
-	return s.insert(ctx, typed, set.Hold(rule), trusted)
+	return s.insert(ctx, typed, set.Hold(rule), trusted, set.Level(rule))
 }
 
 // ingestPing is ingest for the check-in event of a ping: the ping rules
@@ -520,12 +523,14 @@ func (s *server) ingestPing(ctx context.Context, in *validate.Input) (store.Reco
 	if err != nil {
 		s.Logger.Warn("rules: matched a ping, but the result is not valid; stored as sent", "err", err)
 	}
-	return s.insert(ctx, out, set.Hold(rule), false)
+	return s.insert(ctx, out, set.Hold(rule), false, set.Level(rule))
 }
 
 // insert stores and announces a typed input. hold, when set, is the hold a
-// rule gave it. It files the input under its project first, on every path.
-func (s *server) insert(ctx context.Context, in *validate.Input, hold map[string]any, trusted bool) (store.Record, bool, error) {
+// rule gave it; ruleLevel is the level the matching rule set, if any. It
+// files the input under its project first, on every path, and marks who
+// allowed a critical level (markCritical).
+func (s *server) insert(ctx context.Context, in *validate.Input, hold map[string]any, trusted bool, ruleLevel api.Level) (store.Record, bool, error) {
 	in, _, err := rules.WithProject(s.Rules.Rules(), in, s.Validator)
 	if err != nil {
 		s.Logger.Warn("rules: the project is not valid; stored without it", "err", err)
@@ -541,6 +546,7 @@ func (s *server) insert(ctx context.Context, in *validate.Input, hold map[string
 	if hold != nil {
 		f["hold"] = hold
 	}
+	markCritical(ctx, f, ruleLevel)
 	if trusted {
 		if h := bridgedHold(f); h != nil {
 			f["hold"] = h
@@ -561,6 +567,9 @@ func (s *server) insert(ctx context.Context, in *validate.Input, hold map[string
 		s.hub.poke(rec.Seq)
 		if s.Pusher != nil {
 			s.Pusher.Enqueue(rec)
+		}
+		if s.Escalator != nil {
+			s.Escalator.Enqueue(rec)
 		}
 		if s.Live != nil && in.Typed.Kind != nil && *in.Typed.Kind == api.KindProgress && in.Typed.Key != nil {
 			action := ""

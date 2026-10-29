@@ -9,6 +9,12 @@ APP_WIDGETS_BUNDLE_ID = $(APP_BUNDLE_ID).widgets
 APP_SHARE_BUNDLE_ID = $(APP_BUNDLE_ID).share
 APP_GROUP_ID = group.$(APP_BUNDLE_ID)
 
+// Critical alerts need Apple's grant of the critical-alerts entitlement. NO
+// builds and signs without it, for forks and the Developer ID build. YES adds
+// the entitlement, asks for .criticalAlert and reports critical_alerts; it
+// signs only with a profile that carries the grant.
+HERALDO_CRITICAL_ALERTS = NO
+
 MARKETING_VERSION = 0.7.0
 // Local and simulator builds only. build.sh and testflight.sh set the build
 // number to the UTC time (YYYYMMDDHHMM), so it rises on every archive.

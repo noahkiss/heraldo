@@ -20,6 +20,8 @@ final class PushManager {
 
     private(set) var authorization: UNAuthorizationStatus = .notDetermined
     private(set) var permissions = Permissions()
+    /// Live Activities may update often: ActivityKit's frequentPushesEnabled.
+    private(set) var frequentPushes: Bool?
     private(set) var apnsToken: String?
     private(set) var device: Device?
     private(set) var lastError: String?
@@ -60,7 +62,27 @@ final class PushManager {
         environment = APNs.environment(profile: profile, simulator: simulator)
     }
 
-    /// At launch: categories, the permission prompt, and the APNs token.
+    /// Whether this build has the critical-alerts entitlement:
+    /// HERALDO_CRITICAL_ALERTS = YES in Names.xcconfig.
+    #if HERALDO_CRITICAL_ALERTS
+    static let criticalAlertsBuilt = true
+    #else
+    static let criticalAlertsBuilt = false
+    #endif
+
+    /// What the app asks for: .criticalAlert only in a build with the
+    /// entitlement, which makes iOS show its own critical-alerts prompt.
+    static var authorizationOptions: UNAuthorizationOptions {
+        var o: UNAuthorizationOptions = [.alert, .badge, .sound]
+        #if HERALDO_CRITICAL_ALERTS
+        o.insert(.criticalAlert)
+        #endif
+        return o
+    }
+
+    /// At launch: categories and the APNs token. The first prompt comes from
+    /// the permissions sheet; after that, a launch asks again, which shows
+    /// nothing unless the options grew (a build that gained .criticalAlert).
     func start() {
         let center = UNUserNotificationCenter.current()
         center.setNotificationCategories(Self.categories)
@@ -73,10 +95,26 @@ final class PushManager {
         #endif
         Task {
             await readPermissions()
-            _ = try? await center.requestAuthorization(options: [.alert, .badge, .sound])
-            await readPermissions()
+            if PermissionsSheet.seen {
+                _ = try? await center.requestAuthorization(options: Self.authorizationOptions)
+                await readPermissions()
+            }
             await register(force: false)
         }
+    }
+
+    /// The Notifications row of the permissions sheet: the system prompt,
+    /// then a fresh report to the server.
+    func requestAuthorization() async {
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: Self.authorizationOptions)
+        await readPermissions()
+        await register(force: false)
+    }
+
+    /// After a row's answer: read the permissions and report them.
+    func refreshPermissions() async {
+        await readPermissions()
+        await register(force: false)
     }
 
     static var categories: Set<UNNotificationCategory> {
@@ -127,14 +165,24 @@ final class PushManager {
         case .denied:
             p.alerts = false
             p.timeSensitive = false
+            #if HERALDO_CRITICAL_ALERTS
+            p.criticalAlerts = false
+            #endif
         default:
             p.alerts = s.alertSetting == .enabled
             if s.timeSensitiveSetting != .notSupported {
                 p.timeSensitive = s.timeSensitiveSetting == .enabled
             }
+            #if HERALDO_CRITICAL_ALERTS
+            if s.criticalAlertSetting != .notSupported {
+                p.criticalAlerts = s.criticalAlertSetting == .enabled
+            }
+            #endif
         }
         #if os(iOS)
-        p.liveActivities = ActivityAuthorizationInfo().areActivitiesEnabled
+        let la = ActivityAuthorizationInfo()
+        p.liveActivities = la.areActivitiesEnabled
+        frequentPushes = la.frequentPushesEnabled
         #endif
         permissions = p
     }
@@ -323,13 +371,15 @@ final class PushManager {
 /// The notifications part of Settings.
 struct PushSection: View {
     @State private var push = PushManager.shared
+    @State private var showPermissions = false
     @Environment(\.openURL) private var openURL
 
     var body: some View {
         Section {
             LabeledContent("Notifications", value: authorization)
+            Button("Permissions…") { showPermissions = true }
             if push.authorization == .notDetermined {
-                Button("Allow notifications") { push.start() }
+                Button("Allow notifications") { Task { await push.requestAuthorization() } }
             } else if push.authorization == .denied || push.permissions.timeSensitive == false {
                 Button("Open notification settings") {
                     if let url = Self.notificationSettingsURL { openURL(url) }
@@ -337,6 +387,9 @@ struct PushSection: View {
             }
             permission("Alerts", push.permissions.alerts)
             permission("Time Sensitive", push.permissions.timeSensitive)
+            if PushManager.criticalAlertsBuilt {
+                permission("Critical Alerts", push.permissions.criticalAlerts)
+            }
             #if os(iOS)
             permission("Live Activities", push.permissions.liveActivities)
             #endif
@@ -358,14 +411,10 @@ struct PushSection: View {
         } header: {
             Text("Push")
         }
+        .sheet(isPresented: $showPermissions) { PermissionsSheet() }
     }
 
-    #if os(iOS)
-    private static let notificationSettingsURL = URL(string: UIApplication.openNotificationSettingsURLString)
-    #else
-    private static let notificationSettingsURL = URL(
-        string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(Bundle.main.bundleIdentifier ?? "")")
-    #endif
+    private static var notificationSettingsURL: URL? { PermissionsSheet.notificationSettingsURL }
 
     private static func focusText(_ f: FocusFilterState?) -> String {
         guard let f, f.active else { return "Off" }

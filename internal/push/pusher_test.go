@@ -31,6 +31,7 @@ const (
 	writeTok  = "write-token-for-tests"
 	readTok   = "read-token-for-tests"
 	bridgeTok = "bridge-token-for-tests"
+	critTok   = "critical-token-for-tests"
 	topic     = "org.example.heraldo"
 	// Hand-made device tokens: 64 hex characters each.
 	prodToken    = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -170,8 +171,8 @@ func newRigRules(t *testing.T, queue int, rulesYAML string) *rig {
 	done := make(chan struct{})
 	go func() { r.p.Run(ctx); close(done) }()
 	t.Cleanup(func() { cancel(); <-done; st.Close() })
-	tokens, err := auth.Parse(strings.NewReader(fmt.Sprintf("sender write %s,phone read %s,bridge write %s trusted-ingest",
-		auth.Hash(writeTok), auth.Hash(readTok), auth.Hash(bridgeTok))), ',')
+	tokens, err := auth.Parse(strings.NewReader(fmt.Sprintf("sender write %s,phone read %s,bridge write %s trusted-ingest,pager write %s critical",
+		auth.Hash(writeTok), auth.Hash(readTok), auth.Hash(bridgeTok), auth.Hash(critTok))), ',')
 	if err != nil {
 		t.Fatal(err)
 	}

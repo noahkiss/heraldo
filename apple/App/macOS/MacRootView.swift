@@ -23,6 +23,7 @@ struct MacRootView: View {
             MacDetailColumn(state: state)
         }
         .searchable(text: $state.query, placement: .toolbar, prompt: searchPrompt)
+        .permissionsOnboarding()
         .searchFocused($searchFocused)
         .onSubmit(of: .search) { Task { await state.feed?.search(model) } }
         .toolbar { toolbar }

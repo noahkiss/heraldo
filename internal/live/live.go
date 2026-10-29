@@ -437,7 +437,8 @@ func (m *Manager) chain(ctx context.Context, a store.Activity, insts []store.Ins
 }
 
 // start sends a push-to-start for link chain of a on dev. first is the
-// activity's first start on the device: only it may sound. A chain link and
+// activity's first start on the device: only it may sound, at time-sensitive
+// or above. A chain link and
 // a retry come up silently. It reports whether APNs took it.
 func (m *Manager) start(ctx context.Context, a store.Activity, dev store.Device, chain int, first bool) bool {
 	if dev.LiveActivityToken == "" {
@@ -463,9 +464,12 @@ func (m *Manager) start(ctx context.Context, a store.Activity, dev store.Device,
 	} else if s, _ := content["status"].(string); s != "" {
 		alert.Body = s
 	}
+	// Only the first start sounds, and only at time-sensitive or above: a
+	// job started at night shows on the Lock Screen without waking anyone.
 	// A device in a Focus filter gets a silent start: the activity shows,
-	// and never buzzes.
-	if first && a.Level != "" && a.Level != "passive" && dev.FocusFilter == nil {
+	// and never buzzes. The title and body still come, because
+	// push-to-start needs them.
+	if first && (a.Level == "time-sensitive" || a.Level == "critical") && dev.FocusFilter == nil {
 		alert.Sound = "default"
 	}
 	body, err := payload{

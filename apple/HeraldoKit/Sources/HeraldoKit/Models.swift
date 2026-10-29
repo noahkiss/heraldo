@@ -591,17 +591,23 @@ public struct Permissions: Codable, Hashable, Sendable {
     public var alerts: Bool?
     public var timeSensitive: Bool?
     public var liveActivities: Bool?
+    /// Reported only by a build with the critical-alerts entitlement; nil is
+    /// left out of the JSON, so an older server never sees the field.
+    public var criticalAlerts: Bool?
 
     enum CodingKeys: String, CodingKey {
         case alerts
         case timeSensitive = "time_sensitive"
         case liveActivities = "live_activities"
+        case criticalAlerts = "critical_alerts"
     }
 
-    public init(alerts: Bool? = nil, timeSensitive: Bool? = nil, liveActivities: Bool? = nil) {
+    public init(alerts: Bool? = nil, timeSensitive: Bool? = nil, liveActivities: Bool? = nil,
+                criticalAlerts: Bool? = nil) {
         self.alerts = alerts
         self.timeSensitive = timeSensitive
         self.liveActivities = liveActivities
+        self.criticalAlerts = criticalAlerts
     }
 }
 

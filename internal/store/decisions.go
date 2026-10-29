@@ -18,8 +18,16 @@ type DecisionRow struct {
 	At     time.Time
 }
 
+// appendBase is the first row number of the rows AppendDecision adds. The
+// pipeline's rows sit below it, so a new push decision replaces them and
+// keeps the appended ones.
+const appendBase = 1000
+
+// AppendStage is the stage of the rows the escalation worker appends.
+const AppendStage = "escalate"
+
 // RecordDecisions replaces the push trace of an event with rows, numbered
-// in order from 0.
+// in order from 0. Rows AppendDecision added stay.
 func (s *Store) RecordDecisions(ctx context.Context, eventID string, rows []DecisionRow) error {
 	s.wmu.Lock()
 	defer s.wmu.Unlock()
@@ -28,7 +36,7 @@ func (s *Store) RecordDecisions(ctx context.Context, eventID string, rows []Deci
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM push_decisions WHERE event_id = ?`, eventID); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM push_decisions WHERE event_id = ? AND n < ?`, eventID, appendBase); err != nil {
 		return err
 	}
 	for i, r := range rows {
@@ -43,6 +51,22 @@ func (s *Store) RecordDecisions(ctx context.Context, eventID string, rows []Deci
 		}
 	}
 	return tx.Commit()
+}
+
+// AppendDecision adds a row after an event's push trace. It is for work
+// beside the push pipeline, such as an escalation, so it runs with push off
+// too; a later push decision keeps it.
+func (s *Store) AppendDecision(ctx context.Context, eventID string, r DecisionRow) error {
+	s.wmu.Lock()
+	defer s.wmu.Unlock()
+	var detail any
+	if len(r.Detail) > 0 {
+		detail = string(r.Detail)
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO push_decisions (event_id, n, stage, outcome, reason, detail, at)
+		SELECT ?, MAX(?, COALESCE(MAX(n) + 1, 0)), ?, ?, ?, ?, ? FROM push_decisions WHERE event_id = ?`,
+		eventID, appendBase, r.Stage, r.Outcome, r.Reason, detail, r.At.UTC().Format(timeFormat), eventID)
+	return err
 }
 
 // Decisions returns the push trace of an event in stage order: none when
@@ -84,14 +108,24 @@ func (s *Store) decisions(ctx context.Context, ids []string) (map[string][]Decis
 }
 
 // DecisionSummary is the one line that sums up a push trace: the reason of
-// the stage that ended it, then each downgrade on the way. It is "" for an
-// empty trace.
+// the stage that ended it, then each downgrade on the way. Escalation rows
+// (AppendStage) count only when the trace has nothing else, as on a server
+// with push off. It is "" for an empty trace.
 func DecisionSummary(rows []DecisionRow) string {
-	if len(rows) == 0 {
-		return ""
+	var pipe []DecisionRow
+	for _, r := range rows {
+		if r.Stage != AppendStage {
+			pipe = append(pipe, r)
+		}
 	}
-	out := rows[len(rows)-1].Reason
-	for _, r := range rows[:len(rows)-1] {
+	if len(pipe) == 0 {
+		if len(rows) == 0 {
+			return ""
+		}
+		return rows[len(rows)-1].Reason
+	}
+	out := pipe[len(pipe)-1].Reason
+	for _, r := range pipe[:len(pipe)-1] {
 		if r.Outcome == "downgrade" {
 			out += "; " + r.Reason
 		}

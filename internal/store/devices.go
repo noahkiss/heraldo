@@ -26,6 +26,9 @@ type Device struct {
 	Alerts         *bool
 	TimeSensitive  *bool
 	LiveActivities *bool
+	// CriticalAlerts is reported only by a build with the critical-alerts
+	// entitlement.
+	CriticalAlerts *bool
 	RegisteredAt   time.Time
 	UpdatedAt      time.Time
 	UpdatedBy      string
@@ -84,17 +87,17 @@ func (d Device) Active() bool { return d.RetiredAt.IsZero() }
 
 const deviceCols = `id, token, environment, topic, name, platform, app_version, alerts, time_sensitive,
 	live_activities, registered_at, updated_at, updated_by, retired_at, retired_reason, live_activity_token,
-	focus_filter`
+	focus_filter, critical_alerts`
 
 type scanner interface{ Scan(...any) error }
 
 func scanDevice(r scanner) (Device, error) {
 	var d Device
 	var name, platform, appVersion, retiredAt, retiredReason, laToken, focus sql.NullString
-	var alerts, ts, la sql.NullBool
+	var alerts, ts, la, crit sql.NullBool
 	var registered, updated string
 	if err := r.Scan(&d.ID, &d.Token, &d.Environment, &d.Topic, &name, &platform, &appVersion,
-		&alerts, &ts, &la, &registered, &updated, &d.UpdatedBy, &retiredAt, &retiredReason, &laToken, &focus); err != nil {
+		&alerts, &ts, &la, &registered, &updated, &d.UpdatedBy, &retiredAt, &retiredReason, &laToken, &focus, &crit); err != nil {
 		return Device{}, err
 	}
 	d.Name, d.Platform, d.AppVersion = name.String, platform.String, appVersion.String
@@ -107,6 +110,7 @@ func scanDevice(r scanner) (Device, error) {
 		}
 	}
 	d.Alerts, d.TimeSensitive, d.LiveActivities = boolPtr(alerts), boolPtr(ts), boolPtr(la)
+	d.CriticalAlerts = boolPtr(crit)
 	d.RegisteredAt, _ = time.Parse(timeFormat, registered)
 	d.UpdatedAt, _ = time.Parse(timeFormat, updated)
 	if retiredAt.Valid {
@@ -230,10 +234,10 @@ func (s *Store) UpdateDevice(ctx context.Context, d Device) (Device, Device, err
 func (s *Store) insertDevice(ctx context.Context, tx *sql.Tx, d Device) error {
 	at := s.now().UTC().Format(timeFormat)
 	_, err := tx.ExecContext(ctx, `INSERT INTO devices (`+deviceCols+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`,
 		d.ID, d.Token, d.Environment, d.Topic, nullStr(d.Name), nullStr(d.Platform), nullStr(d.AppVersion),
 		d.Alerts, d.TimeSensitive, d.LiveActivities, at, at, d.UpdatedBy, nullStr(d.LiveActivityToken),
-		focusJSON(d.focusAt(s.now())))
+		focusJSON(d.focusAt(s.now())), d.CriticalAlerts)
 	return err
 }
 
@@ -242,10 +246,10 @@ func (s *Store) updateDevice(ctx context.Context, tx *sql.Tx, d Device) error {
 	_, err := tx.ExecContext(ctx, `UPDATE devices SET token = ?, environment = ?, topic = ?, name = ?,
 		platform = ?, app_version = ?, alerts = ?, time_sensitive = ?, live_activities = ?, updated_at = ?,
 		updated_by = ?, retired_at = NULL, retired_reason = NULL, live_activity_token = ?,
-		focus_filter = CASE WHEN ? THEN ? ELSE focus_filter END WHERE id = ?`,
+		focus_filter = CASE WHEN ? THEN ? ELSE focus_filter END, critical_alerts = ? WHERE id = ?`,
 		d.Token, d.Environment, d.Topic, nullStr(d.Name), nullStr(d.Platform), nullStr(d.AppVersion),
 		d.Alerts, d.TimeSensitive, d.LiveActivities, at, d.UpdatedBy, nullStr(d.LiveActivityToken),
-		d.SetFocus, focusJSON(d.focusAt(s.now())), d.ID)
+		d.SetFocus, focusJSON(d.focusAt(s.now())), d.CriticalAlerts, d.ID)
 	return err
 }
 

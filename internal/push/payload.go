@@ -23,7 +23,8 @@ type Decision struct {
 	// Level is the interruption level the push carries.
 	Level api.Level
 	// Downgraded is set when the event asked for critical and the push
-	// carries time-sensitive: the app has no critical-alerts entitlement.
+	// carries time-sensitive: no rule set the level and the sender's token
+	// lacks the critical capability (CriticalAllowed).
 	Downgraded bool
 	// Replace is set on a passive push. It goes out only to replace an
 	// earlier visible push of the event's key, by collapse id; the pusher
@@ -49,7 +50,9 @@ type Decision struct {
 // quiet priority. It pushes only when it has a key, as a Replace decision:
 // the pusher sends it when an earlier push of that key was visible, so the
 // open alert on the lock screen gives way to "Resolved after 12 min".
-// critical goes out as time-sensitive. store.pushedWhere is the same table
+// critical goes out as critical only when CriticalAllowed says so, else as
+// time-sensitive; the pusher then sends critical only to devices that allow
+// critical alerts (BuildFor). store.pushedWhere is the same table
 // in SQL, for the badge; keep them together.
 //
 // The pusher runs the same steps as the stages hold, expiry and table
@@ -124,10 +127,31 @@ func decideTable(ev *api.Event) Decision {
 		return Decision{Push: true, Level: level, Replace: true}
 	}
 	d := Decision{Push: true, Level: level}
-	if level == api.LevelCritical {
+	if level == api.LevelCritical && CriticalBy(ev) == "" {
 		d.Level, d.Downgraded = api.LevelTimeSensitive, true
 	}
 	return d
+}
+
+// CriticalBy returns who allowed ev's critical level, as the server marked
+// it at ingest in details.heraldo.critical: "rule:<name>" or
+// "token:<name>". Empty means nobody did, and critical goes out as
+// time-sensitive.
+func CriticalBy(ev *api.Event) string {
+	if ev.Details == nil {
+		return ""
+	}
+	own, _ := (*ev.Details)["heraldo"].(map[string]any)
+	by, _ := own["critical"].(string)
+	return by
+}
+
+// CriticalSound is the sound of a critical alert: it plays through the
+// silent switch and Focus, at volume.
+type CriticalSound struct {
+	Critical int     `json:"critical"`
+	Name     string  `json:"name"`
+	Volume   float64 `json:"volume"`
 }
 
 func orNone(s string) string {
@@ -153,6 +177,44 @@ type APS struct {
 	MutableContent    int      `json:"mutable-content"`
 	InterruptionLevel string   `json:"interruption-level"`
 	RelevanceScore    *float32 `json:"relevance-score,omitempty"`
+	// CriticalSound, when set, replaces Sound with the critical sound
+	// dictionary.
+	CriticalSound *CriticalSound `json:"-"`
+}
+
+type plainAPS APS
+
+// MarshalJSON writes sound as a string, or as the critical sound
+// dictionary when CriticalSound is set.
+func (a APS) MarshalJSON() ([]byte, error) {
+	if a.CriticalSound == nil {
+		return json.Marshal(plainAPS(a))
+	}
+	return json.Marshal(struct {
+		plainAPS
+		Sound *CriticalSound `json:"sound"`
+	}{plainAPS(a), a.CriticalSound})
+}
+
+// UnmarshalJSON reads either form of sound.
+func (a *APS) UnmarshalJSON(b []byte) error {
+	var x struct {
+		plainAPS
+		Sound json.RawMessage `json:"sound"`
+	}
+	if err := json.Unmarshal(b, &x); err != nil {
+		return err
+	}
+	*a = APS(x.plainAPS)
+	a.Sound, a.CriticalSound = "", nil
+	if len(x.Sound) == 0 || string(x.Sound) == "null" {
+		return nil
+	}
+	if x.Sound[0] == '{' {
+		a.CriticalSound = &CriticalSound{}
+		return json.Unmarshal(x.Sound, a.CriticalSound)
+	}
+	return json.Unmarshal(x.Sound, &a.Sound)
 }
 
 // Alert is the visible text.
@@ -313,6 +375,14 @@ func Build(ev *api.Event, d Decision, x Extra) ([]byte, Headers, error) {
 		if p.APS.Sound == "none" {
 			p.APS.Sound = ""
 		}
+	}
+	if d.Level == api.LevelCritical {
+		// A critical alert always sounds: that is the point of one.
+		name := p.APS.Sound
+		if name == "" {
+			name = "default"
+		}
+		p.APS.Sound, p.APS.CriticalSound = "", &CriticalSound{Critical: 1, Name: name, Volume: 1.0}
 	}
 
 	h := Headers{Priority: 10}

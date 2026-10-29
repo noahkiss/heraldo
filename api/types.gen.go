@@ -1923,6 +1923,11 @@ type Permissions struct {
 	// Alerts The person allows notifications that show an alert.
 	Alerts *bool `json:"alerts,omitempty"`
 
+	// CriticalAlerts Critical alerts are allowed. Only a build with the critical-alerts entitlement
+	// reports it. A device that reports true gets interruption-level critical with
+	// the critical sound; any other device gets critical as time-sensitive.
+	CriticalAlerts *bool `json:"critical_alerts,omitempty"`
+
 	// LiveActivities Live Activities are allowed.
 	LiveActivities *bool `json:"live_activities,omitempty"`
 

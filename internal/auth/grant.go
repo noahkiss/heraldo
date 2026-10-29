@@ -27,10 +27,17 @@ func GrantFrom(ctx context.Context) (Token, bool) {
 
 // GrantAllows reports whether a grant of t may act with need: as its scope
 // allows, and a plain write grant may also read. A write token with a
-// capability (notify-key, trusted-ingest) is a sender's credential and never
-// reads.
+// capability (notify-key, trusted-ingest, standby) is a sender's credential
+// and never reads. critical does not count: it changes what a write may
+// send, not who holds the token.
 func GrantAllows(t Token, need Scope) bool {
-	return t.Scope.Allows(need) || (t.Scope == ScopeWrite && need == ScopeRead && len(t.Caps) == 0)
+	plain := true
+	for _, c := range t.Caps {
+		if c != CapCritical {
+			plain = false
+		}
+	}
+	return t.Scope.Allows(need) || (t.Scope == ScopeWrite && need == ScopeRead && plain)
 }
 
 // SenderOnly reports whether t is a sender's credential that the MCP

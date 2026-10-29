@@ -94,3 +94,22 @@ func TestGrantAllows(t *testing.T) {
 		t.Fatal("a grant never raises a scope")
 	}
 }
+
+func TestCriticalCapability(t *testing.T) {
+	s, err := Parse(strings.NewReader("pager write "+Hash("c")+" critical, plain write "+Hash("p")), ',')
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _ := s.Lookup("c")
+	p, _ := s.Lookup("p")
+	if !c.Has(CapCritical) || p.Has(CapCritical) {
+		t.Fatalf("caps: pager %v, plain %v", c.Caps, p.Caps)
+	}
+	if !GrantAllows(c, ScopeRead) || SenderOnly(c) {
+		t.Fatal("critical alone keeps a write grant's read")
+	}
+	both := Token{Name: "b", Scope: ScopeWrite, Caps: []string{CapCritical, CapNotifyKey}}
+	if GrantAllows(both, ScopeRead) {
+		t.Fatal("notify-key still stops a grant's read")
+	}
+}

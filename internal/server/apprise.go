@@ -367,7 +367,7 @@ func (s *server) ingestNotify(ctx context.Context, m, extra, hold map[string]any
 			h["id"] = id
 		}
 	}
-	rec, _, err := s.insert(ctx, typed, h, false)
+	rec, _, err := s.insert(ctx, typed, h, false, set.Level(rule))
 	return rec, err
 }
 

@@ -640,6 +640,21 @@ func (s *Set) match(fields map[string]any, ping bool) (Result, bool) {
 	return Result{}, false
 }
 
+// Level returns the level the rule called name sets, or "" when there is
+// no such rule or it sets none. A rule's critical needs no token
+// capability: the owner writes the rules.
+func (s *Set) Level(name string) api.Level {
+	if s == nil || name == "" {
+		return ""
+	}
+	for _, r := range s.Rules {
+		if r.Name == name {
+			return r.level
+		}
+	}
+	return ""
+}
+
 // Hold returns the stored hold the rule called name gives an event, or nil
 // when there is no such rule or it holds nothing: held and store-only, so
 // the event never pushes.

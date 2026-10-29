@@ -35,6 +35,7 @@ var permissions = []struct {
 	{"alerts", "notifications", func(d *store.Device) *bool { return d.Alerts }},
 	{"time_sensitive", "time-sensitive notifications", func(d *store.Device) *bool { return d.TimeSensitive }},
 	{"live_activities", "Live Activities", func(d *store.Device) *bool { return d.LiveActivities }},
+	{"critical_alerts", "critical alerts", func(d *store.Device) *bool { return d.CriticalAlerts }},
 }
 
 func deviceJSON(d store.Device) api.Device {
@@ -48,6 +49,7 @@ func deviceJSON(d store.Device) api.Device {
 		UpdatedAt:    d.UpdatedAt,
 		Permissions: api.Permissions{
 			Alerts: d.Alerts, TimeSensitive: d.TimeSensitive, LiveActivities: d.LiveActivities,
+			CriticalAlerts: d.CriticalAlerts,
 		},
 	}
 	str := func(s string) *string {
@@ -116,6 +118,7 @@ func (s *server) readDevice(w http.ResponseWriter, r *http.Request) (store.Devic
 	}
 	if in.Permissions != nil {
 		d.Alerts, d.TimeSensitive, d.LiveActivities = in.Permissions.Alerts, in.Permissions.TimeSensitive, in.Permissions.LiveActivities
+		d.CriticalAlerts = in.Permissions.CriticalAlerts
 	}
 	if in.FocusFilter != nil {
 		f, bad := focusFrom(in.FocusFilter)
@@ -208,7 +211,7 @@ func (s *server) removeDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	if old.Active() {
 		gone := got
-		gone.Alerts, gone.TimeSensitive, gone.LiveActivities = nil, nil, nil
+		gone.Alerts, gone.TimeSensitive, gone.LiveActivities, gone.CriticalAlerts = nil, nil, nil, nil
 		s.permissionHealth(r.Context(), &old, gone)
 	}
 	writeJSON(w, http.StatusOK, deviceJSON(got))

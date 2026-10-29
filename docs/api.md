@@ -96,6 +96,10 @@ Auth:
 - A `read` token with the `standby` capability is a standby's token on its
   primary. It may read the full push tokens and import events (see
   "Standby"). A plain `read` token sees token suffixes only.
+- A `write` token with the `critical` capability may send level `critical`.
+  From any other token, `admin` included, `critical` is pushed as
+  `time-sensitive` (see "Critical alerts"). A level an ingest rule sets needs
+  no capability.
 
 Limits and errors:
 
@@ -219,7 +223,7 @@ token and gives it an id, `dev_` plus a ULID. The app keeps the id.
 | `name` | string, 128 | The device's name. |
 | `platform` | string, 32 | Such as `iOS` or `macOS`. |
 | `app_version` | string, 64 | The app's version and build. |
-| `permissions` | `{alerts, time_sensitive, live_activities}`, booleans | Permission health. A field left out is unknown. |
+| `permissions` | `{alerts, time_sensitive, live_activities, critical_alerts}`, booleans | Permission health. A field left out is unknown. Only a build with the critical-alerts entitlement reports `critical_alerts`. |
 | `live_activity_token` | hex, 32 to 400 characters | ActivityKit's push-to-start token for the app's Live Activities. |
 | `focus_filter` | `{active, name, projects, break_through}` | The device's Focus filter ("Focus filters"). |
 
@@ -285,7 +289,8 @@ Permission health:
   nothing new.
 - Reported `true` later, the incident resolves (level `passive`). Removing the
   device resolves its open permission incidents.
-- `<permission>` is `alerts`, `time_sensitive` or `live_activities`.
+- `<permission>` is `alerts`, `time_sensitive`, `live_activities` or
+  `critical_alerts`.
 
 ## Push
 
@@ -352,9 +357,11 @@ Which events push, and how loud:
 - After the mutes: quiet hours lower a push below `quiet.floor` to `passive`
   while they are on (below). Then each device's Focus filter may lower that
   device's push to `active` ("Focus filters").
-- `critical` goes out as `time-sensitive`: the app has no critical-alerts
-  entitlement. `delivery` records `level: time-sensitive` and the note
-  `critical sent as time-sensitive` in `error`.
+- `critical` goes out as `critical` only when a rule or a `critical` token
+  set it, and only to a device that reports `critical_alerts: true`. Every
+  other device, and every other `critical` event, gets `time-sensitive`.
+  `delivery` records the level per device and the reason in `error`. See
+  "Critical alerts".
 - A passive push has no sound and `apns-priority` 5; the others have 10.
 
 ### Quiet hours
@@ -414,7 +421,8 @@ a bundle). Every stage that runs writes one row of the event's trace.
   line: the reason of the stage that ended the pipeline, then each downgrade.
   Examples: `pushed active to 2 devices`, `passive: inbox only`,
   `muted by mute_01J... (project)`,
-  `pushed time-sensitive to 1 device; critical sent as time-sensitive`.
+  `pushed time-sensitive to 1 device; critical sent as time-sensitive: no rule
+  set it and the token lacks the critical capability`.
 - `GET /v1/events/{id}/why` returns `{event_id, why, decisions}`. Each
   decision has `stage`, `outcome`, `reason`, `at`, and `detail` where the stage
   has data (the level, the mute id, the inhibit rule and parent, the devices).
@@ -422,9 +430,91 @@ a bundle). Every stage that runs writes one row of the event's trace.
   replaces it, like it replaces `delivery`. A re-alert a mute holds back
   keeps the earlier trace.
 - An event has no trace, and no `why`, while it waits in the queue, when it
-  was imported, and on a server with push off.
+  was imported, and on a server with push off. An escalation's own rows are
+  the exception.
 - A downgrade never raises the level: the pipeline refuses a louder one and
   records the refusal.
+- Escalation runs beside the pipeline and adds `escalate` rows after the
+  pipeline's (see "Emergency escalation"). A new push decision keeps them.
+  `why` uses them only when the trace has nothing else, as with push off. An
+  ack or resolve that cancels an escalation gets one too, such as
+  `cancelled the Pushover escalation of 01J...: acked by phone (01J...)`.
+
+### Critical alerts
+
+`critical` is for an emergency: it plays the critical sound through the
+silent switch and through every Focus, Sleep included.
+
+To mark an event as an emergency, have an ingest rule set `level: critical`:
+
+```yaml
+rules:
+  - name: ops-emergency
+    match: {tag: '^ops$', title: '^(?P<what>.+)$'}
+    set: {kind: incident, action: open, key: 'ops:{what}', level: critical}
+```
+
+An incident has a key, so an ack in heraldo can cancel its escalation.
+
+- Only two things may make an event `critical`: a level an ingest rule sets,
+  and a `write` token with the `critical` capability. The owner writes the
+  rules and the token file, so a leaked sender token cannot page.
+- The `ops` rung maps to `critical` (see "Apprise compatibility"). Without a
+  rule or a `critical` token, that is a sender's choice, and it is pushed as
+  `time-sensitive`.
+- The server marks an allowed event at ingest:
+  `details.heraldo.critical` is `rule:<name>` or `token:<name>`. It removes
+  any value a sender wrote there.
+- A device gets `interruption-level: critical` and
+  `sound: {critical: 1, name: "default", volume: 1.0}` only when it reports
+  `permissions.critical_alerts: true`. The app reports it only when it is built
+  with `HERALDO_CRITICAL_ALERTS = YES`, which needs Apple's critical-alerts
+  entitlement (docs/apple/critical-alerts-request.md). Every other device
+  gets `time-sensitive`.
+- The Focus filter and quiet hours never lower `critical`.
+
+### Emergency escalation
+
+Escalation sends each `critical` push to Pushover's emergency priority too.
+Pushover repeats it until someone acknowledges it there, or until heraldo
+cancels it. The server calls Pushover's API itself; nothing else runs.
+
+Escalation is the fallback when the apps cannot be reached, so it does not
+depend on APNs. It runs on its own queue, beside the push pipeline: with
+`HERALDO_PUSH` off, with no device registered, and whatever APNs answers.
+
+| Key | Meaning |
+|---|---|
+| `escalation.enabled` | `true` turns it on. Default `false`. |
+| `escalation.pushover.token` | The Pushover application's API token. A secret. |
+| `escalation.pushover.user` | The Pushover user or group key. A secret. |
+| `escalation.retry` | How often Pushover repeats the alert. Default `1m`; less than `30s` is sent as `30s`. |
+| `escalation.expire` | How long Pushover repeats it. Default `1h`; more than `3h` is sent as `3h`. |
+
+- Only an event the push table would push at `critical` escalates (see
+  "Critical alerts"): not a held, store-only or expired one, and not a
+  `critical` nobody allowed. A mute or an inhibit rule holds it back, as it
+  holds back the push, and its row says `not escalated: muted by ...`.
+- The server sends `POST /1/messages.json` with `priority=2`,
+  `retry`, `expire`, the title and the summary (else the body), and records
+  the receipt. Its trace row says `escalated to Pushover`, `escalation off`,
+  or why it failed. The tokens never reach a trace or a log.
+- An escalation runs until it is cancelled or expires. While one runs for a
+  key, a re-alert or an update of that key does not page again: `already
+  escalated to Pushover by <event id>`.
+- An `ack` or `resolve` of the key cancels the receipt
+  (`POST /1/receipts/{receipt}/cancel.json`). A cancel that fails stays
+  open, so the next ack or resolve tries again.
+- An event without a key escalates too, but only Pushover can acknowledge
+  it.
+- The queue lives in memory. At shutdown the server drains it. At start-up
+  it sweeps the last 6 hours once: a critical event a rule or a `critical`
+  token allowed, with no escalation and no `escalate` row, and no ack or
+  resolve of its key since, is decided as if it were new. So an emergency
+  still queued when the process died escalates when it comes back.
+- Set the secrets as for `llm.token` ("Secrets"):
+  `heraldo settings set escalation.pushover.token - < token.txt`, or
+  `HERALDO_ESCALATION_PUSHOVER_TOKEN_FILE`.
 
 ### Payload
 
@@ -460,7 +550,7 @@ a bundle). Every stage that runs writes one row of the event's trace.
 | `alert.title` | `title`, else `source` |
 | `alert.body` | `summary`, else `body`. A body is cut at a character boundary, with `…`, so the payload fits 4 KB. An incident resolve says `Resolved after 12 min` instead; a re-alert starts with `Still open after 30 min.`; a digest without a summary shows the first line of its body. |
 | `badge` | The `badge` of the `inbox` cursor when the push goes out, by `badge.scope` ("Badge"). With no `inbox` cursor, `attention` counts incidents and checks only, and `pushed` is 0. |
-| `sound` | `sound`, default `default`; none for `passive` or `sound: none` |
+| `sound` | `sound`, default `default`; none for `passive` or `sound: none`. A `critical` push carries `{critical: 1, name, volume: 1.0}` and always sounds. |
 | `thread-id` | `thread`, else `source` |
 | `category` | `incident` for an incident `open`, `update` or no action; `event` for the rest. The app registers both: `incident` has Ack, Snooze 1 h, Mute 1 h and Open; `event` has Mute 1 h and Open. Mute 1 h on an incident mutes its key; on a check-in, its check's incident key `checkin:<key>`; on any other event, its source. |
 | `mutable-content` | Always 1, so the notification service extension runs. |
@@ -524,7 +614,7 @@ Pushes:
 
 | Push | When | apns-priority | Notes |
 |---|---|---|---|
-| start | A new activity or a new link | 10 | To the push-to-start token. `alert` with the title and the body or status; the first start on a device sounds when the start's `level` is set and not `passive`. A chain link, a retry, and a start from a resync (a new push-to-start token, a server restart) have no sound, and so does any start on a device with a Focus filter in force. Expires after 15 minutes. |
+| start | A new activity or a new link | 10 | To the push-to-start token. `alert` with the title and the body or status; the first start on a device sounds only when the start's `level` is `time-sensitive` or `critical`; an `active` start comes up silently, so a job started at night wakes no one. A chain link, a retry, and a start from a resync (a new push-to-start token, a server restart) have no sound, and so does any start on a device with a Focus filter in force. Expires after 15 minutes. |
 | update, catch-up | The app reported a token | 10 | At once, to that instance. |
 | update | Any other update, a new `status` or `tint` included | 5 | At most one per 15 seconds per activity. Updates in between merge; the last content goes out when the 15 seconds are up. A changing status text, such as a layer counter, cannot raise the rate or the priority. |
 | end | The activity ended, a link was handed over, or a start replaced it | 10 | `dismissal-date` is now plus `keep_for` when set, now on a hand-off, else the system default. |
@@ -662,7 +752,7 @@ multipart (files are dropped). Its fields:
 
 | Rung | Level |
 |---|---|
-| `ops` | `critical` (sent as `time-sensitive`) |
+| `ops` | `critical`; pushed as `time-sensitive` unless a rule or a `critical` token allows it ("Critical alerts") |
 | `page`, `alert` | `time-sensitive` |
 | `general` | `active` |
 | `quiet` | `passive` |
@@ -1106,8 +1196,9 @@ One precedence order, highest first:
 
 ### Secrets
 
-`llm.token` is a secret. It never travels on a flag, never appears in a read,
-and never reaches a log.
+`llm.token`, `escalation.pushover.token` and `escalation.pushover.user` are
+secrets. A secret never travels on a flag, never appears in a read, and never
+reaches a log. The text below uses `llm.token`; the others work the same way.
 
 - Set it in the environment, as with the APNs key: `HERALDO_LLM_TOKEN_FILE`
   (a file holding the token) or `HERALDO_LLM_TOKEN`, not both. A flag such as
@@ -1132,6 +1223,11 @@ and never reaches a log.
 | `digest.at` | clock | `"07:30"` | When the digest is sent, HH:MM. |
 | `digest.enabled` | bool | `false` | Send a daily digest. |
 | `digest.tz` | tz | `"UTC"` | The time zone of digest.at. |
+| `escalation.enabled` | bool | `false` | Send critical events to Pushover's emergency priority too. |
+| `escalation.expire` | duration | `"1h"` | How long Pushover repeats it; 3h at most. |
+| `escalation.pushover.token` | secret | none | The Pushover application's API token. Write-only. |
+| `escalation.pushover.user` | secret | none | The Pushover user or group key. Write-only. |
+| `escalation.retry` | duration | `"1m"` | How often Pushover repeats an emergency alert; 30s at least. |
 | `flap.enabled` | bool | `false` | Group an incident that opens again and again. |
 | `flap.opens` | int | `3` | Opens within flap.window that mark an incident flapping. |
 | `flap.settle` | duration | `"30m"` | How long a flapping incident stays quiet before it is not flapping. |
@@ -1593,7 +1689,7 @@ that, the check's config lives on the server. See "Check-ins".
 |---|---|
 | `thread` | `thread-id` |
 | `key` | `apns-collapse-id`: the first 32 hex characters of the key's SHA-256 |
-| `level` | `interruption-level`. Without the entitlement, `critical` goes out as `time-sensitive` and `delivery` records the downgrade. |
+| `level` | `interruption-level`. `critical` goes out as `critical`, with the critical sound, only when a rule or a `critical` token allowed it and the device allows critical alerts; otherwise as `time-sensitive`, and `delivery` records why. |
 | `expires_at` | `apns-expiration` |
 | `relevance` | `relevance-score` |
 | `summary`, `body` | The push carries the summary, or the body truncated to fit 4 KB. The notification service extension fetches the full text by `id`. |

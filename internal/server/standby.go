@@ -69,7 +69,8 @@ func StandbyDeviceJSON(d store.Device) api.StandbyDevice {
 	out := api.StandbyDevice{
 		Id: d.ID, Token: d.Token, Environment: api.StandbyDeviceEnvironment(d.Environment), Topic: d.Topic,
 		Name: str(d.Name), Platform: str(d.Platform), AppVersion: str(d.AppVersion),
-		Permissions:  api.Permissions{Alerts: d.Alerts, TimeSensitive: d.TimeSensitive, LiveActivities: d.LiveActivities},
+		Permissions: api.Permissions{Alerts: d.Alerts, TimeSensitive: d.TimeSensitive, LiveActivities: d.LiveActivities,
+			CriticalAlerts: d.CriticalAlerts},
 		RegisteredAt: d.RegisteredAt, UpdatedAt: d.UpdatedAt,
 		RetiredReason: str(d.RetiredReason), LiveActivityToken: str(d.LiveActivityToken),
 		FocusFilter: focusJSON(d.FocusFilter),
@@ -94,7 +95,8 @@ func StandbyDevice(d api.StandbyDevice, updatedBy string) store.Device {
 		ID: d.Id, Token: d.Token, Environment: string(d.Environment), Topic: d.Topic,
 		Name: val(d.Name), Platform: val(d.Platform), AppVersion: val(d.AppVersion),
 		Alerts: d.Permissions.Alerts, TimeSensitive: d.Permissions.TimeSensitive, LiveActivities: d.Permissions.LiveActivities,
-		RegisteredAt: d.RegisteredAt, UpdatedAt: d.UpdatedAt, UpdatedBy: updatedBy,
+		CriticalAlerts: d.Permissions.CriticalAlerts,
+		RegisteredAt:   d.RegisteredAt, UpdatedAt: d.UpdatedAt, UpdatedBy: updatedBy,
 		RetiredReason: val(d.RetiredReason), LiveActivityToken: val(d.LiveActivityToken),
 		FocusFilter: focusCopy(d.FocusFilter),
 	}

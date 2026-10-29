@@ -26,7 +26,9 @@ OTHER_CODE_SIGN_FLAGS[sdk=macosx*] = --timestamp
 // APP_MAC_PROFILE = match Direct com.nkmkdigital.heraldo macos
 //    With the profile, sign with the full entitlements and keep the
 //    credentials in the synced, app-group Keychain item the iOS app uses:
-// APP_MAC_ENTITLEMENTS = App/macOS/App.entitlements
+//    $(APP_MAC_SIGNED_ENTITLEMENTS) is App/macOS/App.entitlements, or
+//    AppCritical.entitlements when HERALDO_CRITICAL_ALERTS is YES:
+// APP_MAC_ENTITLEMENTS = $(APP_MAC_SIGNED_ENTITLEMENTS)
 // APP_MAC_KEYCHAIN_GROUP = $(APP_GROUP_ID)
 //    The share extension needs its own Developer ID profile (app group) to
 //    read that item:

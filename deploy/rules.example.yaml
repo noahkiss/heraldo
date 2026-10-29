@@ -46,6 +46,14 @@ rules:
     match: {kind: '^checkin$', key: '^offsite-backup$', action: '^fail$'}
     set: {hold: true, thread: triage}
 
+  # An emergency: the ops rung opens a critical incident. A rule's critical
+  # needs no token capability, since the owner writes this file. It breaks
+  # through Focus on a device that allows critical alerts, and escalates to
+  # Pushover when escalation is on; an ack in heraldo cancels that.
+  - name: ops-emergency
+    match: {tag: '^ops$', title: '^(?P<what>.+)$'}
+    set: {kind: incident, action: open, key: 'ops:{what}', level: critical}
+
   # Everything at the quiet rung stays a message in the inbox, with no
   # notification.
   - name: quiet-message

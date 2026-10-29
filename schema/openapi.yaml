@@ -2728,6 +2728,12 @@ components:
         live_activities:
           type: boolean
           description: Live Activities are allowed.
+        critical_alerts:
+          type: boolean
+          description: |
+            Critical alerts are allowed. Only a build with the critical-alerts entitlement
+            reports it. A device that reports true gets interruption-level critical with
+            the critical sound; any other device gets critical as time-sensitive.
     Device:
       type: object
       required: [id, environment, topic, token_suffix, permissions, active, registered_at, updated_at]

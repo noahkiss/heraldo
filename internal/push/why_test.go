@@ -138,7 +138,7 @@ func TestWhyCriticalDowngrade(t *testing.T) {
 	r := newRig(t, 0)
 	r.register(t, prodToken, "production")
 	tr := r.why(t, r.post(t, writeTok, `{"source":"s","title":"fire","level":"critical"}`))
-	if summary(tr) != "pushed time-sensitive to 1 device; critical sent as time-sensitive" ||
+	if summary(tr) != "pushed time-sensitive to 1 device; critical sent as time-sensitive: no rule set it and the token lacks the critical capability" ||
 		tr.Decisions[2].Outcome != api.PushDecisionOutcomeDowngrade {
 		t.Fatalf("trace %+v", tr)
 	}

@@ -151,6 +151,14 @@ var registry = []Key{
 	{Name: "flap.opens", Type: Int, Default: 3, Desc: "Opens within flap.window that mark an incident flapping."},
 	{Name: "flap.window", Type: Duration, Default: time.Hour, Desc: "The window flap.opens counts over."},
 	{Name: "flap.settle", Type: Duration, Default: 30 * time.Minute, Desc: "How long a flapping incident stays quiet before it is not flapping."},
+
+	// Emergency escalation: critical events also go to Pushover's
+	// emergency priority, which repeats until someone acknowledges it.
+	{Name: "escalation.enabled", Type: Bool, Default: false, Desc: "Send critical events to Pushover's emergency priority too."},
+	{Name: "escalation.pushover.token", Type: Secret, Default: "", Desc: "The Pushover application's API token. Write-only."},
+	{Name: "escalation.pushover.user", Type: Secret, Default: "", Desc: "The Pushover user or group key. Write-only."},
+	{Name: "escalation.retry", Type: Duration, Default: time.Minute, Desc: "How often Pushover repeats an emergency alert; 30s at least."},
+	{Name: "escalation.expire", Type: Duration, Default: time.Hour, Desc: "How long Pushover repeats it; 3h at most."},
 }
 
 var byName = func() map[string]Key {

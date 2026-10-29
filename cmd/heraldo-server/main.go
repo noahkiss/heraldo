@@ -65,6 +65,7 @@ import (
 	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/auth"
 	"github.com/noahkiss/heraldo/internal/config"
+	"github.com/noahkiss/heraldo/internal/escalate"
 	"github.com/noahkiss/heraldo/internal/hold"
 	"github.com/noahkiss/heraldo/internal/live"
 	"github.com/noahkiss/heraldo/internal/mcphttp"
@@ -270,9 +271,18 @@ func serve(flags map[string]string, log *slog.Logger) error {
 	pushCtx, stopPush := context.WithCancel(context.Background())
 	defer stopPush()
 	pusher, lm, pushState := startPush(ctx, pushCtx, cfg, st, rw, log)
+	// Escalation does not depend on push: it runs with push off too.
+	esc := escalate.New(escalate.Config{Store: st, Rules: rw.Rules, Logger: log.With("component", "escalate")})
+	go esc.Run(pushCtx)
+	// Critical events still queued when the server last stopped.
+	if n, err := esc.Sweep(ctx, time.Now().Add(-escalate.SweepWindow)); err != nil {
+		log.Error("escalate: start-up sweep", "err", err)
+	} else if n > 0 {
+		log.Info("escalate: queued critical events left unchecked", "events", n)
+	}
 	so := server.Options{
 		Version: version.String(), Store: st, Tokens: tokens, Validator: v, Rules: rw, Logger: log,
-		Done: ctx.Done(), Pusher: pusher, PushState: pushState, Live: lm,
+		Done: ctx.Done(), Pusher: pusher, Escalator: esc, PushState: pushState, Live: lm,
 		TrustedNets: cfg.NotifyTrustedNets, Settings: sm,
 		Standby: cfg.Standby,
 		Hold: server.HoldOptions{
@@ -336,6 +346,9 @@ func serve(flags map[string]string, log *slog.Logger) error {
 	}
 	if p, ok := pusher.(*push.Pusher); ok && !p.Drain(shutdown) {
 		log.Warn("push: queue not drained at shutdown; the next start sweeps it")
+	}
+	if !esc.Drain(shutdown) {
+		log.Warn("escalate: queue not drained at shutdown")
 	}
 	stopPush()
 	if err := <-errc; !errors.Is(err, http.ErrServerClosed) {

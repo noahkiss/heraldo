@@ -96,6 +96,7 @@ struct RootView: View {
         // The scene is often active before onChange(of: scenePhase) can see it.
         .task { await model.refresh() }
         .heraldoLinks()
+        .permissionsOnboarding()
         .onChange(of: model.openEventID) { _, id in if id != nil { tab = .inbox } }
     }
 }

@@ -257,8 +257,8 @@ func TestStartPushesToStartToken(t *testing.T) {
 		t.Errorf("ends_at = %v, want Unix seconds", st["ends_at"])
 	}
 	alert, _ := p.APS["alert"].(map[string]any)
-	if alert["title"] != "bracket.3mf" || alert["sound"] != "default" {
-		t.Errorf("alert = %v", alert)
+	if _, loud := alert["sound"]; alert["title"] != "bracket.3mf" || loud {
+		t.Errorf("alert = %v, want a title and no sound: an active start is silent", alert)
 	}
 	// No update interval yet: stale after twice the 10 minute default.
 	if p.num("stale-date") != r.clk.now().Add(20*time.Minute).Unix() {
@@ -796,10 +796,21 @@ func sound(p sent) string {
 }
 
 func TestOnlyTheFirstStartSounds(t *testing.T) {
-	// A retry after never-started comes up silently.
+	// The first start sounds only at time-sensitive or above; a retry after
+	// never-started comes up silently.
+	for _, c := range []struct{ level, want string }{
+		{"passive", ""}, {"active", ""}, {"time-sensitive", "default"}, {"critical", "default"},
+	} {
+		r := newRig(t)
+		r.phone(t)
+		r.post(t, strings.Replace(start, `"level":"active"`, `"level":"`+c.level+`"`, 1))
+		if got := r.apns.take(); len(got) != 1 || sound(got[0]) != c.want {
+			t.Fatalf("first start at %s = %+v, want sound %q", c.level, got, c.want)
+		}
+	}
 	r := newRig(t)
 	r.phone(t)
-	r.post(t, start)
+	r.post(t, strings.Replace(start, `"level":"active"`, `"level":"time-sensitive"`, 1))
 	if got := r.apns.take(); len(got) != 1 || sound(got[0]) != "default" {
 		t.Fatalf("first start = %+v", got)
 	}

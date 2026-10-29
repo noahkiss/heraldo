@@ -55,7 +55,11 @@ func (p *Pusher) tableStage(_ context.Context, r *Run) Verdict {
 	}
 	detail := map[string]any{"level": d.Level}
 	if d.Downgraded {
-		return Downgrade(d.Level, "critical sent as time-sensitive").With(detail)
+		return Downgrade(d.Level, "critical sent as time-sensitive: no rule set it and the token lacks the critical capability").With(detail)
+	}
+	if d.Level == api.LevelCritical {
+		detail["critical_by"] = CriticalBy(r.Event)
+		return Pass("push table: critical, allowed by " + CriticalBy(r.Event)).With(detail)
 	}
 	if d.Replace {
 		return Pass("passive: replaces a visible push of its key").With(detail)
@@ -208,12 +212,21 @@ func (p *Pusher) deliverStage(ctx context.Context, r *Run) Verdict {
 		return Drop("payload: " + err.Error())
 	}
 	r.delivered = true
-	sent := 0
+	sent, lowered := 0, 0
 	var devs []map[string]any
 	for _, dev := range r.Devices {
-		lvl := d.Level
+		// A critical push goes as critical only to the devices that allow
+		// critical alerts; the rest get it as time-sensitive.
+		lvl, why := d.Level, ""
+		if d.Downgraded {
+			why = "critical sent as time-sensitive"
+		}
 		if l, ok := r.DeviceLevel[dev.ID]; ok {
-			lvl = l
+			lvl, why = l, r.DeviceWhy[dev.ID]
+		}
+		if lvl == api.LevelCritical && !AllowsCritical(dev) {
+			lvl, why = api.LevelTimeSensitive, "critical sent as time-sensitive: critical alerts are off on this device"
+			lowered++
 		}
 		b, err := payload(lvl)
 		if err != nil {
@@ -223,12 +236,8 @@ func (p *Pusher) deliverStage(ctx context.Context, r *Run) Verdict {
 		}
 		out := p.deliver(ctx, dev, b.body, b.h)
 		out.EventID, out.DeviceID, out.Level = ev.Id, dev.ID, string(lvl)
-		switch {
-		case out.Outcome != "sent":
-		case lvl != d.Level:
-			out.Error = r.DeviceWhy[dev.ID]
-		case d.Downgraded:
-			out.Error = "critical sent as time-sensitive"
+		if out.Outcome == "sent" && why != "" {
+			out.Error = why
 		}
 		out.At = p.cfg.Now()
 		if err := p.cfg.Store.RecordDelivery(context.WithoutCancel(ctx), out); err != nil {
@@ -258,13 +267,24 @@ func (p *Pusher) deliverStage(ctx context.Context, r *Run) Verdict {
 		detail["open_for_s"] = int(r.OpenFor.Seconds())
 	}
 	n := len(r.Devices)
+	tail := ""
+	if lowered > 0 {
+		tail = fmt.Sprintf("; time-sensitive on %s without critical alerts", plural(lowered, "device"))
+	}
 	switch {
 	case sent == 0:
 		return Drop(fmt.Sprintf("push failed on %s", plural(n, "device"))).With(detail)
 	case sent < n:
-		return Pass(fmt.Sprintf("%s %s to %d of %s", verb, d.Level, sent, plural(n, "device"))).With(detail)
+		return Pass(fmt.Sprintf("%s %s to %d of %s%s", verb, d.Level, sent, plural(n, "device"), tail)).With(detail)
 	}
-	return Pass(fmt.Sprintf("%s %s to %s", verb, d.Level, plural(n, "device"))).With(detail)
+	return Pass(fmt.Sprintf("%s %s to %s%s", verb, d.Level, plural(n, "device"), tail)).With(detail)
+}
+
+// AllowsCritical reports whether dev reported that it allows critical
+// alerts. Unknown counts as no: the app reports it only when its build has
+// the critical-alerts entitlement.
+func AllowsCritical(dev store.Device) bool {
+	return dev.CriticalAlerts != nil && *dev.CriticalAlerts
 }
 
 // plural writes n and noun, adding an s unless n is 1.
