@@ -9,13 +9,9 @@ struct IncidentsView: View {
     @Environment(AppModel.self) private var model
     @State private var error: String?
 
-    private var open: [Event] { model.incidents.filter { !$0.isAcked } }
-    private var acked: [Event] { model.incidents.filter(\.isAcked) }
-    private var resolved: [Event] {
-        let current = Set(model.incidents.compactMap(\.key))
-        return model.cache.resolvedIncidents(since: .now.addingTimeInterval(-86_400))
-            .filter { !current.contains($0.key ?? "") }
-    }
+    private var open: [Event] { model.openIncidents }
+    private var acked: [Event] { model.ackedIncidents }
+    private var resolved: [Event] { model.resolvedToday }
 
     var body: some View {
         NavigationStack {
@@ -102,5 +98,19 @@ struct IncidentsView: View {
                 .font(.caption).foregroundStyle(.secondary)
                 .accessibilityLabel(Text("Opened \(opened, format: .relative(presentation: .named))"))
         }
+    }
+}
+
+extension AppModel {
+    /// Open incidents not yet acknowledged, newest first.
+    var openIncidents: [Event] { incidents.filter { !$0.isAcked } }
+    /// Acknowledged incidents, newest first.
+    var ackedIncidents: [Event] { incidents.filter(\.isAcked) }
+    /// The incidents resolved in the last day, from the synced history,
+    /// without the ones that opened again.
+    var resolvedToday: [Event] {
+        let current = Set(incidents.compactMap(\.key))
+        return cache.resolvedIncidents(since: .now.addingTimeInterval(-86_400))
+            .filter { !current.contains($0.key ?? "") }
     }
 }

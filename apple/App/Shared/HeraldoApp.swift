@@ -24,12 +24,19 @@ struct HeraldoApp: App {
             Task { await LiveActivities.shared.flush() }
         }
         #else
-        // The history window. One of it; the menu bar item and notifications bring it up.
+        // The main window. One of it; the menu bar item and notifications bring it up.
         Window(AppInfo.displayName(), id: MacAppDelegate.mainWindowID) {
-            RootView()
+            MacRootView()
                 .environment(model)
         }
-        .defaultSize(width: 720, height: 560)
+        .defaultSize(width: 1120, height: 720)
+        .commands { MacCommands() }
+        // One event, incident, check, activity or held entry in its own window.
+        WindowGroup("Detail", id: MacAppDelegate.detailWindowID, for: MacDetailItem.self) { $item in
+            MacDetailWindow(item: item)
+                .environment(model)
+        }
+        .defaultSize(width: 560, height: 640)
         MenuBarExtra {
             MenuBarContent()
                 .environment(model)
@@ -49,7 +56,6 @@ struct HeraldoApp: App {
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.openURL) private var openURL
     @State private var tab = Tab.inbox
     #if os(macOS)
     @Environment(\.openSettings) private var openSettings
@@ -88,9 +94,23 @@ struct RootView: View {
         }
         // The scene is often active before onChange(of: scenePhase) can see it.
         .task { await model.refresh() }
-        // heraldo://event/<id> opens one event. heraldo://open?url=<url> opens
-        // the URL: a Live Activity's open button.
-        .onOpenURL { url in
+        .heraldoLinks()
+        .onChange(of: model.openEventID) { _, id in if id != nil { tab = .inbox } }
+    }
+}
+
+extension View {
+    /// heraldo://event/<id> opens one event. heraldo://open?url=<url> opens
+    /// the URL: a Live Activity's open button.
+    func heraldoLinks() -> some View { modifier(HeraldoLinks()) }
+}
+
+struct HeraldoLinks: ViewModifier {
+    @Environment(AppModel.self) private var model
+    @Environment(\.openURL) private var openURL
+
+    func body(content: Content) -> some View {
+        content.onOpenURL { url in
             guard url.scheme == "heraldo" else { return }
             if url.host() == "open",
                let target = URLComponents(url: url, resolvingAgainstBaseURL: false)?
@@ -101,9 +121,5 @@ struct RootView: View {
             guard url.host() == "event", let id = url.pathComponents.dropFirst().first else { return }
             model.openEventID = id
         }
-        .onChange(of: model.openEventID) { _, id in if id != nil { tab = .inbox } }
-        #if os(macOS)
-        .frame(minWidth: 480, minHeight: 360)
-        #endif
     }
 }

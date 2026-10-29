@@ -5,58 +5,29 @@ import SwiftUI
 struct InboxView: View {
     @Environment(AppModel.self) private var model
     @State private var path: [Event] = []
-    @State private var query = ""
-    @State private var kind: String?
-    @State private var source: String?
-    /// A hold state, such as held: the triage filter.
-    @State private var hold: String?
-    /// A project, or `noProject` for the events with none.
-    @State private var project: String?
-    /// Routine events (passing check-ins, progress, status) stay out unless
-    /// this is on, or the kind filter names their kind.
-    @State private var showRoutine = false
-    @State private var results: [Event]?
-    @State private var resultsCursor: String?
-    @State private var searching = false
+    @State private var feed = InboxFeed()
 
-    private var filtering: Bool {
-        !query.trimmingCharacters(in: .whitespaces).isEmpty || kind != nil || source != nil || hold != nil
-            || project != nil
-    }
-
-    /// The routine filter for a server search: routine events stay out
-    /// unless they are asked for, by the toggle or by the kind.
-    private var routineFilter: EventQuery.Routine? {
-        showRoutine || Event.isRoutineKind(kind) ? nil : .exclude
-    }
-
-    /// Routine events stay out of the plain list: a check's pings live in
-    /// its history on the Check-ins tab, and a Live Activity shows progress.
-    private var events: [Event] {
-        let list = filtering ? (results ?? []) : model.cache.events
-        return routineFilter == nil ? list : list.filter { !$0.isRoutine }
-    }
+    private var events: [Event] { feed.events(model) }
 
     var body: some View {
         NavigationStack(path: $path) {
             list
                 .navigationTitle("Inbox")
                 .navigationDestination(for: Event.self) { EventDetailView(event: $0) }
-                .searchable(text: $query, prompt: "Search title and body")
-                .onSubmit(of: .search) { Task { await search() } }
-                .task(id: SearchKey(query: query, kind: kind, source: source, hold: hold, project: project,
-                                    showRoutine: showRoutine)) {
+                .searchable(text: $feed.query, prompt: "Search title and body")
+                .onSubmit(of: .search) { Task { await feed.search(model) } }
+                .task(id: feed.searchKey) {
                     // Debounce typing; a filter change searches at once too.
                     try? await Task.sleep(for: .milliseconds(350))
                     guard !Task.isCancelled else { return }
-                    await search()
+                    await feed.search(model)
                 }
                 .refreshable {
                     await model.refresh()
-                    if filtering { await search() }
+                    if feed.filtering { await feed.search(model) }
                 }
                 .toolbar { toolbar }
-                .overlay { empty }
+                .overlay { InboxEmptyView(feed: feed, isEmpty: events.isEmpty) }
         }
         .onChange(of: model.openEventID) { _, id in Task { await open(id) } }
         .task { await open(model.openEventID) }
@@ -71,7 +42,7 @@ struct InboxView: View {
             }
             ForEach(events) { e in
                 NavigationLink(value: e) {
-                    EventRow(event: e, unread: model.isUnread(e), showProject: project == nil)
+                    EventRow(event: e, unread: model.isUnread(e), showProject: feed.project == nil)
                 }
                 .swipeActions(edge: .leading) {
                     if model.isUnread(e) {
@@ -84,48 +55,19 @@ struct InboxView: View {
                     }
                 }
             }
-            if canLoadMore {
+            if feed.canLoadMore(model) {
                 ProgressView()
                     .frame(maxWidth: .infinity)
-                    .task { await loadMore() }
+                    .task { await feed.loadMore(model) }
             }
         }
         .listStyle(.plain)
     }
 
-    private var canLoadMore: Bool {
-        if filtering { return resultsCursor != nil && (results?.count ?? 0) > 0 }
-        return !model.cache.reachedEnd && model.cache.olderCursor != nil && !model.cache.events.isEmpty
-    }
-
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            Menu {
-                Picker("Kind", selection: $kind) {
-                    Text("All kinds").tag(String?.none)
-                    ForEach(Kind.allCases, id: \.self) { Text($0.rawValue.capitalized).tag(String?.some($0.rawValue)) }
-                }
-                Picker("Source", selection: $source) {
-                    Text("All sources").tag(String?.none)
-                    ForEach(model.cache.sources, id: \.self) { Text($0).tag(String?.some($0)) }
-                }
-                if !model.projectChoices.isEmpty {
-                    Picker("Project", selection: $project) {
-                        Text("All projects").tag(String?.none)
-                        ForEach(model.projectChoices, id: \.self) { Text($0).tag(String?.some($0)) }
-                        Text("No project").tag(String?.some(noProject))
-                    }
-                }
-                Picker("Hold", selection: $hold) {
-                    Text("Any hold").tag(String?.none)
-                    ForEach(model.cache.holdStates, id: \.self) { Text($0.capitalized).tag(String?.some($0)) }
-                }
-                Toggle("Show routine events", isOn: $showRoutine)
-            } label: {
-                Label("Filter", systemImage: kind == nil && source == nil && hold == nil && project == nil && !showRoutine
-                      ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
-            }
+            InboxFilterMenu(feed: feed)
         }
         ToolbarItem(placement: .secondaryAction) {
             Button {
@@ -137,14 +79,38 @@ struct InboxView: View {
         }
     }
 
-    @ViewBuilder
-    private var empty: some View {
-        if events.isEmpty {
+    /// Opens an event from a notification tap, fetching it when it is not cached yet.
+    private func open(_ id: String?) async {
+        guard let id else { return }
+        model.openEventID = nil
+        if let e = model.cache.events.first(where: { $0.id == id }) {
+            path = [e]
+        } else if let e = try? await model.client().event(id: id) {
+            path = [e]
+        }
+    }
+}
+
+/// The Inbox's empty state: not set up, no match, loading, or no events.
+struct InboxEmptyView: View {
+    @Environment(AppModel.self) private var model
+    let feed: InboxFeed
+    let isEmpty: Bool
+
+    var body: some View {
+        if isEmpty {
             if !model.isConfigured {
                 ContentUnavailableView("Not set up", systemImage: "gearshape",
                                        description: Text("Enter the server URL and tokens in Settings."))
-            } else if filtering {
-                if searching { ProgressView() } else { ContentUnavailableView.search(text: query) }
+            } else if feed.filtering {
+                if feed.searching {
+                    ProgressView()
+                } else if feed.trimmedQuery.isEmpty {
+                    ContentUnavailableView("No events", systemImage: "line.3.horizontal.decrease.circle",
+                                           description: Text("No events match the filters."))
+                } else {
+                    ContentUnavailableView.search(text: feed.trimmedQuery)
+                }
             } else if model.isSyncing {
                 ProgressView()
             } else {
@@ -159,62 +125,6 @@ struct InboxView: View {
                 }
             }
         }
-    }
-
-    private func search() async {
-        guard filtering, let sync = try? model.sync() else {
-            results = nil
-            resultsCursor = nil
-            return
-        }
-        searching = true
-        defer { searching = false }
-        let q = query.trimmingCharacters(in: .whitespaces)
-        do {
-            let page = try await sync.search(q: q.isEmpty ? nil : q, kind: kind, source: source, hold: hold,
-                                             project: project, routine: routineFilter)
-            results = page.events
-            resultsCursor = page.events.count < sync.pageSize ? nil : page.nextCursor
-        } catch {
-            model.lastError = error.localizedDescription
-        }
-    }
-
-    private func loadMore() async {
-        if filtering {
-            guard let sync = try? model.sync(), let before = resultsCursor else { return }
-            let q = query.trimmingCharacters(in: .whitespaces)
-            do {
-                let page = try await sync.search(q: q.isEmpty ? nil : q, kind: kind, source: source, hold: hold,
-                                                 project: project, routine: routineFilter, before: before)
-                results = (results ?? []) + page.events
-                resultsCursor = page.events.count < sync.pageSize ? nil : page.nextCursor
-            } catch {
-                resultsCursor = nil
-            }
-        } else {
-            await model.loadOlder()
-        }
-    }
-
-    /// Opens an event from a notification tap, fetching it when it is not cached yet.
-    private func open(_ id: String?) async {
-        guard let id else { return }
-        model.openEventID = nil
-        if let e = model.cache.events.first(where: { $0.id == id }) {
-            path = [e]
-        } else if let e = try? await model.client().event(id: id) {
-            path = [e]
-        }
-    }
-
-    private struct SearchKey: Equatable {
-        var query: String
-        var kind: String?
-        var source: String?
-        var hold: String?
-        var project: String?
-        var showRoutine: Bool
     }
 }
 
@@ -236,6 +146,7 @@ struct EventRow: View {
                     if let d = event.date {
                         Text(d, format: .relative(presentation: .numeric, unitsStyle: .narrow))
                             .font(.caption)
+                            .monospacedDigit()
                             .foregroundStyle(.secondary)
                     }
                 }

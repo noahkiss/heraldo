@@ -21,6 +21,12 @@ final class AppModel {
     /// The projects the server's events name, from `GET /v1/projects`.
     /// Empty on a server before projects.
     private(set) var projects: [String] = []
+    /// The running Live Activities. The Mac app's home; empty on iOS and
+    /// on a server before Live Activities.
+    private(set) var activities: [ActivitySummary] = []
+    /// The hold's open entries. The Mac app's home; empty on iOS and on a
+    /// server before the hold.
+    private(set) var held: [HoldEntry] = []
     private(set) var isSyncing = false
     private(set) var lastSync: Date?
     var lastError: String?
@@ -136,6 +142,10 @@ final class AppModel {
             incidents = try await sync.client.state().sortedIncidents
             checks = try await sync.client.checks() ?? []
             projects = (try? await sync.client.projects())?.projects.map(\.name) ?? []
+            #if os(macOS)
+            activities = (try? await sync.client.activities()) ?? []
+            held = (try? await sync.client.heldEntries())?.held.filter(\.isOpen) ?? []
+            #endif
             lastSync = .now
             lastError = nil
             onBadge?(unread.badge)

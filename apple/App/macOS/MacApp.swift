@@ -7,6 +7,8 @@ import UserNotifications
 /// and the sync that keeps the menu bar current while no window is open.
 final class MacAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     static let mainWindowID = "main"
+    /// The windows that show one item: Return or a double-click in a list.
+    static let detailWindowID = "detail"
     /// How often the menu bar syncs. The sync is a cursor read, so it is cheap.
     static let pollInterval: Duration = .seconds(60)
 
@@ -87,8 +89,9 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationC
     }
 }
 
-/// The menu bar item: a bell and the unread count. It is always on screen, so
-/// it also hands the model the action that opens the history window.
+/// The menu bar item: a bell and the unread count. The bell fills and gains
+/// a badge while an incident is open or a check is down. It is always on
+/// screen, so it also hands the model the action that opens the main window.
 struct MenuBarLabel: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openWindow) private var openWindow
@@ -96,10 +99,10 @@ struct MenuBarLabel: View {
     var body: some View {
         let n = model.unread.badge
         HStack(spacing: 2) {
-            Image(systemName: attention ? "bell.badge" : "bell")
-            if n > 0 { Text("\(n)") }
+            Image(systemName: symbol)
+            if n > 0 { Text("\(n)").monospacedDigit() }
         }
-        .accessibilityLabel(n > 0 ? "Heraldo, \(n) unread" : "Heraldo")
+        .accessibilityLabel(MenuBarSummary(model: model).accessibility)
         .onAppear {
             model.showMain = {
                 DockPolicy.showIcon()
@@ -109,8 +112,38 @@ struct MenuBarLabel: View {
         }
     }
 
-    private var attention: Bool {
-        model.unread.badge > 0 || model.unackedIncidents > 0 || model.downChecks > 0
+    private var symbol: String {
+        if model.unackedIncidents > 0 || model.downChecks > 0 { return "bell.badge.fill" }
+        return model.unread.badge > 0 ? "bell.badge" : "bell"
+    }
+}
+
+/// The state in one line: open incidents, checks down, running activities.
+@MainActor
+struct MenuBarSummary {
+    let model: AppModel
+
+    var parts: [String] {
+        var out: [String] = []
+        let open = model.unackedIncidents
+        if open > 0 { out.append(open == 1 ? "1 open incident" : "\(open) open incidents") }
+        let down = model.downChecks
+        if down > 0 { out.append(down == 1 ? "1 check down" : "\(down) checks down") }
+        let running = model.activities.count
+        if running > 0 { out.append(running == 1 ? "1 running" : "\(running) running") }
+        let held = model.held.count
+        if held > 0 { out.append("\(held) held") }
+        return out
+    }
+
+    var line: String { parts.isEmpty ? "All clear" : parts.joined(separator: " · ") }
+
+    var accessibility: String {
+        let n = model.unread.badge
+        var items = [AppInfo.displayName()]
+        if n > 0 { items.append("\(n) unread") }
+        items += parts
+        return items.joined(separator: ", ")
     }
 }
 
@@ -142,13 +175,22 @@ struct MenuBarContent: View {
     }
 
     private var header: some View {
-        HStack {
-            Text(AppInfo.displayName()).font(.headline)
-            Spacer()
-            if model.isSyncing { ProgressView().controlSize(.small) }
-            let n = model.unread.badge
-            Text(n == 1 ? "1 unread" : "\(n) unread")
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(AppInfo.displayName()).font(.headline)
+                Spacer()
+                if model.isSyncing { ProgressView().controlSize(.small) }
+                let n = model.unread.badge
+                Text(n == 1 ? "1 unread" : "\(n) unread")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            if model.isConfigured {
+                let summary = MenuBarSummary(model: model)
+                Text(summary.line)
+                    .font(.callout)
+                    .foregroundStyle(summary.parts.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+            }
         }
     }
 
@@ -198,7 +240,7 @@ struct MenuBarContent: View {
                 }
                 Spacer(minLength: 4)
                 if let d = c.stateSince {
-                    Text(d, format: .relative(presentation: .numeric, unitsStyle: .narrow))
+                    Text(d, format: .relative(presentation: .numeric, unitsStyle: .narrow)).monospacedDigit()
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -221,7 +263,7 @@ struct MenuBarContent: View {
                     }
                     Spacer(minLength: 4)
                     if let d = e.date {
-                        Text(d, format: .relative(presentation: .numeric, unitsStyle: .narrow))
+                        Text(d, format: .relative(presentation: .numeric, unitsStyle: .narrow)).monospacedDigit()
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -244,6 +286,7 @@ struct MenuBarContent: View {
     private var footer: some View {
         HStack {
             Button("Open Heraldo") { model.showMain?() }
+                .keyboardShortcut(.defaultAction)
             Button("Mark all read") { Task { await model.markAllRead() } }
                 .disabled(!model.isConfigured || model.unread.badge == 0)
             Spacer()

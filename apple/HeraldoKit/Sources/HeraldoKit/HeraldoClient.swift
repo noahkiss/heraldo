@@ -284,6 +284,32 @@ public struct HeraldoClient: Sendable {
         try await get("v1/activities/\(key)")
     }
 
+    /// The activities that have not ended, in key order. Nil from a server
+    /// before Live Activities.
+    public func activities() async throws -> [ActivitySummary]? {
+        do {
+            let list: ActivityList = try await get("v1/activities")
+            return list.activities
+        } catch let e as HeraldoError where e.status == 404 || e.status == 405 {
+            return nil
+        }
+    }
+
+    // MARK: Hold
+
+    /// The hold's open entries. It reads with `peek=1`, so it is not a
+    /// triage poll and leaves the dead-man alone. Nil from a server before
+    /// the hold.
+    public func heldEntries() async throws -> HoldQueue? {
+        do {
+            let q: HoldQueue = try await get("v1/hold", query: [URLQueryItem(name: "state", value: "pending"),
+                                                               URLQueryItem(name: "peek", value: "1")])
+            return q
+        } catch let e as HeraldoError where e.status == 404 || e.status == 405 {
+            return nil
+        }
+    }
+
     /// Reports an activity's update token, or that it was dismissed or ended.
     @discardableResult
     public func reportInstance(id: String, _ report: InstanceReport) async throws -> LiveInstance {
