@@ -11,6 +11,26 @@ stores every event and delivers it to an iPhone and Mac app you build yourself.
 Status: in use. The server stores and serves every event, and pushes it to
 Apple devices through APNs with `HERALDO_PUSH=on`. Push is off by default.
 
+## What it is for
+
+heraldo is one front door for everything in your life you want to hear about:
+servers, backups, printers, home automation, coding agents, anything that can
+post a request. Everything comes in. Very little interrupts you.
+
+Three principles follow, and every feature is judged against them:
+
+- **Store everything, show what matters.** Every event is kept and searchable.
+  The main view shows only what you care about now. Routine traffic, such as
+  check-in pings and progress updates, has its own home and stays out of the
+  main stream.
+- **Many ways to filter.** Project, source, kind, host, level, hold state and
+  free text all narrow the view. Each kind of event has a place where it
+  belongs: incidents, check-ins, Live Activities and the inbox.
+- **Interrupt only when it needs you.** Pushes are graded from passive
+  (inbox only) to time-sensitive. Holds, mutes, inhibit rules and retries keep
+  noise off the phone. A long-running job shows as a Live Activity, not a
+  stream of notifications.
+
 ## What it does
 
 - One event shape, [envelope v1](schema/envelope.v1.schema.json), for messages,
