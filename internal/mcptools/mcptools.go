@@ -1,4 +1,4 @@
-// Package mcptools is heraldo's MCP tool layer: nine tools over the heraldo
+// Package mcptools is heraldo's MCP tool layer: the tools over the heraldo
 // API, for coding agents. It knows nothing of the transport. heraldo mcp
 // serves it on stdio; a later HTTP transport can mount the same server.
 package mcptools

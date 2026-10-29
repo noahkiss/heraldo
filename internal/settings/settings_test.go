@@ -128,6 +128,17 @@ func TestRefusals(t *testing.T) {
 		!strings.Contains(err.Error(), "HERALDO_FLAP_OPENS") {
 		t.Fatalf("bad env: %v", err)
 	}
+	// A list in env: comma-separated, or a JSON array for items with commas.
+	m = newM(t, Options{Getenv: envOf(map[string]string{
+		"HERALDO_LLM_EXCLUDE_PROJECTS": "home, work",
+		"HERALDO_LLM_REDACT":           `["x{2,8}", "y"]`,
+	})})
+	if got := From[[]string](m, "llm.exclude_projects"); len(got) != 2 || got[1] != "work" {
+		t.Fatalf("comma list %q", got)
+	}
+	if got := From[[]string](m, "llm.redact"); len(got) != 2 || got[0] != "x{2,8}" {
+		t.Fatalf("JSON list %q", got)
+	}
 	if _, err := New(ctx, Options{Flags: map[string]string{"llm.token": "x"}}); err == nil {
 		t.Fatal("secret flag accepted")
 	}

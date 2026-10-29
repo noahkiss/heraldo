@@ -25,6 +25,7 @@ heraldo mcp [--read-only]
 | `HERALDO_URL` | Server root. Required. |
 | `HERALDO_TOKEN` | A `read` token. Required. |
 | `HERALDO_WRITE_TOKEN` | A `write` token. Without it, the write tools are not listed. |
+| `HERALDO_ADMIN_TOKEN` | An `admin` token. Without it, `settings_write` is not listed. |
 | `HERALDO_CURSOR` | The read cursor that `unread` reads. Default `inbox`, shared with the apps. The MCP server never moves it. |
 | `HERALDO_SOURCE` | The `source` of events the tools post. Default: `agent:<harness>`, from the client's name (`agent:claude`, `agent:codex`, `agent:opencode`), else `heraldo-mcp`. |
 | `HERALDO_PROJECT` | `send`'s default `project`. Default: none. |
@@ -32,8 +33,9 @@ heraldo mcp [--read-only]
 - Without `HERALDO_URL` or `HERALDO_TOKEN`, the server still starts and lists
   only `overview`. `overview` fails with `not_configured` and names the missing
   variable and the env file.
-- With `--read-only`, or without a write token, only the five read tools are
-  listed. `overview` says why in `server.write_off`.
+- With `--read-only`, or without a write token, only the six read tools are
+  listed. `overview` says why in `server.write_off`. `--read-only` also drops
+  `settings_write`.
 - One source per harness lets the owner mute one agent: `mute` with
   `source: agent:codex`.
 
@@ -50,6 +52,8 @@ heraldo mcp [--read-only]
 | `checkin_update` | Pause, resume, or replace a check's schedule | write |
 | `mute` | Mute a source, key or project for a while, or end a mute | write |
 | `send` | Post a plain message to the owner | write |
+| `settings_read` | Server settings: value, type, default, source and lock; a secret shows only `set` | read |
+| `settings_write` | Change one server setting, or put it back to its default | admin |
 
 Left out on purpose:
 
@@ -58,6 +62,9 @@ Left out on purpose:
 - Opening incidents, check-in events, Live Activities, re-alerts. `send` posts
   kind `message` only.
 - Icons, devices and the event stream.
+- Secrets, such as `llm.token`. `settings_write` refuses them, since they
+  would land in the transcript. The owner sets them with
+  `heraldo settings set llm.token -` and stdin.
 
 ## Results and limits
 
@@ -97,6 +104,9 @@ to do>.`, and `structuredContent.error` with `code`, `status`, `message` and
 | `unreachable` | No answer from `HERALDO_URL` |
 | `server_too_old` | The server cannot list newest first; pass `order: oldest` |
 | `unsupported_filter` | The server has no `project` field yet, or no project mutes |
+| `locked_by_env` | `settings_write` on a key a server flag or env var sets |
+| `no_secret_key` | The server has no `HERALDO_SECRET_KEY_FILE` for a secret write |
+| `secret` | `settings_write` on a secret key |
 
 ## Routine events
 
@@ -159,4 +169,4 @@ OpenCode (`opencode.json`):
 - To keep tokens out of files, point `HERALDO_ENV_FILE` at a mode 600 file, or
   start the command under a secret manager's `run` wrapper.
 - Permissions: the read tools are safe to allow without a prompt. Keep a prompt
-  on `send`, `incident_act`, `checkin_update` and `mute`.
+  on `send`, `incident_act`, `checkin_update`, `mute` and `settings_write`.

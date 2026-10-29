@@ -38,6 +38,7 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `POST`, `DELETE`, `GET /live-activity/{id}`, `GET /link`, `POST /notify-json/{id}` | Notify! compatibility, for senders written for Notify!. Write token as `?token=`. | served |
 | `GET /v1/mutes`, `POST /v1/mutes`, `DELETE /v1/mutes/{id}` | Mutes in force; mute a source, key or project for a while; end a mute. | served |
 | `GET /v1/icons`, `GET`, `PUT`, `DELETE /v1/icons/{name}` | The icon registry: list, fetch an image, store one, remove one. | served |
+| `GET /v1/settings`, `GET`, `PUT`, `DELETE /v1/settings/{key}` | Server settings: every key with its value and source, one key, store a value (admin), back to the default (admin). See "Settings". | served |
 | `GET /v1/standby/devices` | Every device with its full push tokens, for a standby. Admin, or a `read` token with the `standby` capability. See "Standby". | served |
 | `POST /v1/standby/import` | Stores the events a standby stored, by their ids, and pushes none of them. Same token as above. | served |
 
@@ -45,8 +46,8 @@ Auth:
 
 - Every call except `/healthz` and `/p/{key}` takes a bearer token. Each
   token has a scope: `write` (post and send, and the mutes), `read` (list,
-  get, state, stream, the read cursors, devices, and the icons), or `admin`
-  (both, and storing and removing icons).
+  get, state, stream, the read cursors, devices, the icons and the settings),
+  or `admin` (both, and storing and removing icons and settings).
 - A `read` token may register, update and remove devices, as it may move the
   read cursors. The apps hold a token pair, like the CLI: a `read` token for
   history, cursors and device registration, and a `write` token for the
@@ -768,6 +769,105 @@ and so does its Mute project for 1 h menu action.
   `muted by mute_01J... (project)`.
 - Mutes hold back pushes and re-alerts, not storage, the event stream, or the
   read cursors.
+
+## Settings
+
+Server settings switch features on and tune them. Every feature is off by
+default. The registry in `internal/settings` lists the known keys; the server
+refuses any other key with 404.
+
+One precedence order, highest first:
+
+1. A launch flag: `heraldo-server --llm-mode shadow`.
+2. An env var: `HERALDO_LLM_MODE=shadow`.
+3. A value stored through the API, in the `settings` table.
+4. The built-in default.
+
+- Each key's env alias is `HERALDO_` plus the key in upper case, with `.` as
+  `_`: `llm.base_url` is `HERALDO_LLM_BASE_URL`. Its flag replaces `.` and `_`
+  with `-`: `--llm-base-url`. A bad flag or env value stops the server at
+  start.
+- A list takes a comma-separated value in env vars and flags, or a JSON array
+  for items with commas, such as `HERALDO_LLM_REDACT='["a{2,8}"]'`.
+- A key a flag or env var sets is locked. `PUT` and `DELETE` answer 409 with
+  `{"error": "...", "code": "locked_by_env", "variable": "HERALDO_DIGEST_AT"}`.
+- `GET /v1/settings` (read) lists every key; `GET /v1/settings/{key}` (read)
+  returns one. Each `Setting` has `key`, `type`, `value`, `default`,
+  `source` (`flag`, `env`, `db` or `default`), `locked_by`, `env`, `flag`,
+  `enum`, `description`, and `updated_at` and `updated_by` once a value was
+  stored.
+- `PUT /v1/settings/{key}` (admin) takes `{"value": ...}` in the key's JSON
+  type. A duration is a string such as `"72h"`; a clock is `"HH:MM"`; a time
+  zone is an IANA name. A value the type refuses gets 400. The answer is the
+  `Setting` after the write.
+- `DELETE /v1/settings/{key}` (admin) removes the stored value: the key goes
+  back to its default. A key with no stored value answers 200 as it is.
+- A write takes effect without a restart. Code reads a value with
+  `settings.Get[T](key)` and subscribes to changes with `Subscribe`.
+- A standby keeps its own settings; nothing copies them from the primary.
+
+### Secrets
+
+`llm.token` is a secret. It never travels on a flag, never appears in a read,
+and never reaches a log.
+
+- Set it in the environment, as with the APNs key: `HERALDO_LLM_TOKEN_FILE`
+  (a file holding the token) or `HERALDO_LLM_TOKEN`, not both. A flag such as
+  `--llm-token` stops the server.
+- Or write it through the API: `PUT /v1/settings/llm.token` with an admin
+  token, or `heraldo settings set llm.token - < token.txt`. The server stores
+  it encrypted with AES-256-GCM, with the key in `HERALDO_SECRET_KEY_FILE`
+  (64 hex characters, such as `openssl rand -hex 32`). Without that file the
+  write answers 409 `no_secret_key`.
+- A read reports `{"set": true}` or `false`, never the value. A stored secret
+  that does not decrypt (the key file is missing or changed) reports `set:
+  true` with an `error`, and the server uses no token.
+- The MCP tool `settings_write` refuses secrets: they would land in a
+  transcript.
+
+### Keys
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `digest.at` | clock | `"07:30"` | When the digest is sent, HH:MM. |
+| `digest.enabled` | bool | `false` | Send a daily digest. |
+| `digest.tz` | tz | `"UTC"` | The time zone of digest.at. |
+| `flap.enabled` | bool | `false` | Group an incident that opens again and again. |
+| `flap.opens` | int | `3` | Opens within flap.window that mark an incident flapping. |
+| `flap.settle` | duration | `"30m"` | How long a flapping incident stays quiet before it is not flapping. |
+| `flap.window` | duration | `"1h"` | The window flap.opens counts over. |
+| `llm.api` | `openai-chat`, `openai-responses` | `"openai-chat"` | The endpoint's API: chat completions or responses. |
+| `llm.base_url` | url | `""` | The OpenAI-compatible endpoint's root, such as https://llm.example.net/v1. |
+| `llm.calls_per_minute` | int | `10` | Call cap per minute; 0 stops every call. |
+| `llm.chat` | bool | `false` | Allow questions to the chat model. |
+| `llm.chat_model` | string | `""` | The model for chat and summaries. |
+| `llm.chat_timeout` | duration | `"1m"` | How long a chat call may take. |
+| `llm.decisions_model` | string | `""` | The model for triage decisions. |
+| `llm.decisions_timeout` | duration | `"20s"` | How long a decisions call may take. |
+| `llm.exclude_projects` | list | `[]` | Projects whose events never go to the LLM. |
+| `llm.hold_may_suppress` | bool | `false` | Let the LLM fold held blips into one passive summary. |
+| `llm.mode` | `off`, `shadow`, `advise`, `enforce` | `"off"` | LLM decisions: off, shadow (record only), advise (show), or enforce (apply within the floors). |
+| `llm.redact` | list (regular expressions) | bearer tokens, `op://` references, hex of 32+ characters | Regular expressions whose matches are removed before text goes to the LLM. |
+| `llm.send_body_chars` | int | `0` | How many characters of an event's body go to the LLM; 0 sends none. |
+| `llm.token` | secret | none | The endpoint's API token. Write-only. |
+| `llm.tokens_per_day` | int | `200000` | Daily token budget; 0 stops every call. |
+| `quiet.enabled` | bool | `false` | Quiet hours on. |
+| `quiet.end` | clock | `"07:00"` | When quiet hours end, HH:MM. |
+| `quiet.floor` | `passive`, `active`, `time-sensitive`, `critical` | `"time-sensitive"` | The lowest level that still interrupts during quiet hours. |
+| `quiet.start` | clock | `"22:00"` | When quiet hours start, HH:MM. |
+| `quiet.tz` | tz | `"UTC"` | The time zone of quiet.start and quiet.end. |
+| `stale.after` | duration | `"72h"` | How long an incident stays open before it is stale. |
+| `stale.enabled` | bool | `false` | Flag incidents open too long. |
+
+These keys only hold values in this release. The features that read them
+come in later releases.
+
+```sh
+heraldo settings set quiet.enabled true
+heraldo settings get quiet.start          # 22:00, then "source default" on stderr
+curl -X PUT -H "Authorization: Bearer $ADMIN_TOKEN" -d '{"value":"21:30"}' \
+  "$HERALDO_URL/v1/settings/quiet.start"
+```
 
 ## Icons
 

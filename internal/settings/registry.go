@@ -204,6 +204,11 @@ func (k Key) ParseText(s string) (any, error) {
 		}
 		v = d
 	case List:
+		// A JSON array, for items with commas such as a{2,8}; else a
+		// comma-separated list.
+		if t := strings.TrimSpace(s); strings.HasPrefix(t, "[") {
+			return k.ParseJSON(json.RawMessage(t))
+		}
 		items := []string{}
 		for _, f := range strings.Split(s, ",") {
 			if f = strings.TrimSpace(f); f != "" {

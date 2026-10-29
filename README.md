@@ -56,7 +56,7 @@ Three principles follow, and every feature is judged against them:
 | `api/` | Go types generated from `schema/` |
 | `cmd/heraldo-server` | The server |
 | `cmd/heraldo` | The CLI |
-| `internal/` | Server packages: store, validation, auth, ingest rules, the tee import and replay; `client`, the API client the CLI uses; `mcptools`, the MCP tools |
+| `internal/` | Server packages: store, settings, validation, auth, ingest rules, the tee import and replay; `client`, the API client the CLI uses; `mcptools`, the MCP tools |
 | `apple/` | Xcode project (XcodeGen): the Heraldo app for iOS and macOS, its extensions, HeraldoKit |
 | `deploy/` | A generic compose file, an example env file and an example rules file |
 | `docs/` | Design notes |
@@ -105,8 +105,9 @@ docker compose -f deploy/compose.yml up --build
    ```
 
    `write` may post events, `read` may list and fetch them, and `admin` may do
-   both. A `read` token also moves the read cursors and registers devices for
-   push. The server stores only the hashes.
+   both. Only `admin` changes server settings and icons. A `read` token also
+   moves the read cursors and registers devices for push. The server stores
+   only the hashes.
 
    Each app device holds a token pair, as the CLI does: a `read` token to sync
    history, mark events read and register for push, and a `write` token for
@@ -152,7 +153,33 @@ The server reads its configuration from the environment.
 | `HERALDO_HOLD_DEADMAN` | `20m` | How long the hold waits for a triage poll before it stops holding. |
 | `HERALDO_ROLE` | `primary` | `standby` runs a standby that copies the primary's devices and pushes when the primary is down. It also needs `HERALDO_PRIMARY_URL` and `HERALDO_PRIMARY_TOKEN`. See [docs/api.md](docs/api.md#standby). |
 
+| `HERALDO_SECRET_KEY_FILE` | none | A 32-byte key (`openssl rand -hex 32 > secret.key`) that encrypts secrets written through the settings API. Without it, the server refuses such writes; a secret can still come from its env var. Mount it read-only. |
+
 With no tokens, the server refuses every call except `/healthz`.
+
+### Server settings
+
+Features that later stages switch on (the LLM, quiet hours, the digest, the
+stale sweep, flap grouping) are server settings. All are off by default.
+`GET /v1/settings` and `heraldo settings ls` list every key with its value,
+default and source.
+
+- One precedence order, highest first: a launch flag, an env var, a value
+  stored through the API, the built-in default.
+- Each key has an env alias and a flag alias: `llm.base_url` is
+  `HERALDO_LLM_BASE_URL` and `heraldo-server --llm-base-url`.
+- A key set by a flag or env var is locked. A write through the API answers
+  409 `locked_by_env` and names the variable.
+- An `admin` token writes settings: `PUT` and `DELETE /v1/settings/{key}`,
+  `heraldo settings set|unset`, or the MCP tool `settings_write`. A new value
+  takes effect without a restart.
+- A secret, such as `llm.token`, has no flag. Set it with
+  `HERALDO_LLM_TOKEN_FILE` (or `HERALDO_LLM_TOKEN`), as with the APNs key, or
+  with `heraldo settings set llm.token - < token.txt`, which the server stores
+  encrypted with `HERALDO_SECRET_KEY_FILE`. Reads report only whether it is
+  set.
+
+[docs/api.md](docs/api.md#settings) lists the keys.
 
 Set a key (`HERALDO_APNS_KEY_FILE` or `HERALDO_APNS_KEY`), its id and the team
 id, or none; a partial set stops the server. With `HERALDO_PUSH=on` and no key,
@@ -164,7 +191,7 @@ the server logs an error, keeps running and pushes nothing. `/healthz` reports
 
 | Command | Does |
 |---|---|
-| `heraldo-server` | Runs the server. SIGTERM or SIGINT shuts it down cleanly: it pushes what is still queued first. |
+| `heraldo-server [--<setting> <value> ...]` | Runs the server. SIGTERM or SIGINT shuts it down cleanly: it pushes what is still queued first. Each flag sets and locks one server setting, such as `--llm-mode shadow`; `heraldo-server serve -h` lists them. |
 | `heraldo-server backup <path>` | Copies the database to a new file with SQLite's online backup. The server keeps running. The copy is one file in rollback-journal mode, with no `-wal` or `-shm` beside it. |
 | `heraldo-server import-tee [-since YYYY-MM] <dir>` | Backfills an apprise-tee catalogue (`notifications-YYYY-MM.jsonl`), typed by `HERALDO_RULES` when set. `-since` reads that month and later only. A rerun stores nothing twice, and an imported event never pushes. |
 | `heraldo-server replay-tee [-rules <file>] <dir>` | Runs a catalogue through a rules file (default `HERALDO_RULES`) in memory and reports how many recoveries paired with their failure, the unpaired ones, the hits per rule, every source and tag no rule matched, and the events per project. It opens no database. |
@@ -196,6 +223,8 @@ any `-wal` and `-shm` files left beside the old database first.
 | `heraldo ack <key>`, `heraldo resolve <key>` | Posts an `ack` or `resolve` event for an open incident. `-m` adds a note; `--force` posts for a key with no open incident. |
 | `heraldo send` | Posts a notification to an Apprise-compatible notify URL, with an optional heraldo fallback. |
 | `heraldo mcp [--read-only]` | Serves the MCP tools for coding agents on stdio. See [docs/mcp.md](docs/mcp.md). |
+| `heraldo settings [ls]`, `get <key>` | Lists the server settings, or prints one value. The source and any lock go to stderr. |
+| `heraldo settings set <key> <value>`, `unset <key>` | Stores a value, or puts the key back to its default. A secret key takes `-` and reads stdin, never argv. Needs `HERALDO_ADMIN_TOKEN`. |
 
 Every list command takes `--json` and prints each event's stored JSON on one
 line.
@@ -209,6 +238,7 @@ Settings come from the environment first, then from an env file:
 | `HERALDO_URL` | The server root, such as `https://heraldo.example.net` |
 | `HERALDO_TOKEN` | A `read` token |
 | `HERALDO_WRITE_TOKEN` | A `write` token, for `ack`, `resolve`, changing checks and minting ping keys |
+| `HERALDO_ADMIN_TOKEN` | An `admin` token, for `settings set` and `unset`, and the MCP tool `settings_write`. Default: the write token. |
 | `HERALDO_CURSOR` | The read cursor's name. Default: `inbox`, the cursor every client shares. Set another name for a separate cursor. |
 | `HERALDO_SOURCE` | The `source` of `ack` and `resolve` events. Default: `heraldo-cli`. |
 | `HERALDO_SEND_URL`, `APPRISE_URL` | `send`'s notify URL; the first one set wins |
