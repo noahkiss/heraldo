@@ -4,3 +4,4 @@ docs
 deploy
 **/*.md
 design
+!internal/llm/prompts/*.md
