@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/noahkiss/heraldo/schema/envelope.v1.schema.json",
   "title": "EventInput",
-  "description": "One heraldo event as a sender posts it, envelope v1. The kind field picks the meaning of key and action. An input without kind is untyped: the server's ingest rules may type it, and it is stored as kind message when no rule matches. An explicit kind, message included, is final. The server owns id, received_at, cursor, hold and delivery: an input that sets any of them is rejected. The stored form, with those fields, is $defs/Event.",
+  "description": "One heraldo event as a sender posts it, envelope v1. The kind field picks the meaning of key and action. An input without kind is untyped: the server's ingest rules may type it, and it is stored as kind message when no rule matches. An explicit kind, message included, is final. The server owns id, received_at, cursor, hold, delivery and why: an input that sets any of them is rejected. The stored form, with those fields, is $defs/Event.",
   "type": "object",
   "required": [
     "source"
@@ -19,7 +19,7 @@
   "$defs": {
     "Event": {
       "title": "Event",
-      "description": "One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery and, on an incident, incident.",
+      "description": "One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery, why and, on an incident, incident.",
       "type": "object",
       "required": [
         "id",
@@ -70,6 +70,11 @@
           "items": {
             "$ref": "#/$defs/Delivery"
           }
+        },
+        "why": {
+          "type": "string",
+          "readOnly": true,
+          "description": "One line on the push decision, such as \"pushed active to 2 devices\", \"passive: inbox only\" or \"muted by mute_... (project)\". Missing until the pusher decides the event, and on a server with push off. GET /v1/events/{id}/why has every stage."
         },
         "incident": {
           "type": "object",

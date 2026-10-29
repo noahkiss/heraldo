@@ -222,6 +222,37 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /v1/events/{id}/why:
+    get:
+      operationId: getEventWhy
+      summary: Why an event did or did not push.
+      description: |
+        The push trace: one row for each pipeline stage the event passed through,
+        in order, from the alert hold to delivery. The last row is the stage that
+        ended it. why is the one-line summary the event also carries. A re-alert
+        that pushes replaces the trace; one a mute holds back keeps it. An event
+        the pusher has not decided, or any event on a server with push off, has
+        no rows.
+      tags: [events]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The trace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PushTrace"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
   /v1/send:
     get:
       operationId: sendEvent
@@ -1992,6 +2023,42 @@ components:
         next_cursor:
           type: string
           description: Pass as after to get the next page. Present whenever the page has events; missing on an empty page.
+    PushTrace:
+      type: object
+      description: Why an event did or did not push.
+      required: [event_id, decisions]
+      properties:
+        event_id:
+          type: string
+        why:
+          type: string
+          description: The one-line summary, as on the event. Missing when there are no rows.
+        decisions:
+          type: array
+          items:
+            $ref: "#/components/schemas/PushDecision"
+    PushDecision:
+      type: object
+      description: One pipeline stage's decision on an event.
+      required: [stage, outcome, reason, at]
+      properties:
+        stage:
+          type: string
+          description: "The stage, in pipeline order: hold, expiry, table, replace, devices, mute, inhibit, deliver. Later servers add stages."
+        outcome:
+          type: string
+          enum: [pass, downgrade, delay, merge, drop]
+          description: "pass: on to the next stage. downgrade: on, at a lower level. delay: pushes later. merge: joins a bundle. drop: not pushed."
+        reason:
+          type: string
+          description: One line a person reads, such as "muted by mute_... (project)".
+        detail:
+          type: object
+          additionalProperties: true
+          description: "Stage data: level, mute, rule and parent, expires_at, or devices (device, outcome, attempts, error) on deliver."
+        at:
+          type: string
+          format: date-time
     State:
       type: object
       description: The latest event per key, by kind. A stand-in until stage 12.

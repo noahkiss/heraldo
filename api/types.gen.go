@@ -504,6 +504,33 @@ func (e Level) Valid() bool {
 	}
 }
 
+// Defines values for PushDecisionOutcome.
+const (
+	PushDecisionOutcomeDelay     PushDecisionOutcome = "delay"
+	PushDecisionOutcomeDowngrade PushDecisionOutcome = "downgrade"
+	PushDecisionOutcomeDrop      PushDecisionOutcome = "drop"
+	PushDecisionOutcomeMerge     PushDecisionOutcome = "merge"
+	PushDecisionOutcomePass      PushDecisionOutcome = "pass"
+)
+
+// Valid indicates whether the value is a known member of the PushDecisionOutcome enum.
+func (e PushDecisionOutcome) Valid() bool {
+	switch e {
+	case PushDecisionOutcomeDelay:
+		return true
+	case PushDecisionOutcomeDowngrade:
+		return true
+	case PushDecisionOutcomeDrop:
+		return true
+	case PushDecisionOutcomeMerge:
+		return true
+	case PushDecisionOutcomePass:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SettingSource.
 const (
 	SettingSourceDb      SettingSource = "db"
@@ -1129,7 +1156,7 @@ type Error struct {
 	Error string `json:"error"`
 }
 
-// Event One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery and, on an incident, incident.
+// Event One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery, why and, on an incident, incident.
 type Event struct {
 	// Action Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none.
 	Action *EventAction `json:"action,omitempty"`
@@ -1229,6 +1256,9 @@ type Event struct {
 
 	// Url Opened when the notification is tapped.
 	Url *string `json:"url,omitempty"`
+
+	// Why One line on the push decision, such as "pushed active to 2 devices", "passive: inbox only" or "muted by mute_... (project)". Missing until the pusher decides the event, and on a server with push off. GET /v1/events/{id}/why has every stage.
+	Why *string `json:"why,omitempty"`
 }
 
 // EventIncidentState open: not acked or resolved. acked: someone acknowledged it. resolved: it is over.
@@ -1237,7 +1267,7 @@ type EventIncidentState string
 // EventAction Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none.
 type EventAction string
 
-// EventInput One heraldo event as a sender posts it, envelope v1. The kind field picks the meaning of key and action. An input without kind is untyped: the server's ingest rules may type it, and it is stored as kind message when no rule matches. An explicit kind, message included, is final. The server owns id, received_at, cursor, hold and delivery: an input that sets any of them is rejected. The stored form, with those fields, is $defs/Event.
+// EventInput One heraldo event as a sender posts it, envelope v1. The kind field picks the meaning of key and action. An input without kind is untyped: the server's ingest rules may type it, and it is stored as kind message when no rule matches. An explicit kind, message included, is final. The server owns id, received_at, cursor, hold, delivery and why: an input that sets any of them is rejected. The stored form, with those fields, is $defs/Event.
 type EventInput struct {
 	// Action Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none.
 	Action *EventAction `json:"action,omitempty"`
@@ -1566,6 +1596,35 @@ type ProjectList struct {
 	Unfiled int `json:"unfiled"`
 }
 
+// PushDecision One pipeline stage's decision on an event.
+type PushDecision struct {
+	At time.Time `json:"at"`
+
+	// Detail Stage data: level, mute, rule and parent, expires_at, or devices (device, outcome, attempts, error) on deliver.
+	Detail *map[string]interface{} `json:"detail,omitempty"`
+
+	// Outcome pass: on to the next stage. downgrade: on, at a lower level. delay: pushes later. merge: joins a bundle. drop: not pushed.
+	Outcome PushDecisionOutcome `json:"outcome"`
+
+	// Reason One line a person reads, such as "muted by mute_... (project)".
+	Reason string `json:"reason"`
+
+	// Stage The stage, in pipeline order: hold, expiry, table, replace, devices, mute, inhibit, deliver. Later servers add stages.
+	Stage string `json:"stage"`
+}
+
+// PushDecisionOutcome pass: on to the next stage. downgrade: on, at a lower level. delay: pushes later. merge: joins a bundle. drop: not pushed.
+type PushDecisionOutcome string
+
+// PushTrace Why an event did or did not push.
+type PushTrace struct {
+	Decisions []PushDecision `json:"decisions"`
+	EventId   string         `json:"event_id"`
+
+	// Why The one-line summary, as on the event. Missing when there are no rows.
+	Why *string `json:"why,omitempty"`
+}
+
 // Schedule When the check expects a ping. The server uses it only to create a check it does not know yet, as healthchecks.io does with ?create=1; after that the check's config lives on the server. Set period_s, or cron with an optional tz, not both.
 type Schedule struct {
 	// Cron Cron expression for the expected pings.
@@ -1772,13 +1831,13 @@ type Slug = string
 // AppriseSent defines model for AppriseSent.
 type AppriseSent = AppriseAnswer
 
-// Repeat One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery and, on an incident, incident.
+// Repeat One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery, why and, on an incident, incident.
 type Repeat = Event
 
 // SettingConflict defines model for SettingConflict.
 type SettingConflict = SettingError
 
-// Stored One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery and, on an incident, incident.
+// Stored One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery, why and, on an incident, incident.
 type Stored = Event
 
 // NotifyLiveActivityEndParams defines parameters for NotifyLiveActivityEnd.

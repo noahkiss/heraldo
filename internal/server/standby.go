@@ -173,7 +173,7 @@ func (s *server) importable(raw json.RawMessage) (store.NewEvent, error) {
 		return store.NewEvent{}, errors.New("received_at: not a time")
 	}
 	hold := f["hold"]
-	for _, k := range []string{"id", "received_at", "cursor", "hold", "delivery", "incident"} {
+	for _, k := range []string{"id", "received_at", "cursor", "hold", "delivery", "why", "incident"} {
 		delete(f, k)
 	}
 	in, err := s.Validator.Fields(f)

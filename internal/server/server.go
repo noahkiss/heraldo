@@ -145,6 +145,7 @@ func NewServer(o Options) *Server {
 	mux.HandleFunc("POST /v1/events", s.auth(auth.ScopeWrite, false, s.postEvent))
 	mux.HandleFunc("GET /v1/events", s.auth(auth.ScopeRead, false, s.listEvents))
 	mux.HandleFunc("GET /v1/events/{id}", s.auth(auth.ScopeRead, false, s.getEvent))
+	mux.HandleFunc("GET /v1/events/{id}/why", s.auth(auth.ScopeRead, false, s.getEventWhy))
 	mux.HandleFunc("GET /v1/send", s.auth(auth.ScopeWrite, true, s.sendEvent))
 	mux.HandleFunc("GET /v1/stream", s.auth(auth.ScopeRead, false, s.stream))
 	mux.HandleFunc("GET /v1/state", s.auth(auth.ScopeRead, false, s.state))
@@ -581,6 +582,9 @@ func (s *server) getEvent(w http.ResponseWriter, r *http.Request) {
 		recs := []store.Record{rec}
 		err = s.Store.WithDeliveries(r.Context(), recs)
 		if err == nil {
+			err = s.Store.WithWhy(r.Context(), recs)
+		}
+		if err == nil {
 			err = store.WithCursors(recs)
 		}
 		rec = recs[0]
@@ -679,6 +683,9 @@ func (s *server) listEvents(w http.ResponseWriter, r *http.Request) {
 	recs, err := s.Store.List(r.Context(), f)
 	if err == nil {
 		err = s.Store.WithDeliveries(r.Context(), recs)
+	}
+	if err == nil {
+		err = s.Store.WithWhy(r.Context(), recs)
 	}
 	if err == nil {
 		err = store.WithCursors(recs)
