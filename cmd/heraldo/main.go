@@ -42,6 +42,14 @@ writing:
                    print a new ping URL for a check; the old one stops working
   send             send a notification through HERALDO_SEND_URL or APPRISE_URL
 
+server settings (reads: HERALDO_TOKEN; writes: HERALDO_ADMIN_TOKEN):
+  settings [ls]    every server setting, its value and where it comes from
+  settings get <key>
+  settings set <key> <value>
+                   store a value; a secret key takes - and reads stdin
+  settings unset <key>
+                   back to the default
+
   mcp [--read-only]
                    serve the MCP tools for coding agents on stdio (docs/mcp.md)
 
@@ -107,7 +115,7 @@ func (a *app) run(ctx context.Context, args []string) int {
 	cmds := map[string]func(context.Context, []string) error{
 		"peek": a.peek, "show": a.show, "ls": a.ls, "held": a.held, "checkins": a.checkins,
 		"tail": a.tail, "ack": a.ack, "resolve": a.resolve, "send": a.send,
-		"mcp": a.mcp,
+		"mcp": a.mcp, "settings": a.settings,
 	}
 	name := args[0]
 	switch name {

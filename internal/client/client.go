@@ -28,6 +28,8 @@ type Client struct {
 	Token string
 	// WriteToken is for Post. Empty means Token.
 	WriteToken string
+	// AdminToken is for settings writes. Empty means WriteToken.
+	AdminToken string
 	// HTTP is the client for every call but Stream; nil means one with a
 	// 15 second timeout.
 	HTTP *http.Client

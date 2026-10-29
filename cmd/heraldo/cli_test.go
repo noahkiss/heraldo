@@ -29,6 +29,7 @@ const (
 	readTok2  = "phone-read-token-for-tests"
 	writeTok  = "cli-write-token-for-tests"
 	bridgeTok = "cli-bridge-token-for-tests"
+	adminTok  = "cli-admin-token-for-tests"
 )
 
 // syncBuf is a bytes.Buffer that tail's goroutine and the test can share.
@@ -54,8 +55,8 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	list := fmt.Sprintf("cli read %s\nphone read %s\nsender write %s\nbridge write %s trusted-ingest\n",
-		auth.Hash(readTok), auth.Hash(readTok2), auth.Hash(writeTok), auth.Hash(bridgeTok))
+	list := fmt.Sprintf("cli read %s\nphone read %s\nsender write %s\nbridge write %s trusted-ingest\nops admin %s\n",
+		auth.Hash(readTok), auth.Hash(readTok2), auth.Hash(writeTok), auth.Hash(bridgeTok), auth.Hash(adminTok))
 	tokens, err := auth.Parse(strings.NewReader(list), '\n')
 	if err != nil {
 		t.Fatal(err)
