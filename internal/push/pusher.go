@@ -69,6 +69,8 @@ type Pusher struct {
 	sign    *signer
 	queue   chan store.Record
 	pending sync.WaitGroup
+	// bundles are the saved views' bundle windows (stage_bundle.go).
+	bundles bundler
 }
 
 // New returns a Pusher. Start it with Run.

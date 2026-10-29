@@ -174,6 +174,7 @@ func NewServer(o Options) *Server {
 	s.holdRoutes(mux)
 	s.standbyRoutes(mux)
 	s.settingsRoutes(mux)
+	s.viewRoutes(mux)
 	mux.HandleFunc("GET /v1/mutes", s.auth(auth.ScopeWrite, false, s.listMutes))
 	mux.HandleFunc("POST /v1/mutes", s.auth(auth.ScopeWrite, false, s.createMute))
 	mux.HandleFunc("DELETE /v1/mutes/{id}", s.auth(auth.ScopeWrite, false, s.endMute))
@@ -717,6 +718,13 @@ func (s *server) listEvents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		f.Kind = v
+	}
+	if f.Levels, err = levelFilter(q); err != nil {
+		writeError(w, http.StatusBadRequest, "%v", err)
+		return
+	}
+	if !s.applyView(w, r, &f) {
+		return
 	}
 	recs, err := s.Store.List(r.Context(), f)
 	if err == nil {

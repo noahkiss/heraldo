@@ -27,6 +27,8 @@ tags:
     description: Devices the apps register for push.
   - name: mutes
     description: Hold back pushes for a while. Events are still stored.
+  - name: views
+    description: Saved views, named event filters every client shares, and their notification bundles.
   - name: icons
     description: The icon registry. Pushes name an icon; the apps fetch it.
   - name: checkins
@@ -177,10 +179,34 @@ paths:
           schema:
             type: string
             enum: [exclude, only]
+        - name: level
+          in: query
+          description: |
+            Only events at these levels. Give a comma-separated list, or repeat the
+            parameter. An event with no level is active.
+          explode: true
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/Level"
+        - name: view
+          in: query
+          description: |
+            Apply a saved view's filter: the view's id, or its name without regard to
+            case. A parameter given with it replaces the view's field of the same name.
+            The answer's Heraldo-View header names the view applied. A server before
+            views ignores the parameter and sends no header, so a client can tell. An
+            unknown view answers 404.
+          schema:
+            type: string
       responses:
         "200":
           description: One page of events.
           headers:
+            Heraldo-View:
+              description: The id of the saved view applied. Absent without one.
+              schema:
+                type: string
             Heraldo-Routine:
               description: The routine filter applied, exclude or only. Absent without one.
               schema:
@@ -869,6 +895,116 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Mute"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/views:
+    get:
+      operationId: listViews
+      summary: The saved views, by position, then name.
+      tags: [views]
+      responses:
+        "200":
+          description: The views.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ViewList"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: createView
+      summary: Save a view. Needs a write token.
+      description: |
+        Every client sees the same views. A view with bundle folds a burst of its
+        pushes into one notification (docs/api.md, "Saved views").
+      tags: [views]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ViewInput"
+      responses:
+        "201":
+          description: The view.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/View"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/views/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The view's id, or its name without regard to case.
+        schema:
+          type: string
+    get:
+      operationId: getView
+      summary: One saved view.
+      tags: [views]
+      responses:
+        "200":
+          description: The view.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/View"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    put:
+      operationId: putView
+      summary: Replace a saved view. Needs a write token.
+      description: Every field is replaced; a field left out goes back to its default.
+      tags: [views]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ViewInput"
+      responses:
+        "200":
+          description: The view.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/View"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteView
+      summary: Delete a saved view. Needs a write token.
+      tags: [views]
+      responses:
+        "204":
+          description: Deleted.
         "401":
           $ref: "#/components/responses/Error"
         "403":
@@ -2579,6 +2715,117 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Mute"
+    ViewFilter:
+      type: object
+      description: A saved view's event filter, as the GET /v1/events parameters of the same names. Every field is optional; filters combine with AND.
+      additionalProperties: false
+      properties:
+        project:
+          type: array
+          maxItems: 32
+          description: Events of any of these projects. - means events with no project. Aliases match, as in the project parameter.
+          items:
+            type: string
+            maxLength: 64
+        source:
+          type: string
+          maxLength: 128
+        kind:
+          $ref: "#/components/schemas/Kind"
+        host:
+          type: string
+          maxLength: 128
+        tag:
+          type: string
+          maxLength: 64
+        level:
+          type: array
+          maxItems: 4
+          description: Events at any of these levels.
+          items:
+            $ref: "#/components/schemas/Level"
+        q:
+          type: string
+          maxLength: 256
+          description: Full-text search over title, summary and body.
+        routine:
+          type: string
+          enum: [exclude, only]
+          description: exclude leaves routine events out; only keeps only them. Absent keeps both.
+    ViewBundle:
+      type: object
+      description: |
+        Fold a burst of the view's pushes into one notification. The first max_visible
+        pushes in a window push as usual; each later one in the window replaces one
+        collapsed notification, "N new in <view>: <latest title>". Only pushes at level
+        active bundle; time-sensitive and critical always push on their own.
+      additionalProperties: false
+      required: [window]
+      properties:
+        window:
+          type: string
+          description: The window from the first push, a Go duration from 1m to 24h, such as 15m.
+        max_visible:
+          type: integer
+          minimum: 1
+          maximum: 20
+          default: 1
+          description: How many pushes in a window push on their own before the rest bundle.
+    ViewInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Unique without regard to case. Not a view_ id.
+        filter:
+          $ref: "#/components/schemas/ViewFilter"
+        bundle:
+          $ref: "#/components/schemas/ViewBundle"
+        position:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+          description: Sort order in the apps' sidebars, low first.
+        icon:
+          type: string
+          maxLength: 64
+          description: An SF Symbol name the apps show, such as externaldrive.
+    View:
+      type: object
+      required: [id, name, filter, position, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          description: view_ plus a ULID.
+        name:
+          type: string
+        filter:
+          $ref: "#/components/schemas/ViewFilter"
+        bundle:
+          $ref: "#/components/schemas/ViewBundle"
+        position:
+          type: integer
+        icon:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ViewList:
+      type: object
+      required: [views]
+      properties:
+        views:
+          type: array
+          items:
+            $ref: "#/components/schemas/View"
     AttachmentCreated:
       type: object
       required: [id, url, content_type, bytes, sha256]

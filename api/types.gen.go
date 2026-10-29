@@ -654,6 +654,24 @@ func (e TimelineEntryAction) Valid() bool {
 	}
 }
 
+// Defines values for ViewFilterRoutine.
+const (
+	ViewFilterRoutineExclude ViewFilterRoutine = "exclude"
+	ViewFilterRoutineOnly    ViewFilterRoutine = "only"
+)
+
+// Valid indicates whether the value is a known member of the ViewFilterRoutine enum.
+func (e ViewFilterRoutine) Valid() bool {
+	switch e {
+	case ViewFilterRoutineExclude:
+		return true
+	case ViewFilterRoutineOnly:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Create.
 const (
 	CreateN0 Create = 0
@@ -1861,6 +1879,89 @@ type TimelineEntry struct {
 // TimelineEntryAction defines model for TimelineEntry.Action.
 type TimelineEntryAction string
 
+// View defines model for View.
+type View struct {
+	// Bundle Fold a burst of the view's pushes into one notification. The first max_visible
+	// pushes in a window push as usual; each later one in the window replaces one
+	// collapsed notification, "N new in <view>: <latest title>". Only pushes at level
+	// active bundle; time-sensitive and critical always push on their own.
+	Bundle    *ViewBundle `json:"bundle,omitempty"`
+	CreatedAt time.Time   `json:"created_at"`
+
+	// Filter A saved view's event filter, as the GET /v1/events parameters of the same names. Every field is optional; filters combine with AND.
+	Filter ViewFilter `json:"filter"`
+	Icon   *string    `json:"icon,omitempty"`
+
+	// Id view_ plus a ULID.
+	Id        string    `json:"id"`
+	Name      string    `json:"name"`
+	Position  int       `json:"position"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ViewBundle Fold a burst of the view's pushes into one notification. The first max_visible
+// pushes in a window push as usual; each later one in the window replaces one
+// collapsed notification, "N new in <view>: <latest title>". Only pushes at level
+// active bundle; time-sensitive and critical always push on their own.
+type ViewBundle struct {
+	// MaxVisible How many pushes in a window push on their own before the rest bundle.
+	MaxVisible *int `json:"max_visible,omitempty"`
+
+	// Window The window from the first push, a Go duration from 1m to 24h, such as 15m.
+	Window string `json:"window"`
+}
+
+// ViewFilter A saved view's event filter, as the GET /v1/events parameters of the same names. Every field is optional; filters combine with AND.
+type ViewFilter struct {
+	Host *string `json:"host,omitempty"`
+
+	// Kind What the event is. message: a one-off notice. incident: a problem with a lifecycle. digest: a batch summary. progress: a Live Activity. checkin: a job run, as with healthchecks.io. status: a named live value for widgets and the status view; it never sends an alert push, only a widget push. incident, progress, checkin and status need a key.
+	Kind *Kind `json:"kind,omitempty"`
+
+	// Level Events at any of these levels.
+	Level *[]Level `json:"level,omitempty"`
+
+	// Project Events of any of these projects. - means events with no project. Aliases match, as in the project parameter.
+	Project *[]string `json:"project,omitempty"`
+
+	// Q Full-text search over title, summary and body.
+	Q *string `json:"q,omitempty"`
+
+	// Routine exclude leaves routine events out; only keeps only them. Absent keeps both.
+	Routine *ViewFilterRoutine `json:"routine,omitempty"`
+	Source  *string            `json:"source,omitempty"`
+	Tag     *string            `json:"tag,omitempty"`
+}
+
+// ViewFilterRoutine exclude leaves routine events out; only keeps only them. Absent keeps both.
+type ViewFilterRoutine string
+
+// ViewInput defines model for ViewInput.
+type ViewInput struct {
+	// Bundle Fold a burst of the view's pushes into one notification. The first max_visible
+	// pushes in a window push as usual; each later one in the window replaces one
+	// collapsed notification, "N new in <view>: <latest title>". Only pushes at level
+	// active bundle; time-sensitive and critical always push on their own.
+	Bundle *ViewBundle `json:"bundle,omitempty"`
+
+	// Filter A saved view's event filter, as the GET /v1/events parameters of the same names. Every field is optional; filters combine with AND.
+	Filter *ViewFilter `json:"filter,omitempty"`
+
+	// Icon An SF Symbol name the apps show, such as externaldrive.
+	Icon *string `json:"icon,omitempty"`
+
+	// Name Unique without regard to case. Not a view_ id.
+	Name string `json:"name"`
+
+	// Position Sort order in the apps' sidebars, low first.
+	Position *int `json:"position,omitempty"`
+}
+
+// ViewList defines model for ViewList.
+type ViewList struct {
+	Views []View `json:"views"`
+}
+
 // Create defines model for Create.
 type Create int
 
@@ -2380,6 +2481,17 @@ type ListEventsParams struct {
 	// Heraldo-Routine header names the filter applied. A server before the
 	// filter ignores the parameter and sends no header.
 	Routine *ListEventsParamsRoutine `form:"routine,omitempty" json:"routine,omitempty"`
+
+	// Level Only events at these levels. Give a comma-separated list, or repeat the
+	// parameter. An event with no level is active.
+	Level *[]Level `form:"level,omitempty" json:"level,omitempty"`
+
+	// View Apply a saved view's filter: the view's id, or its name without regard to
+	// case. A parameter given with it replaces the view's field of the same name.
+	// The answer's Heraldo-View header names the view applied. A server before
+	// views ignores the parameter and sends no header, so a client can tell. An
+	// unknown view answers 404.
+	View *string `form:"view,omitempty" json:"view,omitempty"`
 }
 
 // ListEventsParamsOrder defines parameters for ListEvents.
@@ -2547,3 +2659,9 @@ type PutSettingJSONRequestBody = SettingInput
 
 // ImportStandbyEventsJSONRequestBody defines body for ImportStandbyEvents for application/json ContentType.
 type ImportStandbyEventsJSONRequestBody = StandbyImport
+
+// CreateViewJSONRequestBody defines body for CreateView for application/json ContentType.
+type CreateViewJSONRequestBody = ViewInput
+
+// PutViewJSONRequestBody defines body for PutView for application/json ContentType.
+type PutViewJSONRequestBody = ViewInput

@@ -395,6 +395,9 @@ type Filter struct {
 	// Routine is routine.Exclude to leave routine events out, or
 	// routine.Only to keep only them. Empty keeps both.
 	Routine string
+	// Levels keeps events at any of these levels. An event with no level
+	// is active.
+	Levels []string
 }
 
 // RoutineWhere is the SQL form of routine.Is: progress and status events,
@@ -458,6 +461,14 @@ func (s *Store) List(ctx context.Context, f Filter) ([]Record, error) {
 	if w, a := projectWhere("project", f.Projects); w != "" {
 		where = append(where, w)
 		args = append(args, a...)
+	}
+	if len(f.Levels) > 0 {
+		marks := make([]string, len(f.Levels))
+		for i, l := range f.Levels {
+			marks[i] = "?"
+			args = append(args, l)
+		}
+		where = append(where, "coalesce(level, 'active') IN ("+strings.Join(marks, ", ")+")")
 	}
 	switch f.Routine {
 	case routine.Exclude:

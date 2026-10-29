@@ -32,6 +32,7 @@ var stages = []stage{
 	{"devices", (*Pusher).devicesStage},
 	{"mute", (*Pusher).muteStage},
 	{"inhibit", (*Pusher).inhibitStage},
+	{"bundle", (*Pusher).bundleStage},
 	{"deliver", (*Pusher).deliverStage},
 }
 
@@ -114,6 +115,9 @@ type Run struct {
 	// Devices are the active devices; the devices stage sets them.
 	Devices []store.Device
 	Log     *slog.Logger
+	// CollapseID replaces the push's apns-collapse-id when set; the bundle
+	// stage sets it.
+	CollapseID string
 
 	// skipInhibit is set when the mute lookup failed: as before stages, the
 	// push then goes out without an inhibit check.

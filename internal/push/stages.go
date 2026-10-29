@@ -188,6 +188,9 @@ func (p *Pusher) deliverStage(ctx context.Context, r *Run) Verdict {
 		r.Log.Error("push: payload", "err", err)
 		return Drop("payload: " + err.Error())
 	}
+	if r.CollapseID != "" {
+		h.CollapseID = r.CollapseID
+	}
 	r.delivered = true
 	sent := 0
 	var devs []map[string]any
