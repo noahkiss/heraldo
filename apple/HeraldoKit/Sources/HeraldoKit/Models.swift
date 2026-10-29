@@ -28,13 +28,16 @@ public struct Event: Codable, Hashable, Identifiable, Sendable {
     public var actions: [EventAction]?
     public var hold: Hold?
     public var delivery: [Delivery]?
+    /// One line on the push decision, such as "pushed active to 2 devices".
+    /// Servers before 0.7 send none.
+    public var why: String?
     public var checkin: Checkin?
     /// On an incident event: the incident as it stood after the event.
     public var incident: IncidentInfo?
 
     enum CodingKeys: String, CodingKey {
         case id, cursor, ts, source, kind, key, action, host, title, summary, body, level, thread, project
-        case url, image, icon, tags, actions, hold, delivery, checkin, incident
+        case url, image, icon, tags, actions, hold, delivery, why, checkin, incident
         case receivedAt = "received_at"
     }
 
@@ -416,6 +419,26 @@ public struct Delivery: Codable, Hashable, Sendable {
     public var level: String?
     public var at: Date?
     public var error: String?
+}
+
+/// Why an event did or did not push: `GET /v1/events/{id}/why`.
+public struct PushTrace: Codable, Hashable, Sendable {
+    public var eventId: String
+    public var why: String?
+    public var decisions: [PushDecision]
+
+    enum CodingKeys: String, CodingKey {
+        case why, decisions
+        case eventId = "event_id"
+    }
+}
+
+/// One push pipeline stage's decision: pass, downgrade, delay, merge or drop.
+public struct PushDecision: Codable, Hashable, Sendable {
+    public var stage: String
+    public var outcome: String
+    public var reason: String
+    public var at: Date?
 }
 
 /// One page of `GET /v1/events`.

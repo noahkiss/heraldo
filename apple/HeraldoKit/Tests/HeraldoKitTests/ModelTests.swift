@@ -34,6 +34,26 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(e.date, JSON.parseDate("2026-10-26T12:00:00Z"))
     }
 
+    func testDecodesPushTrace() throws {
+        let json = """
+        {"event_id": "01JBA6Y8Q2K9M3T4V5W6X7Y8Z9", "why": "muted by mute_1 (project)",
+         "decisions": [
+           {"stage": "hold", "outcome": "pass", "reason": "not held", "at": "2026-10-26T12:00:02Z"},
+           {"stage": "mute", "outcome": "drop", "reason": "muted by mute_1 (project)",
+            "detail": {"mute": "mute_1"}, "at": "2026-10-26T12:00:02.5Z"}
+         ]}
+        """
+        let t = try JSON.decoder.decode(PushTrace.self, from: Data(json.utf8))
+        XCTAssertEqual(t.why, "muted by mute_1 (project)")
+        XCTAssertEqual(t.decisions.map(\.stage), ["hold", "mute"])
+        XCTAssertEqual(t.decisions.last?.outcome, "drop")
+        let event = """
+        {"id": "x", "source": "s", "why": "passive: inbox only"}
+        """
+        let e = try JSON.decoder.decode(Event.self, from: Data(event.utf8))
+        XCTAssertEqual(e.why, "passive: inbox only")
+    }
+
     func testDecodesChecks() throws {
         let json = """
         {"checkins": [

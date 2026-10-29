@@ -2,13 +2,14 @@ import HeraldoKit
 import SwiftUI
 
 /// One event with its full body. It fetches the event again, for the body
-/// and the latest delivery outcome.
+/// and the latest delivery outcome, and the push trace for Delivery.
 struct EventDetailView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openURL) private var openURL
     @State var event: Event
     @State private var acking = false
     @State private var ackError: String?
+    @State private var trace: PushTrace?
 
     var body: some View {
         ScrollView {
@@ -35,6 +36,7 @@ struct EventDetailView: View {
                 actions
                 #endif
                 facts
+                delivery
             }
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -45,6 +47,8 @@ struct EventDetailView: View {
         #endif
         .task {
             if let fresh = try? await model.client().event(id: event.id) { event = fresh }
+            // Only a server with the trace sends why; older ones answer 404.
+            if event.why != nil { trace = try? await model.client().why(id: event.id) }
         }
         .toolbar {
             if model.isUnread(event) {
@@ -148,12 +152,36 @@ struct EventDetailView: View {
             if let inc = event.incident {
                 fact("Incident", incidentLine(inc))
             }
-            ForEach(event.delivery ?? [], id: \.device) { d in
-                fact("Delivery", [d.outcome, d.level, d.error].compactMap { $0 }.joined(separator: " · "))
-            }
             fact("ID", event.id)
         }
         .font(.footnote)
+    }
+
+    /// Why the event did or did not push: the summary, each pipeline stage,
+    /// then the outcome on each device.
+    @ViewBuilder
+    private var delivery: some View {
+        let devices = event.delivery ?? []
+        if event.why != nil || !devices.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Delivery").font(.subheadline.bold())
+                if let why = event.why {
+                    Text(why).textSelection(.enabled)
+                }
+                ForEach(Array((trace?.decisions ?? []).enumerated()), id: \.offset) { _, d in
+                    HStack(alignment: .firstTextBaseline) {
+                        Image(systemName: d.outcome == "drop" ? "xmark.circle" : d.outcome == "pass" ? "checkmark.circle" : "arrow.down.circle")
+                            .foregroundStyle(d.outcome == "drop" ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                        Text(d.stage).foregroundStyle(.secondary).frame(width: 56, alignment: .leading)
+                        Text(d.reason).textSelection(.enabled)
+                    }
+                }
+                ForEach(devices, id: \.device) { d in
+                    fact("Device", [d.outcome, d.level, d.error].compactMap { $0 }.joined(separator: " · "))
+                }
+            }
+            .font(.footnote)
+        }
     }
 
     /// "acked · opened 10:02" or "resolved · open for 12 min".

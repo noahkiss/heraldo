@@ -318,7 +318,8 @@ app group.
 - **Event detail**: History lists every event of the event's key: a check's
   pings, an activity's progress, an incident's updates. Mute project for 1 h
   in the menu, and in an incident's context menu, mutes every event of the
-  event's project (write token).
+  event's project (write token). Delivery says why the event did or did not
+  push, stage by stage, and the outcome on each device.
 - **Push**: the app registers its APNs token with `POST /v1/devices` on every
   launch, and again when a permission changes. A Debug build reports
   `sandbox`; a TestFlight or App Store build reports `production`.

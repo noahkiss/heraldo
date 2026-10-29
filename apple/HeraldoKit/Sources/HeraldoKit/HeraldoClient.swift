@@ -136,6 +136,11 @@ public struct HeraldoClient: Sendable {
         try await get("v1/events/\(escape(id))")
     }
 
+    /// The push trace of one event. A server before 0.7 answers 404.
+    public func why(id: String) async throws -> PushTrace {
+        try await get("v1/events/\(escape(id))/why")
+    }
+
     public func state() async throws -> ServerState {
         try await get("v1/state")
     }
