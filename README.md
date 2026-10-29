@@ -215,8 +215,10 @@ that sets `level: critical`, or send it with a `write` token that has the
 heraldo can use an LLM through any OpenAI-compatible endpoint: a hosted API or
 a local server such as Ollama, llama.cpp or vLLM. It is off by default, and
 everything works without it. It runs on the primary only; a standby never
-calls it. It never raises a level, never touches time-sensitive or critical
-alerts, and writes nothing.
+calls it. It acts only where heraldo already waits (the hold's deadline, a
+bundle window, the digest), so it never delays a page. It never raises a
+level, never lowers time-sensitive or critical alerts, and never drops
+anything silently.
 
 Set it up with an admin token:
 
@@ -244,6 +246,18 @@ heraldo ask "what happened overnight?"
   passive notice.
 - Guidance lines (`heraldo guidance add global "Be brief."`) tell the
   assistant how to word and group things. They never change a level.
+
+The decisions role uses `llm.decisions_model`:
+
+| Where | What it does in `enforce` |
+|---|---|
+| The hold, at the deadline | Groups the alerts triage did not reach into one push, with the model's title and summary. With `llm.hold_may_suppress`, a BLIP or FALSE group below time-sensitive becomes one passive summary. |
+| A view's bundle | Replaces "N new in <view>: <latest title>" with the model's title and summary, through the same collapse id, if it answers while the window is open. |
+| The digest | With `digest.prose` on, leads the digest with one paragraph. |
+
+`shadow` only records what it would do, and `advise` only adds its text.
+Every decision is in the event's trace (`heraldo why <id>`). Turn it on in
+steps: `shadow` for a week, then `advise`, then `enforce`.
 
 [docs/api.md](docs/api.md#llm) has the details.
 

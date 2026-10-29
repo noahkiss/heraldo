@@ -141,7 +141,7 @@ that matches the tool's `outputSchema`.
 | `event_read` body | 16 KiB per call; pass `body_page.next_offset` as `body_offset` |
 | `event_read` details | 4 KiB of JSON, else `{"_omitted_bytes": n}` |
 | `event_read` delivery | counts, plus the first 10 outcomes |
-| `event_read` decisions | every push stage the event passed through; absent before the server decides it |
+| `event_read` decisions | every push stage the event passed through, then the `escalate` and `llm` rows beside them; absent before the server decides it |
 | `event_read` markdown | 16 KiB, with a note when cut |
 | Check `last_log` | the last 8 KiB |
 | `hold_read` entries | 50, oldest first, each body 2 KiB; `total` is always given |

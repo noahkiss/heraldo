@@ -442,6 +442,9 @@ a bundle). Every stage that runs writes one row of the event's trace.
   `why` uses them only when the trace has nothing else, as with push off. An
   ack or resolve that cancels an escalation gets one too, such as
   `cancelled the Pushover escalation of 01J...: acked by phone (01J...)`.
+- The LLM's decisions role adds `llm` rows the same way ("LLM",
+  "Decisions"). `why` ends with the last one, such as `held for triage; LLM
+  (model, 1.4 s) grouped 4 alerts: BLIP → released as 1 passive summary`.
 
 ### Critical alerts
 
@@ -831,7 +834,7 @@ tag lists and `POST /v1/events` are never held.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `HERALDO_HOLD_DEADLINE` | `30m` | An entry still `held` this long is forwarded as it is, title prefixed `[not triaged in 30 min]`, and marked `expired`. |
+| `HERALDO_HOLD_DEADLINE` | `30m` | An entry still `held` this long is forwarded as it is, title prefixed `[not triaged in 30 min]`, and marked `expired`. With the LLM on, the decisions model sees the due entries first ("LLM", "Decisions"). |
 | `HERALDO_HOLD_DEADMAN` | `20m` | When nothing polls the queue this long, the dead-man trips (below). Before the first poll, the server's start counts. |
 | `HERALDO_HOLD_BYPASS_FILE` | none | The bypass list. |
 
@@ -1009,6 +1012,7 @@ It is off by default.
 | `digest.enabled` | `false` | Send the digest once a day. |
 | `digest.at` | `07:30` | When, HH:MM in `digest.tz`. |
 | `digest.tz` | `UTC` | The time zone of `digest.at`, and of the times in the text. |
+| `digest.prose` | `false` | Lead the body with a paragraph the LLM writes ("LLM", "Decisions"). Needs `llm.mode` `advise` or `enforce`. |
 
 What it is:
 
@@ -1017,7 +1021,9 @@ What it is:
 - Level `passive`, or `active` when an incident is open and not acked, or a
   check is down or late.
 - `details.heraldo.digest` holds the day, the window and the counts.
-- The text is deterministic: the same store gives the same digest.
+- The text is deterministic: the same store gives the same digest. The one
+  exception is the LLM's paragraph with `digest.prose` on. Without it, or when
+  the call fails, the digest is the plain list.
 
 The body has one section each for:
 
@@ -1161,6 +1167,9 @@ A view with `bundle` folds a burst of its pushes into one notification. The
   with the view, count and window in its detail.
 - The window lives in the server's memory. After a restart, the next push
   opens a new window.
+- With the LLM on, the bundle notification can carry the decisions model's
+  title and summary ("LLM", "Decisions"). The plain notification always goes
+  out first.
 ## Settings
 
 Server settings switch features on and tune them. Every feature is off by
@@ -1225,6 +1234,7 @@ reaches a log. The text below uses `llm.token`; the others work the same way.
 | `badge.scope` | `attention`, `pushed`, `none` | `"attention"` | What the badge counts: attention (open incidents, down checks, unread time-sensitive and up), pushed (unread that pushed), or none. |
 | `digest.at` | clock | `"07:30"` | When the digest is sent, HH:MM. |
 | `digest.enabled` | bool | `false` | Send a daily digest. |
+| `digest.prose` | bool | `false` | Lead the digest with a paragraph the LLM writes; needs llm.mode advise or enforce. |
 | `digest.tz` | tz | `"UTC"` | The time zone of digest.at. |
 | `escalation.enabled` | bool | `false` | Send critical events to Pushover's emergency priority too. |
 | `escalation.expire` | duration | `"1h"` | How long Pushover repeats it; 3h at most. |
@@ -1259,9 +1269,7 @@ reaches a log. The text below uses `llm.token`; the others work the same way.
 | `stale.after` | duration | `"72h"` | How long an incident stays open before it is stale. |
 | `stale.enabled` | bool | `false` | Flag incidents open too long. |
 
-The server reads `badge.*` and `quiet.*` ("Badge", "Quiet hours"). The
-other keys only hold values in this release; the features that read them
-come in later releases.
+Each feature's section says which keys it reads.
 
 ```sh
 heraldo settings set quiet.enabled true
@@ -1278,11 +1286,13 @@ works without it.
 
 - It runs on the primary only. A standby never calls it: its status reports
   `effective_mode` `off`, and `/v1/ask` and `/v1/llm/test` refuse.
-- It never decides a push alone. Floors are code, not prompt: it never raises
-  a level, never touches `time-sensitive` or `critical`, a failed check-in or
-  heraldo's own events, and never overrides an ingest rule or a mute. (The
-  decisions role that acts on pushes comes in a later release; this release
-  ships the provider, guidance and chat.)
+- It acts only where the pipeline already waits: the hold's deadline, a
+  bundle window, and the digest. It never runs inline on a direct push, so it
+  never delays a page ("Decisions").
+- Floors are code, not prompt: it never raises a level, never drops or lowers
+  `time-sensitive` or `critical`, never touches an incident open or update at
+  `time-sensitive` or above, a failed check-in or heraldo's own events, and
+  never suppresses anything silently.
 - Every output is checked. Ids must come from the input; a failed check falls
   back to the deterministic path.
 
@@ -1354,6 +1364,121 @@ was passed, and `last_error` with `last_error_at`.
 
 `/healthz` reports `llm`: `off` (mode off, or a standby), `on`, or `degraded`
 (the circuit is open, a budget was passed, or no base URL or model is set).
+
+### Decisions
+
+The decisions role (`internal/decide`, prompt `internal/llm/prompts/decisions.md`)
+uses `llm.decisions_model` at temperature 0 with a JSON Schema, and the cache.
+It acts in three places, each one where heraldo already waits:
+
+| Where | When it asks | What it may change |
+|---|---|---|
+| Hold triage | At the deadline only: the entries whose deadline passed with triage still silent, in one call per hold tick | How the entries go out: grouped as one push, with the model's title and summary |
+| Bundle title | After the view's bundle notification is delivered | The bundle notification's text, through its collapse id |
+| Digest paragraph | When the digest is built, with `digest.prose` on | One paragraph at the top of the body |
+
+`llm.mode` sets what it does. The effective mode is at most `shadow` while
+the circuit is open or after a budget was passed (`GET /v1/llm/status`,
+`effective_mode`).
+
+| Mode | Hold triage | Bundle title | Digest paragraph |
+|---|---|---|---|
+| `off` | Not asked. | Not asked. | Not asked. |
+| `shadow` | Asked; the entries forward as usual. The trace records what it would do. | Asked; the plain bundle stays. The trace records the title. | Asked; the plain digest goes out. The trace records it. |
+| `advise` | The entries forward as usual, each with the group's one-line summary as its `summary`. Level and grouping never change. | The title and summary replace the bundle notification's text. | Added. |
+| `enforce` | Each group releases as one event at the floors' level (below). Below confidence 0.6, it does what `advise` does. | As `advise`. | As `advise`. |
+
+#### Hold triage
+
+- **Deadline only.** The owner's triage job reads `/held` and acts first. The
+  model sees an entry only after its deadline passed with the entry still
+  `held`, so the two never race. A triage release or suppress never goes to
+  the model. The dead-man's forwards stay deterministic.
+- **The wait.** The deadline forward waits for the call, at most
+  `llm.decisions_timeout` (20 s). Nothing else does.
+- **The answer.** Per group: `ids` (the entries' refs `a1`, `a2`, ...),
+  `title`, a `summary` of at most two lines, `verdict` (`REAL`, `BLIP`,
+  `MAINTENANCE`, `FALSE` or `ROUTINE`), `suggested_level` and `confidence`
+  (0 to 1). An entry in no group forwards as usual.
+- **A release** is one event from source `heraldo-hold`, tags `<rung>,llm`,
+  with the model's title, the summary's first line as `summary`, and a body of
+  the summary and the held titles. Its `hold` is `{state: forward, reason:
+  llm, ids, verdict}`. The entries close as `released`, with the verdict and
+  reason `llm`, so `/held` shows what happened. A group of one at its own
+  level forwards as usual, with the summary added.
+- **Never dropped.** Every held event stays stored. A suppressed group still
+  leaves one passive event that names every member.
+
+The floors, in code (`decide.HoldFloors` and `decide.Protected`), after the
+validator:
+
+| Case | Result |
+|---|---|
+| The suggested level is louder than the group's loudest member | The output is invalid; the entries forward as usual. |
+| The group's loudest member is `time-sensitive` or `critical` | Released at that level. A lower suggestion is refused: "LLM suggested passive; refused: time-sensitive floor". |
+| `BLIP` or `FALSE`, members below `time-sensitive`, `llm.hold_may_suppress` on | Released as one passive summary: stored, inbox only. |
+| A passive suggestion otherwise | Refused: suppression needs `llm.hold_may_suppress`, and only a `BLIP` or `FALSE` verdict may suppress. |
+| An `active` suggestion for `active` members | Applied. |
+| An incident open or update at `time-sensitive` or above, a failed check-in, a `critical` event, heraldo's own event (source `heraldo` or `heraldo-*`), or a project in `llm.exclude_projects` | Never sent to the model; it forwards as usual. |
+
+#### Bundle title
+
+The bundle notification ("Saved views", "Bundles") goes out first, as
+always. Then the model gets the window's events (the newest 20) and returns a
+`title` and a one-line `summary`. When the answer comes back while the window
+is open and no newer push replaced the bundle, heraldo sends it at level
+`passive`, with no sound, through the same `apns-collapse-id`: title the
+model's title, body "N new in <view>: <summary>". Otherwise it records the
+answer and sends nothing. One call per view is in flight. A push meanwhile
+asks again when it returns. The text never changes the level, the count or
+which events bundle, and the event's delivery stays the bundle push's.
+
+#### Digest paragraph
+
+With `digest.prose` on, the model gets the digest's titles and counts (no
+bodies, no ids, no excluded project) and writes "overnight in one paragraph",
+which leads the body. `GET /v1/digest/preview` asks too; the cache serves a
+repeat.
+
+#### Validation and fallback
+
+Every answer passes a validator: ids a subset of the input and in one group
+at most, a known verdict, a level no louder than the loudest member, a
+confidence from 0 to 1, a title, and a summary of at most two lines. An
+error, a timeout, an open circuit, a budget or an invalid answer runs the
+deterministic path, and the trace says why: `llm: timeout; forwarded as
+usual`, `llm: circuit open; forwarded as usual`, `llm: invalid output (group
+1: id "a9" is not in the input); forwarded as usual`.
+
+#### Audit
+
+Every decision writes an `llm` row to each affected event's trace
+(`GET /v1/events/{id}/why`, `heraldo why`, the apps' event detail): the held
+events, the release or forward, the bundle's latest event, the digest event.
+Its detail has `call_id` (the `llm_calls` row), `model`, `latency_ms`,
+`mode`, `prompt_version`, `guidance` (the `id:version` pairs it carried),
+the `verdict`, `confidence` and `suggested_level`, and `applied` (`true`,
+`"text"` or `false`), with `refused` or `why_not` when a floor or the
+confidence said no. Examples:
+
+- `LLM (model, 1.4 s) grouped 4 alerts: BLIP → released as 1 passive summary`
+- `LLM (model, 0.9 s) grouped 2 alerts: BLIP → released as 1 time-sensitive push; LLM suggested passive; refused: time-sensitive floor`
+- `LLM shadow (model, 1.1 s) grouped 3 alerts: REAL → would be released as 1 time-sensitive push; nothing changed (shadow)`
+- `llm: not consulted: check-in fail floor; forwarded as usual`
+
+#### Turn it on safely
+
+1. Set the endpoint and `llm.decisions_model`, then `heraldo llm test`.
+2. `llm.mode shadow` for a week. Read the `llm` rows with `heraldo why` on
+   held and bundled events, and `heraldo llm status` for errors and the
+   budget. Add guidance where the grouping is wrong.
+3. `llm.mode advise`: the text shows on notifications; nothing else changes.
+4. `llm.mode enforce`: groups release as one push within the floors. Leave
+   `llm.hold_may_suppress` off until the BLIP and FALSE verdicts have been
+   right for a while.
+
+Guidance lines that match an event's project, source or key go with every
+call, least specific first, and their versions are in the cache key.
 
 ### Guidance
 
