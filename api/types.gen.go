@@ -504,6 +504,90 @@ func (e Level) Valid() bool {
 	}
 }
 
+// Defines values for SettingSource.
+const (
+	SettingSourceDb      SettingSource = "db"
+	SettingSourceDefault SettingSource = "default"
+	SettingSourceEnv     SettingSource = "env"
+	SettingSourceFlag    SettingSource = "flag"
+)
+
+// Valid indicates whether the value is a known member of the SettingSource enum.
+func (e SettingSource) Valid() bool {
+	switch e {
+	case SettingSourceDb:
+		return true
+	case SettingSourceDefault:
+		return true
+	case SettingSourceEnv:
+		return true
+	case SettingSourceFlag:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SettingType.
+const (
+	SettingTypeBool     SettingType = "bool"
+	SettingTypeClock    SettingType = "clock"
+	SettingTypeDuration SettingType = "duration"
+	SettingTypeEnum     SettingType = "enum"
+	SettingTypeInt      SettingType = "int"
+	SettingTypeList     SettingType = "list"
+	SettingTypeSecret   SettingType = "secret"
+	SettingTypeString   SettingType = "string"
+	SettingTypeTz       SettingType = "tz"
+	SettingTypeUrl      SettingType = "url"
+)
+
+// Valid indicates whether the value is a known member of the SettingType enum.
+func (e SettingType) Valid() bool {
+	switch e {
+	case SettingTypeBool:
+		return true
+	case SettingTypeClock:
+		return true
+	case SettingTypeDuration:
+		return true
+	case SettingTypeEnum:
+		return true
+	case SettingTypeInt:
+		return true
+	case SettingTypeList:
+		return true
+	case SettingTypeSecret:
+		return true
+	case SettingTypeString:
+		return true
+	case SettingTypeTz:
+		return true
+	case SettingTypeUrl:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SettingErrorCode.
+const (
+	SettingErrorCodeLockedByEnv SettingErrorCode = "locked_by_env"
+	SettingErrorCodeNoSecretKey SettingErrorCode = "no_secret_key"
+)
+
+// Valid indicates whether the value is a known member of the SettingErrorCode enum.
+func (e SettingErrorCode) Valid() bool {
+	switch e {
+	case SettingErrorCodeLockedByEnv:
+		return true
+	case SettingErrorCodeNoSecretKey:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for StandbyDeviceEnvironment.
 const (
 	StandbyDeviceEnvironmentProduction StandbyDeviceEnvironment = "production"
@@ -1500,6 +1584,87 @@ type Schedule struct {
 	Tz *string `json:"tz,omitempty"`
 }
 
+// Setting defines model for Setting.
+type Setting struct {
+	// Default The built-in default. Absent for a secret.
+	Default     interface{} `json:"default,omitempty"`
+	Description string      `json:"description"`
+
+	// Enum An enum key's values.
+	Enum *[]string `json:"enum,omitempty"`
+
+	// Env The env alias, such as HERALDO_LLM_BASE_URL.
+	Env string `json:"env"`
+
+	// EnvFile A secret only. The env alias that names a file holding it.
+	EnvFile *string `json:"env_file,omitempty"`
+
+	// Error Why a stored value is not used, such as a secret that does not decrypt.
+	Error *string `json:"error,omitempty"`
+
+	// Flag The heraldo-server flag alias, such as --llm-base-url. Absent for a secret.
+	Flag *string `json:"flag,omitempty"`
+	Key  string  `json:"key"`
+
+	// LockedBy The flag (--llm-mode) or env var that sets the key. While set, writes answer 409.
+	LockedBy *string `json:"locked_by,omitempty"`
+	Secret   bool    `json:"secret"`
+
+	// Set A secret only. Whether it has a value.
+	Set *bool `json:"set,omitempty"`
+
+	// Source Where the value in force comes from.
+	Source SettingSource `json:"source"`
+
+	// Type duration is a Go duration string above zero, such as "72h". clock is HH:MM.
+	// tz is an IANA zone name. int is 0 or more. list is an array of strings, and
+	// a comma-separated list in env vars and flags.
+	Type SettingType `json:"type"`
+
+	// UpdatedAt When a value was last stored through the API.
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+
+	// UpdatedBy The token name that stored it.
+	UpdatedBy *string `json:"updated_by,omitempty"`
+
+	// Value The value in force. Absent for a secret.
+	Value interface{} `json:"value,omitempty"`
+}
+
+// SettingSource Where the value in force comes from.
+type SettingSource string
+
+// SettingType duration is a Go duration string above zero, such as "72h". clock is HH:MM.
+// tz is an IANA zone name. int is 0 or more. list is an array of strings, and
+// a comma-separated list in env vars and flags.
+type SettingType string
+
+// SettingError defines model for SettingError.
+type SettingError struct {
+	// Code locked_by_env, a flag or env var sets the key; no_secret_key, the server has no HERALDO_SECRET_KEY_FILE.
+	Code SettingErrorCode `json:"code"`
+
+	// Error What went wrong, for a person to read.
+	Error string `json:"error"`
+
+	// Variable For locked_by_env, the flag or env var that sets the key.
+	Variable *string `json:"variable,omitempty"`
+}
+
+// SettingErrorCode locked_by_env, a flag or env var sets the key; no_secret_key, the server has no HERALDO_SECRET_KEY_FILE.
+type SettingErrorCode string
+
+// SettingInput defines model for SettingInput.
+type SettingInput struct {
+	// Value The new value, in the key's JSON type.
+	Value interface{} `json:"value"`
+}
+
+// SettingList defines model for SettingList.
+type SettingList struct {
+	Settings []Setting `json:"settings"`
+}
+
 // StandbyDevice A device as a standby server copies it, with the full tokens.
 type StandbyDevice struct {
 	AppVersion  *string                  `json:"app_version,omitempty"`
@@ -1609,6 +1774,9 @@ type AppriseSent = AppriseAnswer
 
 // Repeat One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery and, on an incident, incident.
 type Repeat = Event
+
+// SettingConflict defines model for SettingConflict.
+type SettingConflict = SettingError
 
 // Stored One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery and, on an incident, incident.
 type Stored = Event
@@ -2238,6 +2406,9 @@ type NotifyMessageFormdataRequestBody = AppriseNotify
 
 // NotifyMessageMultipartRequestBody defines body for NotifyMessage for multipart/form-data ContentType.
 type NotifyMessageMultipartRequestBody = AppriseNotify
+
+// PutSettingJSONRequestBody defines body for PutSetting for application/json ContentType.
+type PutSettingJSONRequestBody = SettingInput
 
 // ImportStandbyEventsJSONRequestBody defines body for ImportStandbyEvents for application/json ContentType.
 type ImportStandbyEventsJSONRequestBody = StandbyImport

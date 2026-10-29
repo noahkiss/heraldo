@@ -23,6 +23,7 @@ import (
 	"github.com/noahkiss/heraldo/internal/ids"
 	"github.com/noahkiss/heraldo/internal/routine"
 	"github.com/noahkiss/heraldo/internal/rules"
+	"github.com/noahkiss/heraldo/internal/settings"
 	"github.com/noahkiss/heraldo/internal/store"
 	"github.com/noahkiss/heraldo/internal/validate"
 )
@@ -61,6 +62,9 @@ type Options struct {
 	TrustedNets []netip.Prefix
 	// Hold is the alert hold; the zero value is off.
 	Hold HoldOptions
+	// Settings is the settings store. nil means one over Store with only
+	// the built-in defaults, no flags, env aliases or secret key.
+	Settings *settings.Manager
 }
 
 // Pusher queues stored events for push. Enqueue must not block.
@@ -118,6 +122,18 @@ func NewServer(o Options) *Server {
 	if o.Hold.Deadman == 0 {
 		o.Hold.Deadman = 20 * time.Minute
 	}
+	if o.Settings == nil {
+		var b settings.Backend
+		if o.Store != nil {
+			b = o.Store
+		}
+		m, err := settings.New(context.Background(), settings.Options{Backend: b, Now: o.Now, Logger: o.Logger})
+		if err != nil {
+			o.Logger.Error("settings: load; serving the defaults", "err", err)
+			m, _ = settings.New(context.Background(), settings.Options{Now: o.Now, Logger: o.Logger})
+		}
+		o.Settings = m
+	}
 	s := &server{Options: o, hub: newHub(), started: o.Now()}
 	if e, ok := o.Live.(interface {
 		SetEmit(func(context.Context, map[string]any) error)
@@ -147,6 +163,7 @@ func NewServer(o Options) *Server {
 	s.appriseRoutes(mux)
 	s.holdRoutes(mux)
 	s.standbyRoutes(mux)
+	s.settingsRoutes(mux)
 	mux.HandleFunc("GET /v1/mutes", s.auth(auth.ScopeWrite, false, s.listMutes))
 	mux.HandleFunc("POST /v1/mutes", s.auth(auth.ScopeWrite, false, s.createMute))
 	mux.HandleFunc("DELETE /v1/mutes/{id}", s.auth(auth.ScopeWrite, false, s.endMute))

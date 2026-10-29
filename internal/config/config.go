@@ -80,6 +80,10 @@ type Config struct {
 	// PrimaryDownAfter is how long the primary may go unanswered before the
 	// standby raises its alert. HERALDO_PRIMARY_DOWN_AFTER; default 10m.
 	PrimaryDownAfter time.Duration
+
+	// SecretKeyFile holds the key that encrypts secrets written through
+	// the settings API. Empty refuses those writes. HERALDO_SECRET_KEY_FILE.
+	SecretKeyFile string
 }
 
 // FromEnv builds a Config from getenv, normally os.Getenv.
@@ -97,6 +101,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		APNsTeamID:  getenv("HERALDO_APNS_TEAM_ID"),
 
 		HoldBypassFile: getenv("HERALDO_HOLD_BYPASS_FILE"),
+		SecretKeyFile:  getenv("HERALDO_SECRET_KEY_FILE"),
 		HoldDeadline:   DefaultHoldDeadline,
 		HoldDeadman:    DefaultHoldDeadman,
 	}

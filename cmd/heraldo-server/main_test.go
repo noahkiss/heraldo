@@ -148,3 +148,29 @@ func TestBackfillProjects(t *testing.T) {
 		t.Fatal("stray argument: want a usage error")
 	}
 }
+
+func TestServeFlags(t *testing.T) {
+	// A secret never rides on a flag, and the refusal does not echo it.
+	err := run([]string{"--llm-token", "sk-from-argv"}, nil, io.Discard, quiet)
+	if err == nil || !strings.Contains(err.Error(), "HERALDO_LLM_TOKEN_FILE") || strings.Contains(err.Error(), "sk-from-argv") {
+		t.Fatalf("secret flag: %v", err)
+	}
+	if err := run([]string{"serve", "--llm-token=x"}, nil, io.Discard, quiet); err == nil {
+		t.Fatal("serve secret flag accepted")
+	}
+	if err := run([]string{"serve", "--no-such-setting", "1"}, nil, io.Discard, quiet); err == nil {
+		t.Fatal("unknown flag accepted")
+	}
+	var out strings.Builder
+	if err := run([]string{"serve", "-h"}, nil, &out, quiet); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "-llm-base-url") || !strings.Contains(out.String(), "HERALDO_QUIET_START") ||
+		strings.Contains(out.String(), "-llm-token string") {
+		t.Fatalf("serve -h:\n%s", out.String())
+	}
+	f, err := serveFlags([]string{"--llm-mode", "shadow"}, io.Discard)
+	if err != nil || f["llm.mode"] != "shadow" || len(f) != 1 {
+		t.Fatalf("flags %v %v", f, err)
+	}
+}

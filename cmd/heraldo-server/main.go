@@ -21,10 +21,18 @@
 //	                     a standby's primary, and its standby-capable token there
 //	HERALDO_STANDBY_INTERVAL, HERALDO_PRIMARY_DOWN_AFTER
 //	                     a standby's round interval (1m) and alert delay (10m)
+//	HERALDO_SECRET_KEY_FILE  a 32-byte key that encrypts secrets written
+//	                     through the settings API (default: such writes are refused)
+//
+// Server settings (internal/settings, GET /v1/settings) each have an env
+// alias and a flag alias: llm.base_url is HERALDO_LLM_BASE_URL and
+// --llm-base-url. A flag wins over the env var, the env var over a value
+// stored through the API. A secret has no flag.
 //
 // Subcommands:
 //
-//	heraldo-server                    serve (the default)
+//	heraldo-server [serve] [--<setting> <value> ...]
+//	                                  serve (the default)
 //	heraldo-server import-tee [-since YYYY-MM] <dir>
 //	                                  backfill an apprise-tee catalogue
 //	heraldo-server replay-tee [-rules <file>] <dir>
@@ -63,6 +71,7 @@ import (
 	"github.com/noahkiss/heraldo/internal/replay"
 	"github.com/noahkiss/heraldo/internal/rules"
 	"github.com/noahkiss/heraldo/internal/server"
+	"github.com/noahkiss/heraldo/internal/settings"
 	"github.com/noahkiss/heraldo/internal/standby"
 	"github.com/noahkiss/heraldo/internal/store"
 	"github.com/noahkiss/heraldo/internal/teeimport"
@@ -73,7 +82,10 @@ import (
 const usage = `usage: heraldo-server [command]
 
 commands:
-  serve              run the server (the default)
+  serve [--<setting> <value> ...]
+                     run the server (the default); each server setting has a
+                     flag, such as --llm-mode shadow (heraldo-server serve -h
+                     lists them)
   import-tee [-since YYYY-MM] <dir>
                      backfill an apprise-tee catalogue directory, from month
                      YYYY-MM on when -since is given
@@ -102,12 +114,17 @@ func main() {
 
 func run(args []string, stdin io.Reader, stdout io.Writer, log *slog.Logger) error {
 	cmd := "serve"
-	if len(args) > 0 {
+	// heraldo-server --llm-mode shadow is serve with flags.
+	if len(args) > 0 && (!strings.HasPrefix(args[0], "-") || isTopLevel(args[0])) {
 		cmd, args = args[0], args[1:]
 	}
 	switch cmd {
 	case "serve":
-		return serve(log)
+		flags, err := serveFlags(args, stdout)
+		if err != nil || flags == nil {
+			return err // nil, nil: -h printed the flags
+		}
+		return serve(flags, log)
 	case "import-tee":
 		fs := flag.NewFlagSet("import-tee", flag.ContinueOnError)
 		fs.SetOutput(io.Discard)
@@ -149,6 +166,55 @@ func run(args []string, stdin io.Reader, stdout io.Writer, log *slog.Logger) err
 	}
 }
 
+// isTopLevel reports whether a is a top-level flag, not one of serve's.
+func isTopLevel(a string) bool { return a == "--help" || a == "-h" || a == "--version" || a == "-v" }
+
+// serveFlags parses serve's flags: one per server setting. A flag that
+// would carry a secret is refused before parsing, and its value is never
+// echoed. nil, nil means -h printed the flags.
+func serveFlags(args []string, stdout io.Writer) (map[string]string, error) {
+	if err := settings.RefuseSecretFlags(args); err != nil {
+		return nil, err
+	}
+	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+	fs.SetOutput(stdout)
+	got := settings.Flags(fs)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("serve: %w", err)
+	}
+	if fs.NArg() != 0 {
+		return nil, fmt.Errorf("serve: unexpected argument %q", fs.Arg(0))
+	}
+	return got(), nil
+}
+
+// loadSettings builds the settings store from the flags, the environment
+// and the settings table.
+func loadSettings(ctx context.Context, cfg config.Config, st *store.Store, flags map[string]string, log *slog.Logger) (*settings.Manager, error) {
+	var key []byte
+	if cfg.SecretKeyFile != "" {
+		var err error
+		if key, err = settings.LoadSecretKey(cfg.SecretKeyFile); err != nil {
+			return nil, err
+		}
+	}
+	m, err := settings.New(ctx, settings.Options{Backend: st, Getenv: os.Getenv, Flags: flags, SecretKey: key, Logger: log})
+	if err != nil {
+		return nil, err
+	}
+	var locked []string
+	for _, v := range m.All() {
+		if v.LockedBy != "" {
+			locked = append(locked, v.Key.Name)
+		}
+	}
+	log.Info("settings", "locked", strings.Join(locked, " "), "secret_key", key != nil)
+	return m, nil
+}
+
 func open(ctx context.Context) (config.Config, *store.Store, error) {
 	cfg, err := config.FromEnv(os.Getenv)
 	if err != nil {
@@ -161,7 +227,7 @@ func open(ctx context.Context) (config.Config, *store.Store, error) {
 	return cfg, st, nil
 }
 
-func serve(log *slog.Logger) error {
+func serve(flags map[string]string, log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -170,6 +236,11 @@ func serve(log *slog.Logger) error {
 		return err
 	}
 	defer st.Close()
+	sm, err := loadSettings(ctx, cfg, st, flags, log)
+	if err != nil {
+		return err
+	}
+	settings.SetDefault(sm)
 	tokens, err := cfg.LoadTokens()
 	if err != nil {
 		return err
@@ -200,7 +271,7 @@ func serve(log *slog.Logger) error {
 	h := server.NewServer(server.Options{
 		Version: version.String(), Store: st, Tokens: tokens, Validator: v, Rules: rw, Logger: log,
 		Done: ctx.Done(), Pusher: pusher, PushState: pushState, Live: lm,
-		TrustedNets: cfg.NotifyTrustedNets,
+		TrustedNets: cfg.NotifyTrustedNets, Settings: sm,
 		Hold: server.HoldOptions{
 			Mode: cfg.HoldMode, Bypass: bypass, Deadline: cfg.HoldDeadline, Deadman: cfg.HoldDeadman,
 		},

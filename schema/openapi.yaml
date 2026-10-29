@@ -35,6 +35,8 @@ tags:
     description: The alert hold, where alert-rung posts wait for triage.
   - name: standby
     description: A standby server copies the devices and hands back what it stored.
+  - name: settings
+    description: Server settings. A launch flag or env var wins over a stored value and locks the key.
 paths:
   /healthz:
     get:
@@ -1720,6 +1722,104 @@ paths:
           content:
             application/json:
               schema: {type: object, additionalProperties: true}
+  /v1/settings:
+    get:
+      operationId: listSettings
+      summary: Every known setting, with its value and where it comes from. Needs a read token.
+      description: |
+        One precedence order, highest first: a heraldo-server launch flag, an env var,
+        a value stored through this API, the built-in default. source says which one
+        is in force. A secret reports only set, never its value.
+      tags: [settings]
+      responses:
+        "200":
+          description: The settings, by key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettingList"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/settings/{key}:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        description: A known key, such as quiet.enabled. GET /v1/settings lists them.
+        schema:
+          type: string
+    get:
+      operationId: getSetting
+      summary: One setting. Needs a read token.
+      tags: [settings]
+      responses:
+        "200":
+          description: The setting.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Setting"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    put:
+      operationId: putSetting
+      summary: Store a setting's value. Needs an admin token.
+      description: |
+        value has the key's JSON type: a bool, a whole number, a string, or an array
+        of strings; a duration is a string such as "72h". The new value takes effect
+        without a restart. A secret is stored encrypted with the key in
+        HERALDO_SECRET_KEY_FILE; a server without that file answers 409
+        no_secret_key. A key a flag or env var sets answers 409 locked_by_env.
+      tags: [settings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettingInput"
+      responses:
+        "200":
+          description: The setting after the write.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Setting"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/SettingConflict"
+    delete:
+      operationId: deleteSetting
+      summary: Remove a setting's stored value, back to its default. Needs an admin token.
+      description: A key with no stored value answers 200 as it is. A key a flag or env var sets answers 409 locked_by_env.
+      tags: [settings]
+      responses:
+        "200":
+          description: The setting after the delete.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Setting"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/SettingConflict"
 components:
   securitySchemes:
     bearerAuth:
@@ -1732,7 +1832,7 @@ components:
         scope: write (POST /v1/events, GET /v1/send, /v1/mutes), read
         (GET /v1/events, /v1/events/{id}, /v1/state, /v1/stream, the read cursors,
         /v1/devices and GET /v1/icons), or admin (both, and PUT and
-        DELETE /v1/icons). A missing or unknown token gets 401; a token without the
+        DELETE /v1/icons and /v1/settings/{key}). A missing or unknown token gets 401; a token without the
         scope gets 403.
 
         A write token can carry the trusted-ingest capability, for a bridge such as
@@ -1839,6 +1939,12 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    SettingConflict:
+      description: The server refused the write. code says why.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SettingError"
     Stored:
       description: The event was stored.
       content:
@@ -2570,6 +2676,90 @@ components:
             should have pushed an alert and reached no device. APNs refused every device,
             no device is registered, or the push never ran. A monitor alerts when it is
             above 0. Missing when push is not on or the database does not answer.
+    SettingInput:
+      type: object
+      required: [value]
+      additionalProperties: false
+      properties:
+        value:
+          description: The new value, in the key's JSON type.
+    Setting:
+      type: object
+      required: [key, type, source, secret, description, env]
+      properties:
+        key:
+          type: string
+        type:
+          type: string
+          enum: [bool, string, url, int, duration, clock, tz, enum, list, secret]
+          description: |
+            duration is a Go duration string above zero, such as "72h". clock is HH:MM.
+            tz is an IANA zone name. int is 0 or more. list is an array of strings, and
+            a comma-separated list in env vars and flags.
+        value:
+          description: The value in force. Absent for a secret.
+        set:
+          type: boolean
+          description: A secret only. Whether it has a value.
+        source:
+          type: string
+          enum: [flag, env, db, default]
+          description: Where the value in force comes from.
+        locked_by:
+          type: string
+          description: The flag (--llm-mode) or env var that sets the key. While set, writes answer 409.
+        default:
+          description: The built-in default. Absent for a secret.
+        enum:
+          type: array
+          items:
+            type: string
+          description: An enum key's values.
+        secret:
+          type: boolean
+        description:
+          type: string
+        env:
+          type: string
+          description: The env alias, such as HERALDO_LLM_BASE_URL.
+        env_file:
+          type: string
+          description: A secret only. The env alias that names a file holding it.
+        flag:
+          type: string
+          description: The heraldo-server flag alias, such as --llm-base-url. Absent for a secret.
+        updated_at:
+          type: string
+          format: date-time
+          description: When a value was last stored through the API.
+        updated_by:
+          type: string
+          description: The token name that stored it.
+        error:
+          type: string
+          description: Why a stored value is not used, such as a secret that does not decrypt.
+    SettingList:
+      type: object
+      required: [settings]
+      properties:
+        settings:
+          type: array
+          items:
+            $ref: "#/components/schemas/Setting"
+    SettingError:
+      type: object
+      required: [error, code]
+      properties:
+        error:
+          type: string
+          description: What went wrong, for a person to read.
+        code:
+          type: string
+          enum: [locked_by_env, no_secret_key]
+          description: locked_by_env, a flag or env var sets the key; no_secret_key, the server has no HERALDO_SECRET_KEY_FILE.
+        variable:
+          type: string
+          description: For locked_by_env, the flag or env var that sets the key.
     Error:
       type: object
       required: [error]
