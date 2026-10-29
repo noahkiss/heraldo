@@ -302,6 +302,7 @@ func serve(flags map[string]string, log *slog.Logger) error {
 			"nets", fmt.Sprint(cfg.NotifyTrustedNets))
 	}
 	log.Info("hold", "mode", cfg.HoldMode, "deadline", cfg.HoldDeadline.String(), "deadman", cfg.HoldDeadman.String())
+	log.Info("llm", "mode", h.LLM().Mode(), "health", string(h.LLM().Health()), "host", h.LLM().BaseHost())
 	go h.RunHold(ctx, holdTick)
 	go h.RunAttachmentSweep(ctx, server.AttachmentSweepEvery)
 	if cfg.Standby {
