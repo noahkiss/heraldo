@@ -28,6 +28,7 @@ import (
 const (
 	readTok  = "mcp-read-token-for-tests"
 	writeTok = "mcp-write-token-for-tests"
+	adminTok = "mcp-admin-token-for-tests"
 )
 
 // fixture is a real heraldo server on a temporary database.
@@ -43,8 +44,8 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	tokens, err := auth.Parse(strings.NewReader(fmt.Sprintf("agent read %s\nagent-w write %s\n",
-		auth.Hash(readTok), auth.Hash(writeTok))), '\n')
+	tokens, err := auth.Parse(strings.NewReader(fmt.Sprintf("agent read %s\nagent-w write %s\nagent-a admin %s\n",
+		auth.Hash(readTok), auth.Hash(writeTok), auth.Hash(adminTok))), '\n')
 	if err != nil {
 		t.Fatal(err)
 	}

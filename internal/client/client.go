@@ -41,6 +41,9 @@ type Client struct {
 type Error struct {
 	Status  int
 	Message string
+	// Code is the answer's machine-readable code, when it has one, such
+	// as locked_by_env.
+	Code string
 }
 
 func (e *Error) Error() string {
@@ -189,9 +192,12 @@ func (c *Client) doHeader(ctx context.Context, method, path string, q url.Values
 }
 
 func errorFrom(status int, raw []byte) error {
-	var e api.Error
+	var e struct {
+		Error string `json:"error"`
+		Code  string `json:"code"`
+	}
 	if json.Unmarshal(raw, &e) == nil && e.Error != "" {
-		return &Error{Status: status, Message: e.Error}
+		return &Error{Status: status, Message: e.Error, Code: e.Code}
 	}
 	return &Error{Status: status, Message: strings.TrimSpace(string(raw))}
 }

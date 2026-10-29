@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -82,7 +83,7 @@ func TestMCPStdio(t *testing.T) {
 	if stdout != "" {
 		t.Fatalf("the app wrote to stdout: %q", stdout)
 	}
-	if n := len(toolNames(t, lines[2])); n != 9 {
+	if n := len(toolNames(t, lines[2])); n != 10 {
 		t.Fatalf("%d tools with a write token", n)
 	}
 	res := lines[3]["result"].(map[string]any)
@@ -99,11 +100,22 @@ func TestMCPStdio(t *testing.T) {
 	}
 
 	lines, _, _ = f.mcpRun(t, []string{mcpInit, mcpInited, mcpList}, "--read-only")
-	if n := len(toolNames(t, lines[2])); n != 5 {
+	if n := len(toolNames(t, lines[2])); n != 6 {
 		t.Fatalf("%d tools with --read-only", n)
 	}
 	if !strings.Contains(lines[1]["result"].(map[string]any)["instructions"].(string), "read-only") {
 		t.Fatal("read-only instructions")
+	}
+
+	// An admin token adds settings_write; --read-only still drops it.
+	f.env["HERALDO_ADMIN_TOKEN"] = adminTok
+	lines, _, _ = f.mcpRun(t, []string{mcpInit, mcpInited, mcpList})
+	if names := toolNames(t, lines[2]); len(names) != 11 || !slices.Contains(names, "settings_write") {
+		t.Fatalf("tools with an admin token: %v", names)
+	}
+	lines, _, _ = f.mcpRun(t, []string{mcpInit, mcpInited, mcpList}, "--read-only")
+	if n := len(toolNames(t, lines[2])); n != 6 {
+		t.Fatalf("%d tools with --read-only and an admin token", n)
 	}
 }
 

@@ -59,6 +59,11 @@ func (a *app) mcpServer(readOnly bool) *mcp.Server {
 		default:
 			o.Write = true
 		}
+		// settings_write needs its own admin token: a write token alone
+		// does not list it.
+		if c.AdminToken = a.setting(envAdminToken); c.AdminToken != "" && !readOnly {
+			o.Admin = true
+		}
 		c.UserAgent = "heraldo-mcp/" + version.String()
 	}
 	return mcptools.New(o)

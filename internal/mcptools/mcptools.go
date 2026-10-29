@@ -31,6 +31,10 @@ type API interface {
 	Mute(ctx context.Context, in api.MuteInput) (api.Mute, error)
 	EndMute(ctx context.Context, id string) (api.Mute, error)
 	PostNew(ctx context.Context, input map[string]any) (client.Event, bool, error)
+	Settings(ctx context.Context) ([]api.Setting, error)
+	Setting(ctx context.Context, key string) (api.Setting, error)
+	PutSetting(ctx context.Context, key string, value any) (api.Setting, error)
+	DeleteSetting(ctx context.Context, key string) (api.Setting, error)
 }
 
 var _ API = (*client.Client)(nil)
@@ -47,6 +51,8 @@ type Options struct {
 	// Write registers the write tools. WriteOff says why it is false.
 	Write    bool
 	WriteOff string
+	// Admin registers the admin tools: the API client has an admin token.
+	Admin bool
 	// URLHost is the host of the server URL, for overview. Never a token.
 	URLHost string
 	// Cursor is the read cursor that unread reads. Empty means inbox.
@@ -88,19 +94,24 @@ func New(o Options) *mcp.Server {
 	t.addEventRead(s)
 	t.addCheckinRead(s)
 	t.addActivityRead(s)
+	t.addSettingsRead(s)
 	if o.Write {
 		t.addIncidentAct(s)
 		t.addCheckinUpdate(s)
 		t.addMute(s)
 		t.addSend(s)
 	}
+	if o.Admin {
+		t.addSettingsWrite(s)
+	}
 	return s
 }
 
-// ReadTools and WriteTools name the tools New registers.
+// ReadTools, WriteTools and AdminTools name the tools New registers.
 var (
-	ReadTools  = []string{"overview", "events_search", "event_read", "checkin_read", "activity_read"}
+	ReadTools  = []string{"overview", "events_search", "event_read", "checkin_read", "activity_read", "settings_read"}
 	WriteTools = []string{"incident_act", "checkin_update", "mute", "send"}
+	AdminTools = []string{"settings_write"}
 )
 
 const instructionsRead = `heraldo is the owner's notification hub. Every alert, incident, check-in and long-running job lands here and is pushed to their phone and Mac.
