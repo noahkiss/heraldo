@@ -110,6 +110,8 @@ var registry = []Key{
 	{Name: "llm.base_url", Type: URL, Default: "", Desc: "The OpenAI-compatible endpoint's root, such as https://llm.example.net/v1."},
 	{Name: "llm.api", Type: Enum, Default: "openai-chat", Enum: []string{"openai-chat", "openai-responses"},
 		Desc: "The endpoint's API: chat completions or responses."},
+	{Name: "llm.structured", Type: Enum, Default: "json_schema", Enum: []string{"json_schema", "json_object", "prompt"},
+		Desc: "How to get JSON back: json_schema, json_object, or prompt (for endpoints without JSON mode or tool calls)."},
 	{Name: "llm.token", Type: Secret, Default: "", Desc: "The endpoint's API token. Write-only."},
 	{Name: "llm.chat_model", Type: String, Default: "", Desc: "The model for chat and summaries."},
 	{Name: "llm.decisions_model", Type: String, Default: "", Desc: "The model for triage decisions."},

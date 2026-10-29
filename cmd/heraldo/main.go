@@ -73,6 +73,17 @@ server settings (reads: HERALDO_TOKEN; writes: HERALDO_ADMIN_TOKEN):
   settings unset <key>
                    back to the default
 
+the assistant (an optional LLM, off by default):
+  ask "question"   ask about the stored events; --project --key --view --since
+  llm status       the LLM's mode, circuit, budget and last error
+  llm test         ask the endpoint a trivial question (HERALDO_ADMIN_TOKEN)
+  guidance [ls]    the guidance lines that inform the LLM's wording and grouping
+  guidance add <scope> <text>
+                   scope is global, project:<p>, source:<s> or key:<regex>
+                   (HERALDO_WRITE_TOKEN, as for edit and rm)
+  guidance edit [--scope s] [--text t] [--enable|--disable] <id>
+  guidance rm <id>
+
   mcp [--read-only]
                    serve the MCP tools for coding agents on stdio (docs/mcp.md)
 
@@ -141,7 +152,7 @@ func (a *app) run(ctx context.Context, args []string) int {
 		"mcp": a.mcp, "settings": a.settings, "why": a.why,
 		"mute": a.mute, "mutes": a.mutes, "snooze": a.snooze, "hold": a.hold, "devices": a.devices,
 		"projects": a.projects, "state": a.state, "activities": a.activities, "views": a.views,
-		"digest": a.digest,
+		"digest": a.digest, "guidance": a.guidance, "llm": a.llm, "ask": a.ask,
 	}
 	name := args[0]
 	switch name {

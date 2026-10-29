@@ -68,7 +68,26 @@ func (s *server) createMute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := s.Now().UTC()
-	m := store.Mute{CreatedAt: now, CreatedBy: tokenFrom(r).Name}
+	m, problems := s.muteFromInput(in, now)
+	m.CreatedAt, m.CreatedBy = now, tokenFrom(r).Name
+	if len(problems) > 0 {
+		writeError(w, http.StatusBadRequest, "%s", strings.Join(problems, "; "))
+		return
+	}
+	m.ID = "mute_" + ids.New(now)
+	if err := s.Store.AddMute(r.Context(), m); err != nil {
+		s.Logger.Error("mute", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	s.Logger.Info("mute", "id", m.ID, "source", m.Source, "key", m.Key, "project", m.Project, "until", m.Until, "remind", m.Remind, "token", m.CreatedBy)
+	writeJSON(w, http.StatusCreated, s.muteJSON(m))
+}
+
+// muteFromInput checks in and returns the mute it describes, with problems
+// a person reads. The chat's mute proposals pass the same checks.
+func (s *server) muteFromInput(in api.MuteInput, now time.Time) (store.Mute, []string) {
+	var m store.Mute
 	var problems []string
 	if in.Source != nil {
 		m.Source = *in.Source
@@ -115,18 +134,7 @@ func (s *server) createMute(w http.ResponseWriter, r *http.Request) {
 	if !m.Until.IsZero() && (!m.Until.After(now) || m.Until.Sub(now) > MaxMute) {
 		problems = append(problems, "the mute must end in the future, at most 366 days ahead")
 	}
-	if len(problems) > 0 {
-		writeError(w, http.StatusBadRequest, "%s", strings.Join(problems, "; "))
-		return
-	}
-	m.ID = "mute_" + ids.New(now)
-	if err := s.Store.AddMute(r.Context(), m); err != nil {
-		s.Logger.Error("mute", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	s.Logger.Info("mute", "id", m.ID, "source", m.Source, "key", m.Key, "project", m.Project, "until", m.Until, "remind", m.Remind, "token", m.CreatedBy)
-	writeJSON(w, http.StatusCreated, s.muteJSON(m))
+	return m, problems
 }
 
 // endMute is DELETE /v1/mutes/{id}.

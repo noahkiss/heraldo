@@ -50,6 +50,12 @@ type API interface {
 	SaveView(ctx context.Context, in api.ViewInput) (api.View, error)
 	PutView(ctx context.Context, ref string, in api.ViewInput) (api.View, error)
 	DeleteView(ctx context.Context, ref string) error
+	Guidance(ctx context.Context, scope string) ([]api.Guidance, error)
+	AddGuidance(ctx context.Context, in api.GuidanceInput) (api.Guidance, error)
+	PutGuidance(ctx context.Context, id string, in api.GuidancePatch) (api.Guidance, error)
+	DeleteGuidance(ctx context.Context, id string) error
+	LLMStatus(ctx context.Context) (api.LlmStatus, error)
+	Ask(ctx context.Context, in api.AskInput) (api.AskAnswer, error)
 }
 
 var _ API = (*client.Client)(nil)
@@ -114,6 +120,9 @@ func New(o Options) *mcp.Server {
 	t.addHoldRead(s)
 	t.addViewsRead(s)
 	t.addDigestPreview(s)
+	t.addGuidanceRead(s)
+	t.addLLMStatus(s)
+	t.addAsk(s)
 	if o.Write {
 		t.addIncidentAct(s)
 		t.addCheckinUpdate(s)
@@ -121,6 +130,7 @@ func New(o Options) *mcp.Server {
 		t.addSend(s)
 		t.addHoldAct(s)
 		t.addViewsWrite(s)
+		t.addGuidanceWrite(s)
 	}
 	if o.Admin {
 		t.addSettingsWrite(s)
@@ -130,8 +140,8 @@ func New(o Options) *mcp.Server {
 
 // ReadTools, WriteTools and AdminTools name the tools New registers.
 var (
-	ReadTools  = []string{"overview", "events_search", "event_read", "checkin_read", "activity_read", "settings_read", "attachment_read", "hold_read", "views_read", "digest_preview"}
-	WriteTools = []string{"incident_act", "checkin_update", "mute", "send", "hold_act", "views_write"}
+	ReadTools  = []string{"overview", "events_search", "event_read", "checkin_read", "activity_read", "settings_read", "attachment_read", "hold_read", "views_read", "digest_preview", "guidance_read", "llm_status", "ask"}
+	WriteTools = []string{"incident_act", "checkin_update", "mute", "send", "hold_act", "views_write", "guidance_write"}
 	AdminTools = []string{"settings_write"}
 )
 

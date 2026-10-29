@@ -22,6 +22,7 @@ import (
 	"github.com/noahkiss/heraldo/internal/digest"
 	"github.com/noahkiss/heraldo/internal/hold"
 	"github.com/noahkiss/heraldo/internal/ids"
+	"github.com/noahkiss/heraldo/internal/llm"
 	"github.com/noahkiss/heraldo/internal/routine"
 	"github.com/noahkiss/heraldo/internal/rules"
 	"github.com/noahkiss/heraldo/internal/settings"
@@ -78,6 +79,13 @@ type Options struct {
 	// the endpoint; the handler decides what the token may do. nil means
 	// no MCP endpoint (HERALDO_MCP_HTTP off).
 	MCP func(api http.Handler, tokenOf func(*http.Request) auth.Token) http.Handler
+	// LLMProvider builds the LLM provider from llm.api, the base URL and
+	// the token. nil means the OpenAI-compatible ones; tests pass a fake.
+	LLMProvider func(api, baseURL, token string) llm.Provider
+	// AskTools builds the read-only tools POST /v1/ask runs for the chat
+	// model, over the API handler: heraldo-server passes
+	// mcphttp.NewToolbox. nil means /v1/ask answers 503.
+	AskTools func(api http.Handler) llm.Toolbox
 }
 
 // Pusher queues stored events for push. Enqueue must not block.
@@ -99,6 +107,9 @@ type server struct {
 	deadmanActive bool
 	// digest builds and sends the daily digest.
 	digest *digest.Runner
+	// llm is the LLM client; askTools the chat model's read-only tools.
+	llm      *llm.Client
+	askTools llm.Toolbox
 }
 
 // Server is the HTTP handler and the check-in scheduler.
@@ -151,6 +162,7 @@ func NewServer(o Options) *Server {
 	}
 	s := &server{Options: o, hub: newHub(), started: o.Now()}
 	s.digest = s.newDigest()
+	s.llm = s.newLLM()
 	if e, ok := o.Live.(interface {
 		SetEmit(func(context.Context, map[string]any) error)
 	}); ok {
@@ -184,6 +196,7 @@ func NewServer(o Options) *Server {
 	s.standbyRoutes(mux)
 	s.settingsRoutes(mux)
 	s.viewRoutes(mux)
+	s.llmRoutes(mux)
 	mux.HandleFunc("GET /v1/mutes", s.auth(auth.ScopeWrite, false, s.listMutes))
 	mux.HandleFunc("POST /v1/mutes", s.auth(auth.ScopeWrite, false, s.createMute))
 	mux.HandleFunc("DELETE /v1/mutes/{id}", s.auth(auth.ScopeWrite, false, s.endMute))
@@ -207,6 +220,9 @@ func NewServer(o Options) *Server {
 	mux.HandleFunc("POST /v1/checkins/{slug}/resume", s.auth(auth.ScopeWrite, false, s.resumeCheck))
 	mux.HandleFunc("POST /v1/checkins/{slug}/key", s.auth(auth.ScopeWrite, false, s.mintPingKey))
 	mux.HandleFunc("DELETE /v1/checkins/{slug}/key", s.auth(auth.ScopeWrite, false, s.removePingKey))
+	if o.AskTools != nil {
+		s.askTools = o.AskTools(mux)
+	}
 	if o.MCP != nil {
 		mux.Handle("POST /v1/mcp", s.auth("", false, o.MCP(mux, tokenFrom).ServeHTTP))
 	}
@@ -362,7 +378,9 @@ func (s *server) health(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	h := api.Health{Status: api.HealthStatusOk, Version: s.Version, Db: api.HealthDbOk, Events: &n, Push: &s.PushState}
+	llmState := s.llm.Health()
+	h := api.Health{Status: api.HealthStatusOk, Version: s.Version, Db: api.HealthDbOk, Events: &n, Push: &s.PushState,
+		Llm: &llmState}
 	if s.PushState == api.HealthPushOn {
 		now := s.Now()
 		if u, err := s.Store.Unsent(r.Context(), now.Add(-UnsentWindow), now.Add(-UnsentAfter)); err != nil {

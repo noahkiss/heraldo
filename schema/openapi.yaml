@@ -2145,6 +2145,187 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/SettingConflict"
+  /v1/guidance:
+    get:
+      operationId: listGuidance
+      summary: Every guidance line, oldest first. Needs a read token.
+      description: |
+        Guidance is free text that informs the LLM's wording and grouping. It never
+        sets a floor, raises a level or overrides an ingest rule.
+      tags: [llm]
+      parameters:
+        - name: scope
+          in: query
+          description: Only lines with exactly this scope.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The lines.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidanceList"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: createGuidance
+      summary: Add a guidance line. Needs a write token.
+      tags: [llm]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidanceInput"
+      responses:
+        "201":
+          description: The line.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Guidance"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/guidance/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The line's id, gd_ plus a ULID.
+        schema:
+          type: string
+    get:
+      operationId: getGuidance
+      summary: One guidance line.
+      tags: [llm]
+      responses:
+        "200":
+          description: The line.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Guidance"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    put:
+      operationId: putGuidance
+      summary: Replace a guidance line. Needs a write token.
+      description: The version goes up by one. A field left out keeps its value.
+      tags: [llm]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidancePatch"
+      responses:
+        "200":
+          description: The line.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Guidance"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteGuidance
+      summary: Delete a guidance line. Needs a write token.
+      tags: [llm]
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/llm/status:
+    get:
+      operationId: llmStatus
+      summary: The LLM's mode, effective mode, circuit, budget and last error. Needs a read token.
+      tags: [llm]
+      responses:
+        "200":
+          description: The status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LlmStatus"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/llm/test:
+    post:
+      operationId: llmTest
+      summary: Ask the provider a trivial question. Needs an admin token.
+      description: |
+        Runs with llm.mode off too, so an operator can check the endpoint before
+        turning it on. The call counts against the budgets and is logged. Never on a
+        standby.
+      tags: [llm]
+      responses:
+        "200":
+          description: The provider answered, or the reason it did not.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LlmTest"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/ask:
+    post:
+      operationId: ask
+      summary: Ask the chat model about the stored events. Needs a read token.
+      description: |
+        Needs llm.chat on and llm.mode not off; otherwise 409. The server runs read-only
+        tools for the model (events_search, event_read, overview, checkin_read). Chat
+        never writes: a proposal is applied by the client with an ordinary write call.
+        Never on a standby (409).
+      tags: [llm]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AskInput"
+      responses:
+        "200":
+          description: The answer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AskAnswer"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
   /v1/mcp:
     post:
       operationId: mcp
@@ -3156,6 +3337,223 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/View"
+    GuidanceInput:
+      type: object
+      additionalProperties: false
+      required: [scope, text]
+      properties:
+        scope:
+          type: string
+          maxLength: 300
+          description: global, project:<p>, source:<s> or key:<regex> (a Go regular expression over the event key).
+        text:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        enabled:
+          type: boolean
+          default: true
+    GuidancePatch:
+      type: object
+      additionalProperties: false
+      properties:
+        scope:
+          type: string
+          maxLength: 300
+        text:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        enabled:
+          type: boolean
+    Guidance:
+      type: object
+      required: [id, scope, text, enabled, version, created_by, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          description: gd_ plus a ULID.
+        scope:
+          type: string
+        text:
+          type: string
+        enabled:
+          type: boolean
+        version:
+          type: integer
+          description: Starts at 1; each edit adds one.
+        created_by:
+          type: string
+          description: The name of the token that added it.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    GuidanceList:
+      type: object
+      required: [guidance]
+      properties:
+        guidance:
+          type: array
+          items:
+            $ref: "#/components/schemas/Guidance"
+    LlmStatus:
+      type: object
+      required: [mode, effective_mode, chat, configured, token_set, circuit, tokens_today, tokens_per_day, calls_last_minute, calls_per_minute]
+      properties:
+        mode:
+          type: string
+          enum: ["off", shadow, advise, enforce]
+          description: llm.mode as set.
+        effective_mode:
+          type: string
+          enum: ["off", shadow, advise, enforce]
+          description: |
+            The mode in force. off on a standby. shadow until midnight after a budget is
+            passed, and while the circuit is open.
+        chat:
+          type: boolean
+          description: Questions are allowed now (llm.chat on, mode not off, not a standby).
+        configured:
+          type: boolean
+          description: llm.base_url and at least one model are set.
+        token_set:
+          type: boolean
+          description: llm.token is set. The token is never returned.
+        api:
+          type: string
+        base_host:
+          type: string
+          description: The endpoint's host. Never a path or a token.
+        chat_model:
+          type: string
+        decisions_model:
+          type: string
+        standby:
+          type: boolean
+        circuit:
+          type: string
+          enum: [closed, open]
+        circuit_until:
+          type: string
+          format: date-time
+          description: When an open circuit closes.
+        failures:
+          type: integer
+          description: Failures in a row; 3 open the circuit for 10 minutes.
+        tokens_today:
+          type: integer
+          format: int64
+          description: Tokens in and out since midnight, server time.
+        tokens_per_day:
+          type: integer
+        calls_last_minute:
+          type: integer
+        calls_per_minute:
+          type: integer
+        shadow_until:
+          type: string
+          format: date-time
+          description: Set after a budget was passed; the effective mode is at most shadow until then.
+        last_error:
+          type: string
+        last_error_at:
+          type: string
+          format: date-time
+    LlmTest:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+        model:
+          type: string
+        answer:
+          type: string
+          description: The model's reply, at most 200 characters.
+        latency_ms:
+          type: integer
+          format: int64
+        call_id:
+          type: string
+        error:
+          type: string
+    AskScope:
+      type: object
+      additionalProperties: false
+      description: What the question is about. The server searches this first, and the model may search further.
+      properties:
+        view:
+          type: string
+          maxLength: 64
+          description: A saved view's id or name.
+        project:
+          type: string
+          maxLength: 64
+        key:
+          type: string
+          maxLength: 255
+          description: One incident's or job's key.
+        since:
+          type: string
+          description: RFC 3339 time, or a Go duration back from now such as 12h.
+    AskInput:
+      type: object
+      additionalProperties: false
+      required: [question]
+      properties:
+        question:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        scope:
+          $ref: "#/components/schemas/AskScope"
+    AskAnswer:
+      type: object
+      required: [answer, cited_ids]
+      properties:
+        answer:
+          type: string
+        cited_ids:
+          type: array
+          description: Ids of events the answer rests on. Every one came back from a tool the server ran.
+          items:
+            type: string
+        proposal:
+          $ref: "#/components/schemas/AskProposal"
+        call_ids:
+          type: array
+          description: The llm_calls rows this answer made.
+          items:
+            type: string
+        model:
+          type: string
+    AskProposal:
+      type: object
+      required: [type]
+      description: |
+        A change the model suggests. The server applies nothing. A client shows it and,
+        when the owner agrees, applies it with the ordinary write call: filter as
+        GET /v1/events parameters, view as POST /v1/views, guidance as POST
+        /v1/guidance, mute as POST /v1/mutes. The server checked each body as that call
+        would.
+      properties:
+        type:
+          type: string
+          enum: [filter, view, guidance, mute]
+        summary:
+          type: string
+          description: One line that says what applying it does.
+        filter:
+          $ref: "#/components/schemas/ViewFilter"
+        view:
+          $ref: "#/components/schemas/ViewInput"
+        guidance:
+          $ref: "#/components/schemas/GuidanceInput"
+        mute:
+          $ref: "#/components/schemas/MuteInput"
     AttachmentCreated:
       type: object
       required: [id, url, content_type, bytes, sha256]
@@ -3466,6 +3864,13 @@ components:
             should have pushed an alert and reached no device. APNs refused every device,
             no device is registered, or the push never ran. A monitor alerts when it is
             above 0. Missing when push is not on or the database does not answer.
+        llm:
+          type: string
+          enum: ["off", "on", degraded]
+          description: |
+            The LLM. off: llm.mode is off, or this is a standby. on: it is in force.
+            degraded: it is on, but the circuit is open, a budget was passed, or it is
+            not configured. Missing from a server before 0.8.
     SettingInput:
       type: object
       required: [value]

@@ -31,6 +31,9 @@ type EventSummary struct {
 	IncidentState string   `json:"incident_state,omitempty"`
 	HasBody       bool     `json:"has_body,omitempty"`
 	BodyBytes     int      `json:"body_bytes,omitempty"`
+	// SummaryFromBody marks a summary taken from the body's first line, so
+	// the LLM's privacy policy treats it as body.
+	SummaryFromBody bool `json:"summary_from_body,omitempty"`
 }
 
 var eventSummarySchema = obj("One event, without its body. event_read gives the body.", map[string]*jsonschema.Schema{
@@ -39,6 +42,7 @@ var eventSummarySchema = obj("One event, without its body. event_read gives the 
 	"level": str(""), "title": str(""), "summary": str("The event's summary, else the start of its body."),
 	"tags": arr("", str("")), "hold": str("hold.state"), "incident_state": str("open, acked or resolved"),
 	"has_body": boolean(""), "body_bytes": integer(""),
+	"summary_from_body": boolean("The summary is the body's first line."),
 })
 
 // rawProject reads project from an event's JSON. ok is false when the JSON
@@ -89,6 +93,7 @@ func summarize(e client.Event) EventSummary {
 		if s.Summary == "" {
 			line, _, _ := strings.Cut(strings.TrimSpace(*e.Body), "\n")
 			s.Summary = cutRunes(strings.TrimSpace(line), 160)
+			s.SummaryFromBody = s.Summary != ""
 		}
 	}
 	return s

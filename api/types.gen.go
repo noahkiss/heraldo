@@ -117,6 +117,30 @@ func (e ActivityInstanceState) Valid() bool {
 	}
 }
 
+// Defines values for AskProposalType.
+const (
+	AskProposalTypeFilter   AskProposalType = "filter"
+	AskProposalTypeGuidance AskProposalType = "guidance"
+	AskProposalTypeMute     AskProposalType = "mute"
+	AskProposalTypeView     AskProposalType = "view"
+)
+
+// Valid indicates whether the value is a known member of the AskProposalType enum.
+func (e AskProposalType) Valid() bool {
+	switch e {
+	case AskProposalTypeFilter:
+		return true
+	case AskProposalTypeGuidance:
+		return true
+	case AskProposalTypeMute:
+		return true
+	case AskProposalTypeView:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CheckDownReason.
 const (
 	CheckDownReasonFailed  CheckDownReason = "failed"
@@ -387,6 +411,27 @@ func (e HealthDb) Valid() bool {
 	}
 }
 
+// Defines values for HealthLlm.
+const (
+	HealthLlmDegraded HealthLlm = "degraded"
+	HealthLlmOff      HealthLlm = "off"
+	HealthLlmOn       HealthLlm = "on"
+)
+
+// Valid indicates whether the value is a known member of the HealthLlm enum.
+func (e HealthLlm) Valid() bool {
+	switch e {
+	case HealthLlmDegraded:
+		return true
+	case HealthLlmOff:
+		return true
+	case HealthLlmOn:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HealthPush.
 const (
 	HealthPushNoKey HealthPush = "no-key"
@@ -555,6 +600,72 @@ func (e Level) Valid() bool {
 	case LevelPassive:
 		return true
 	case LevelTimeSensitive:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LlmStatusCircuit.
+const (
+	LlmStatusCircuitClosed LlmStatusCircuit = "closed"
+	LlmStatusCircuitOpen   LlmStatusCircuit = "open"
+)
+
+// Valid indicates whether the value is a known member of the LlmStatusCircuit enum.
+func (e LlmStatusCircuit) Valid() bool {
+	switch e {
+	case LlmStatusCircuitClosed:
+		return true
+	case LlmStatusCircuitOpen:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LlmStatusEffectiveMode.
+const (
+	LlmStatusEffectiveModeAdvise  LlmStatusEffectiveMode = "advise"
+	LlmStatusEffectiveModeEnforce LlmStatusEffectiveMode = "enforce"
+	LlmStatusEffectiveModeOff     LlmStatusEffectiveMode = "off"
+	LlmStatusEffectiveModeShadow  LlmStatusEffectiveMode = "shadow"
+)
+
+// Valid indicates whether the value is a known member of the LlmStatusEffectiveMode enum.
+func (e LlmStatusEffectiveMode) Valid() bool {
+	switch e {
+	case LlmStatusEffectiveModeAdvise:
+		return true
+	case LlmStatusEffectiveModeEnforce:
+		return true
+	case LlmStatusEffectiveModeOff:
+		return true
+	case LlmStatusEffectiveModeShadow:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LlmStatusMode.
+const (
+	LlmStatusModeAdvise  LlmStatusMode = "advise"
+	LlmStatusModeEnforce LlmStatusMode = "enforce"
+	LlmStatusModeOff     LlmStatusMode = "off"
+	LlmStatusModeShadow  LlmStatusMode = "shadow"
+)
+
+// Valid indicates whether the value is a known member of the LlmStatusMode enum.
+func (e LlmStatusMode) Valid() bool {
+	switch e {
+	case LlmStatusModeAdvise:
+		return true
+	case LlmStatusModeEnforce:
+		return true
+	case LlmStatusModeOff:
+		return true
+	case LlmStatusModeShadow:
 		return true
 	default:
 		return false
@@ -1052,6 +1163,68 @@ type AppriseNotify struct {
 	// Type Apprise's type (info, success, warning, failure), kept in details.notify.type.
 	Type *string `json:"type,omitempty"`
 	Url  *string `json:"url,omitempty"`
+}
+
+// AskAnswer defines model for AskAnswer.
+type AskAnswer struct {
+	Answer string `json:"answer"`
+
+	// CallIds The llm_calls rows this answer made.
+	CallIds *[]string `json:"call_ids,omitempty"`
+
+	// CitedIds Ids of events the answer rests on. Every one came back from a tool the server ran.
+	CitedIds []string `json:"cited_ids"`
+	Model    *string  `json:"model,omitempty"`
+
+	// Proposal A change the model suggests. The server applies nothing. A client shows it and,
+	// when the owner agrees, applies it with the ordinary write call: filter as
+	// GET /v1/events parameters, view as POST /v1/views, guidance as POST
+	// /v1/guidance, mute as POST /v1/mutes. The server checked each body as that call
+	// would.
+	Proposal *AskProposal `json:"proposal,omitempty"`
+}
+
+// AskInput defines model for AskInput.
+type AskInput struct {
+	Question string `json:"question"`
+
+	// Scope What the question is about. The server searches this first, and the model may search further.
+	Scope *AskScope `json:"scope,omitempty"`
+}
+
+// AskProposal A change the model suggests. The server applies nothing. A client shows it and,
+// when the owner agrees, applies it with the ordinary write call: filter as
+// GET /v1/events parameters, view as POST /v1/views, guidance as POST
+// /v1/guidance, mute as POST /v1/mutes. The server checked each body as that call
+// would.
+type AskProposal struct {
+	// Filter A saved view's event filter, as the GET /v1/events parameters of the same names. Every field is optional; filters combine with AND.
+	Filter   *ViewFilter    `json:"filter,omitempty"`
+	Guidance *GuidanceInput `json:"guidance,omitempty"`
+
+	// Mute A new mute. Give source, key, project, or a mix; an event must match every field given. Give until or for.
+	Mute *MuteInput `json:"mute,omitempty"`
+
+	// Summary One line that says what applying it does.
+	Summary *string         `json:"summary,omitempty"`
+	Type    AskProposalType `json:"type"`
+	View    *ViewInput      `json:"view,omitempty"`
+}
+
+// AskProposalType defines model for AskProposal.Type.
+type AskProposalType string
+
+// AskScope What the question is about. The server searches this first, and the model may search further.
+type AskScope struct {
+	// Key One incident's or job's key.
+	Key     *string `json:"key,omitempty"`
+	Project *string `json:"project,omitempty"`
+
+	// Since RFC 3339 time, or a Go duration back from now such as 12h.
+	Since *string `json:"since,omitempty"`
+
+	// View A saved view's id or name.
+	View *string `json:"view,omitempty"`
 }
 
 // AttachmentCreated defines model for AttachmentCreated.
@@ -1702,6 +1875,45 @@ type FocusFilter struct {
 // time-sensitive and critical through; critical sends time-sensitive as active.
 type FocusFilterBreakThrough string
 
+// Guidance defines model for Guidance.
+type Guidance struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// CreatedBy The name of the token that added it.
+	CreatedBy string `json:"created_by"`
+	Enabled   bool   `json:"enabled"`
+
+	// Id gd_ plus a ULID.
+	Id        string    `json:"id"`
+	Scope     string    `json:"scope"`
+	Text      string    `json:"text"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// Version Starts at 1; each edit adds one.
+	Version int `json:"version"`
+}
+
+// GuidanceInput defines model for GuidanceInput.
+type GuidanceInput struct {
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Scope global, project:<p>, source:<s> or key:<regex> (a Go regular expression over the event key).
+	Scope string `json:"scope"`
+	Text  string `json:"text"`
+}
+
+// GuidanceList defines model for GuidanceList.
+type GuidanceList struct {
+	Guidance []Guidance `json:"guidance"`
+}
+
+// GuidancePatch defines model for GuidancePatch.
+type GuidancePatch struct {
+	Enabled *bool   `json:"enabled,omitempty"`
+	Scope   *string `json:"scope,omitempty"`
+	Text    *string `json:"text,omitempty"`
+}
+
 // Health defines model for Health.
 type Health struct {
 	// Db Whether the database answered a query.
@@ -1709,6 +1921,11 @@ type Health struct {
 
 	// Events The number of stored events. Missing when the database does not answer.
 	Events *int64 `json:"events,omitempty"`
+
+	// Llm The LLM. off: llm.mode is off, or this is a standby. on: it is in force.
+	// degraded: it is on, but the circuit is open, a budget was passed, or it is
+	// not configured. Missing from a server before 0.8.
+	Llm *HealthLlm `json:"llm,omitempty"`
 
 	// Push APNs push. off: HERALDO_PUSH is off. on: pushes go out. no-key: HERALDO_PUSH is
 	// on but no usable APNs key is configured, so nothing is pushed.
@@ -1725,6 +1942,11 @@ type Health struct {
 
 // HealthDb Whether the database answered a query.
 type HealthDb string
+
+// HealthLlm The LLM. off: llm.mode is off, or this is a standby. on: it is in force.
+// degraded: it is on, but the circuit is open, a budget was passed, or it is
+// not configured. Missing from a server before 0.8.
+type HealthLlm string
 
 // HealthPush APNs push. off: HERALDO_PUSH is off. on: pushes go out. no-key: HERALDO_PUSH is
 // on but no usable APNs key is configured, so nothing is pushed.
@@ -1853,6 +2075,72 @@ type LiveContent struct {
 type Steps struct {
 	Current int `json:"current"`
 	Total   int `json:"total"`
+}
+
+// LlmStatus defines model for LlmStatus.
+type LlmStatus struct {
+	Api *string `json:"api,omitempty"`
+
+	// BaseHost The endpoint's host. Never a path or a token.
+	BaseHost        *string `json:"base_host,omitempty"`
+	CallsLastMinute int     `json:"calls_last_minute"`
+	CallsPerMinute  int     `json:"calls_per_minute"`
+
+	// Chat Questions are allowed now (llm.chat on, mode not off, not a standby).
+	Chat      bool             `json:"chat"`
+	ChatModel *string          `json:"chat_model,omitempty"`
+	Circuit   LlmStatusCircuit `json:"circuit"`
+
+	// CircuitUntil When an open circuit closes.
+	CircuitUntil *time.Time `json:"circuit_until,omitempty"`
+
+	// Configured llm.base_url and at least one model are set.
+	Configured     bool    `json:"configured"`
+	DecisionsModel *string `json:"decisions_model,omitempty"`
+
+	// EffectiveMode The mode in force. off on a standby. shadow until midnight after a budget is
+	// passed, and while the circuit is open.
+	EffectiveMode LlmStatusEffectiveMode `json:"effective_mode"`
+
+	// Failures Failures in a row; 3 open the circuit for 10 minutes.
+	Failures    *int       `json:"failures,omitempty"`
+	LastError   *string    `json:"last_error,omitempty"`
+	LastErrorAt *time.Time `json:"last_error_at,omitempty"`
+
+	// Mode llm.mode as set.
+	Mode LlmStatusMode `json:"mode"`
+
+	// ShadowUntil Set after a budget was passed; the effective mode is at most shadow until then.
+	ShadowUntil *time.Time `json:"shadow_until,omitempty"`
+	Standby     *bool      `json:"standby,omitempty"`
+
+	// TokenSet llm.token is set. The token is never returned.
+	TokenSet     bool `json:"token_set"`
+	TokensPerDay int  `json:"tokens_per_day"`
+
+	// TokensToday Tokens in and out since midnight, server time.
+	TokensToday int64 `json:"tokens_today"`
+}
+
+// LlmStatusCircuit defines model for LlmStatus.Circuit.
+type LlmStatusCircuit string
+
+// LlmStatusEffectiveMode The mode in force. off on a standby. shadow until midnight after a budget is
+// passed, and while the circuit is open.
+type LlmStatusEffectiveMode string
+
+// LlmStatusMode llm.mode as set.
+type LlmStatusMode string
+
+// LlmTest defines model for LlmTest.
+type LlmTest struct {
+	// Answer The model's reply, at most 200 characters.
+	Answer    *string `json:"answer,omitempty"`
+	CallId    *string `json:"call_id,omitempty"`
+	Error     *string `json:"error,omitempty"`
+	LatencyMs *int64  `json:"latency_ms,omitempty"`
+	Model     *string `json:"model,omitempty"`
+	Ok        bool    `json:"ok"`
 }
 
 // Metric One labelled value, such as Nozzle 215 °C.
@@ -2804,6 +3092,12 @@ type ListEventsParamsOrder string
 // ListEventsParamsRoutine defines parameters for ListEvents.
 type ListEventsParamsRoutine string
 
+// ListGuidanceParams defines parameters for ListGuidance.
+type ListGuidanceParams struct {
+	// Scope Only lines with exactly this scope.
+	Scope *string `form:"scope,omitempty" json:"scope,omitempty"`
+}
+
 // HoldListParams defines parameters for HoldList.
 type HoldListParams struct {
 	State *HoldListParamsState `form:"state,omitempty" json:"state,omitempty"`
@@ -2925,6 +3219,9 @@ type PingExitCodeWithLogTextRequestBody = PingExitCodeWithLogTextBody
 // ReportInstanceJSONRequestBody defines body for ReportInstance for application/json ContentType.
 type ReportInstanceJSONRequestBody = InstanceReport
 
+// AskJSONRequestBody defines body for Ask for application/json ContentType.
+type AskJSONRequestBody = AskInput
+
 // CreateAttachmentMultipartRequestBody defines body for CreateAttachment for multipart/form-data ContentType.
 type CreateAttachmentMultipartRequestBody CreateAttachmentMultipartBody
 
@@ -2942,6 +3239,12 @@ type UpdateDeviceJSONRequestBody = DeviceRegistration
 
 // PostEventJSONRequestBody defines body for PostEvent for application/json ContentType.
 type PostEventJSONRequestBody = EventInput
+
+// CreateGuidanceJSONRequestBody defines body for CreateGuidance for application/json ContentType.
+type CreateGuidanceJSONRequestBody = GuidanceInput
+
+// PutGuidanceJSONRequestBody defines body for PutGuidance for application/json ContentType.
+type PutGuidanceJSONRequestBody = GuidancePatch
 
 // HoldReleaseJSONRequestBody defines body for HoldRelease for application/json ContentType.
 type HoldReleaseJSONRequestBody HoldReleaseJSONBody

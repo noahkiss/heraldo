@@ -1245,6 +1245,7 @@ reaches a log. The text below uses `llm.token`; the others work the same way.
 | `llm.mode` | `off`, `shadow`, `advise`, `enforce` | `"off"` | LLM decisions: off, shadow (record only), advise (show), or enforce (apply within the floors). |
 | `llm.redact` | list (regular expressions) | bearer tokens, `op://` references, hex of 32+ characters | Regular expressions whose matches are removed before text goes to the LLM. |
 | `llm.send_body_chars` | int | `0` | How many characters of an event's body go to the LLM; 0 sends none. |
+| `llm.structured` | `json_schema`, `json_object`, `prompt` | `"json_schema"` | How to get JSON back: json_schema, json_object, or prompt (for endpoints without JSON mode or tool calls). |
 | `llm.token` | secret | none | The endpoint's API token. Write-only. |
 | `llm.tokens_per_day` | int | `200000` | Daily token budget; 0 stops every call. |
 | `quiet.enabled` | bool | `false` | Quiet hours on. |

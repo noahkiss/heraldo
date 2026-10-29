@@ -285,6 +285,9 @@ func serve(flags map[string]string, log *slog.Logger) error {
 		Done: ctx.Done(), Pusher: pusher, Escalator: esc, PushState: pushState, Live: lm,
 		TrustedNets: cfg.NotifyTrustedNets, Settings: sm,
 		Standby: cfg.Standby,
+		// The chat model reads through the MCP tools in process, under a
+		// read grant.
+		AskTools: mcphttp.NewToolbox(version.String()),
 		Hold: server.HoldOptions{
 			Mode: cfg.HoldMode, Bypass: bypass, Deadline: cfg.HoldDeadline, Deadman: cfg.HoldDeadman,
 		},
