@@ -275,15 +275,16 @@ func (t *tools) mute(ctx context.Context, _ *mcp.CallToolRequest, in muteIn) (re
 // ---- send ---------------------------------------------------------------
 
 type sendIn struct {
-	Title   string   `json:"title"`
-	Summary string   `json:"summary,omitempty" jsonschema:"The one-line push text."`
-	Body    string   `json:"body,omitempty" jsonschema:"Markdown. Stored in full; the push carries the summary or the start."`
-	Level   string   `json:"level,omitempty"`
-	Key     string   `json:"key,omitempty" jsonschema:"Groups related messages, such as one job's."`
-	URL     string   `json:"url,omitempty" jsonschema:"Opened when the notification is tapped."`
-	Tags    []string `json:"tags,omitempty"`
-	Project string   `json:"project,omitempty" jsonschema:"The project the message is about. Default: HERALDO_PROJECT, else none."`
-	Dedup   string   `json:"dedup,omitempty" jsonschema:"Idempotency id. A repeat within 24 hours stores nothing and returns the first event."`
+	Title       string           `json:"title"`
+	Summary     string           `json:"summary,omitempty" jsonschema:"The one-line push text."`
+	Body        string           `json:"body,omitempty" jsonschema:"Markdown. Stored in full; the push carries the summary or the start."`
+	Level       string           `json:"level,omitempty"`
+	Key         string           `json:"key,omitempty" jsonschema:"Groups related messages, such as one job's."`
+	URL         string           `json:"url,omitempty" jsonschema:"Opened when the notification is tapped."`
+	Tags        []string         `json:"tags,omitempty"`
+	Project     string           `json:"project,omitempty" jsonschema:"The project the message is about. Default: HERALDO_PROJECT, else none."`
+	Dedup       string           `json:"dedup,omitempty" jsonschema:"Idempotency id. A repeat within 24 hours stores nothing and returns the first event."`
+	Attachments []sendAttachment `json:"attachments,omitempty" jsonschema:"Files to store with the message, such as a screenshot or a log: at most 4, each at most 5 MiB decoded. Allowed: images, text/plain, application/pdf, application/json."`
 }
 
 const sendDesc = `Send the owner a plain message through heraldo. It is stored and, unless passive, pushed to their phone and Mac.
@@ -292,6 +293,7 @@ Best for: telling the owner that a long task finished or failed, or that it need
 Level: passive is inbox-only; active (default) is a normal notification; time-sensitive breaks through Focus, use it only when the owner must act now.
 Returns: the stored event id and cursor, and duplicate=true when dedup matched an earlier send.
 Query tips: set dedup to make retries safe, such as <task>-<step>.
+Attachments: base64 files go up first, then the message names them; the owner sees images and text inline.
 Not for: incidents (incident_act acks and resolves them; agents do not open them), check-in pings (the job pings itself), Live Activities.`
 
 func (t *tools) addSend(s *mcp.Server) {
@@ -307,11 +309,14 @@ func (t *tools) addSend(s *mcp.Server) {
 			def(p["level"], "active")
 			p["url"].Format = "uri"
 			strList(p["tags"], 64, 16)
+			p["attachments"].Types, p["attachments"].Type = nil, "array"
+			p["attachments"].MaxItems = ptr(sendAttachmentsMax)
 		},
 		map[string]*jsonschema.Schema{
 			"id": str("The stored event id."), "cursor": str(""), "duplicate": boolean(""),
-			"pushed": str("will push, or passive (inbox only). A hint: delivery is async."),
-			"source": str("The source the event was posted as."),
+			"pushed":      str("will push, or passive (inbox only). A hint: delivery is async."),
+			"source":      str("The source the event was posted as."),
+			"attachments": arr("The stored attachment ids.", str("")),
 		},
 		t.send)
 }
@@ -341,6 +346,13 @@ func (t *tools) send(ctx context.Context, req *mcp.CallToolRequest, in sendIn) (
 	if project != "" {
 		post["project"] = project
 	}
+	if len(in.Attachments) > 0 {
+		ids, err := t.uploadAll(ctx, in.Attachments)
+		if err != nil {
+			return result{}, err
+		}
+		post["attachments"] = ids
+	}
 	e, created, err := t.API.PostNew(ctx, post)
 	if err != nil {
 		var ce *client.Error
@@ -366,6 +378,9 @@ func (t *tools) send(ctx context.Context, req *mcp.CallToolRequest, in sendIn) (
 		pushed = "passive"
 	}
 	out := map[string]any{"id": e.Id, "cursor": deref(e.Cursor), "duplicate": dup, "pushed": pushed, "source": src}
+	if e.Attachments != nil {
+		out["attachments"] = *e.Attachments
+	}
 	text := fmt.Sprintf("sent %s as %s (%s)", e.Id, src, pushed)
 	if dup {
 		text = fmt.Sprintf("duplicate: dedup %q matched event %s; nothing new was stored", in.Dedup, e.Id)

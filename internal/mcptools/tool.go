@@ -110,6 +110,8 @@ func (t *tools) apiErr(err error, c call) *ToolError {
 type result struct {
 	out  any
 	text string
+	// extra are content blocks after the text, such as an image.
+	extra []mcp.Content
 }
 
 // addTool registers a tool. The input schema is inferred from In, then
@@ -134,7 +136,8 @@ func addTool[In any](t *tools, s *mcp.Server, tool *mcp.Tool, in func(*jsonschem
 				map[string]any{"error": te}, nil
 		}
 		t.Logger.Info("tool", "tool", tool.Name)
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: r.text}}}, r.out, nil
+		content := append([]mcp.Content{&mcp.TextContent{Text: r.text}}, r.extra...)
+		return &mcp.CallToolResult{Content: content}, r.out, nil
 	})
 }
 

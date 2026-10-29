@@ -266,6 +266,7 @@ const readDesc = `Read one heraldo event in full: body, details, delivery outcom
 
 Best for: an id from events_search or overview.
 Returns: the stored event. Bodies over 16 KiB come back in pages; pass body_page.next_offset as body_offset to read on. details over 4 KiB is left out with its size.
+Attachments: attachment_info lists the event's files; read one with attachment_read.
 Not for: finding events; use events_search.`
 
 func (t *tools) addEventRead(s *mcp.Server) {
@@ -279,10 +280,11 @@ func (t *tools) addEventRead(s *mcp.Server) {
 			"body_page": obj("Set when the body was cut.", map[string]*jsonschema.Schema{
 				"offset": integer(""), "next_offset": integer("Absent on the last page."), "total_bytes": integer(""),
 			}),
-			"details":   anyObj("The event's details, or {_omitted_bytes: n} over 4 KiB."),
-			"delivery":  obj("Push outcome per device.", map[string]*jsonschema.Schema{"sent": integer(""), "skipped": integer(""), "failed": integer(""), "items": arr("At most 10.", anyObj(""))}),
-			"why":       str("One line on the push decision, such as \"muted by mute_... (project)\". Absent when the server has not decided the event."),
-			"decisions": arr("The push pipeline's stages in order, the last one ended it: stage, outcome (pass, downgrade, delay, merge, drop), reason, detail.", anyObj("")),
+			"details":         anyObj("The event's details, or {_omitted_bytes: n} over 4 KiB."),
+			"attachment_info": arr("Files stored with the event: id, content_type, bytes. Read one with attachment_read.", anyObj("")),
+			"delivery":        obj("Push outcome per device.", map[string]*jsonschema.Schema{"sent": integer(""), "skipped": integer(""), "failed": integer(""), "items": arr("At most 10.", anyObj(""))}),
+			"why":             str("One line on the push decision, such as \"muted by mute_... (project)\". Absent when the server has not decided the event."),
+			"decisions":       arr("The push pipeline's stages in order, the last one ended it: stage, outcome (pass, downgrade, delay, merge, drop), reason, detail.", anyObj("")),
 		},
 		t.eventRead)
 }
@@ -372,6 +374,11 @@ func (t *tools) eventRead(ctx context.Context, _ *mcp.CallToolRequest, in readIn
 	}
 	if body != "" {
 		b.WriteString("\n" + m["body"].(string) + "\n")
+	}
+	if e.AttachmentInfo != nil {
+		for _, a := range *e.AttachmentInfo {
+			fmt.Fprintf(&b, "\nattached: %s (%s, %d bytes); read it with attachment_read", a.Id, a.ContentType, a.Bytes)
+		}
 	}
 	for _, n := range notes {
 		b.WriteString("\nnote: " + n)

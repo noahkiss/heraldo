@@ -36,6 +36,8 @@ type API interface {
 	Setting(ctx context.Context, key string) (api.Setting, error)
 	PutSetting(ctx context.Context, key string, value any) (api.Setting, error)
 	DeleteSetting(ctx context.Context, key string) (api.Setting, error)
+	UploadAttachment(ctx context.Context, contentType string, data []byte) (api.AttachmentCreated, error)
+	Attachment(ctx context.Context, id string) ([]byte, string, error)
 }
 
 var _ API = (*client.Client)(nil)
@@ -96,6 +98,7 @@ func New(o Options) *mcp.Server {
 	t.addCheckinRead(s)
 	t.addActivityRead(s)
 	t.addSettingsRead(s)
+	t.addAttachmentRead(s)
 	if o.Write {
 		t.addIncidentAct(s)
 		t.addCheckinUpdate(s)
@@ -110,14 +113,14 @@ func New(o Options) *mcp.Server {
 
 // ReadTools, WriteTools and AdminTools name the tools New registers.
 var (
-	ReadTools  = []string{"overview", "events_search", "event_read", "checkin_read", "activity_read", "settings_read"}
+	ReadTools  = []string{"overview", "events_search", "event_read", "checkin_read", "activity_read", "settings_read", "attachment_read"}
 	WriteTools = []string{"incident_act", "checkin_update", "mute", "send"}
 	AdminTools = []string{"settings_write"}
 )
 
 const instructionsRead = `heraldo is the owner's notification hub. Every alert, incident, check-in and long-running job lands here and is pushed to their phone and Mac.
 
-Start with overview: it shows unread events, open incidents, checks that are down, running Live Activities and mutes. Use events_search for history and search, then event_read for one event's full text.`
+Start with overview: it shows unread events, open incidents, checks that are down, running Live Activities and mutes. Use events_search for history and search, then event_read for one event's full text and its attachments, and attachment_read for one attached file.`
 
 const instructionsWrite = `Writes reach the owner's devices. Act on incidents, checks and mutes when the owner asks, or when you fixed the cause and say so in the note. send pushes a notification: use level passive for routine news, active when the owner should look, time-sensitive only when they must act now. Set dedup on every send so a retry stores nothing twice.`
 
