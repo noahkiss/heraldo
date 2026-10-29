@@ -158,10 +158,28 @@ paths:
           schema:
             type: string
         - $ref: "#/components/parameters/ProjectFilter"
+        - name: routine
+          in: query
+          description: |
+            Routine events are the ones the push table never pushes by kind and action:
+            check-ins that did not fail (start, success and log, with no non-zero
+            exit_code outside log), and every progress and status event. exclude leaves
+            them out; only keeps only them. Without it the list holds both. The filter
+            runs in the query, so limit and the cursors stay correct. The answer's
+            Heraldo-Routine header names the filter applied. A server before the
+            filter ignores the parameter and sends no header.
+          schema:
+            type: string
+            enum: [exclude, only]
       responses:
         "200":
           description: One page of events.
           headers:
+            Heraldo-Routine:
+              description: The routine filter applied, exclude or only. Absent without one.
+              schema:
+                type: string
+                enum: [exclude, only]
             Heraldo-Order:
               description: The order applied, asc or desc.
               schema:

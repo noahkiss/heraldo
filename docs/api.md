@@ -14,7 +14,7 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 |---|---|---|
 | `GET /healthz` | Liveness, with `db`, the event count and, with push on, `unsent` ("Push"). 503 when the database does not answer. No auth. | served |
 | `POST /v1/events` | Stores one `EventInput`. Returns the stored `Event` (201), or the first event for a repeated `dedup` (200). | served |
-| `GET /v1/events?after=&before=&order=&limit=&source=&kind=&host=&key=&tag=&q=&hold=&project=` | Lists events after a cursor, in arrival order. `q` is full-text search over title, summary and body. `order=desc` lists newest first. `hold` keeps events whose `hold.state` matches. `project` takes a list (see "Projects"). | served |
+| `GET /v1/events?after=&before=&order=&limit=&source=&kind=&host=&key=&tag=&q=&hold=&project=&routine=` | Lists events after a cursor, in arrival order. `q` is full-text search over title, summary and body. `order=desc` lists newest first. `hold` keeps events whose `hold.state` matches. `project` takes a list (see "Projects"). `routine=exclude` or `only` filters routine events (see "Routine events"). | served |
 | `GET /v1/events/{id}` | Returns one event with its full body. | served |
 | `GET /v1/send?source=&kind=&...` | Same as `POST /v1/events` for GET-only clients. Scalar fields and `tags` (repeat the parameter) only. | served |
 | `GET` or `POST /ping/{slug}`, `/start`, `/fail`, `/log`, `/{exit_code}` | Check-in pings in the healthchecks.io shape, with a write token. `?rid=` pairs runs; `?create=1` creates an unknown check. Answers `OK`. See "Check-ins". | served |
@@ -107,6 +107,25 @@ Paging:
 - Every list answer has a `Heraldo-Order` header, `asc` or `desc`. A server
   before stage 3 ignores `order`, `before` and `hold` and sends no header, so a
   client can tell.
+
+Routine events:
+
+- A routine event is one the push table ("Push") never pushes by kind and
+  action: a check-in that did not fail (`start`, `success` or `log`, with no
+  non-zero `exit_code` outside `log`), and every `progress` and `status`
+  event. A failing check-in, every message, digest and incident is not
+  routine.
+- `routine=exclude` leaves routine events out of the list. `routine=only`
+  keeps only them. Without `routine` the list holds both, as before.
+- The filter runs in the query, so `limit`, `next_cursor` and `before` stay
+  correct. An index (`events_main`) keeps a newest-first list without routine
+  events fast when check-in pings are most of the store.
+- The answer carries a `Heraldo-Routine` header with the filter applied. A
+  server before the filter ignores `routine` and sends no header, so a client
+  can tell and filter on its own.
+- The apps' Inbox, `heraldo ls` and `tail`, and the MCP `events_search` tool
+  leave routine events out by default. A check's pings stay in its history:
+  `GET /v1/events?key=<slug>` lists them.
 
 Read cursors:
 

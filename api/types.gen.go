@@ -612,6 +612,24 @@ func (e ListEventsParamsOrder) Valid() bool {
 	}
 }
 
+// Defines values for ListEventsParamsRoutine.
+const (
+	ListEventsParamsRoutineExclude ListEventsParamsRoutine = "exclude"
+	ListEventsParamsRoutineOnly    ListEventsParamsRoutine = "only"
+)
+
+// Valid indicates whether the value is a known member of the ListEventsParamsRoutine enum.
+func (e ListEventsParamsRoutine) Valid() bool {
+	switch e {
+	case ListEventsParamsRoutineExclude:
+		return true
+	case ListEventsParamsRoutineOnly:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HoldListParamsState.
 const (
 	HoldListParamsStatePending HoldListParamsState = "pending"
@@ -2053,10 +2071,22 @@ type ListEventsParams struct {
 	// one name matches. - matches items with no project. A name also matches the
 	// names the rules file's aliases map to it. Upper case folds to lower case.
 	Project *ProjectFilter `form:"project,omitempty" json:"project,omitempty"`
+
+	// Routine Routine events are the ones the push table never pushes by kind and action:
+	// check-ins that did not fail (start, success and log, with no non-zero
+	// exit_code outside log), and every progress and status event. exclude leaves
+	// them out; only keeps only them. Without it the list holds both. The filter
+	// runs in the query, so limit and the cursors stay correct. The answer's
+	// Heraldo-Routine header names the filter applied. A server before the
+	// filter ignores the parameter and sends no header.
+	Routine *ListEventsParamsRoutine `form:"routine,omitempty" json:"routine,omitempty"`
 }
 
 // ListEventsParamsOrder defines parameters for ListEvents.
 type ListEventsParamsOrder string
+
+// ListEventsParamsRoutine defines parameters for ListEvents.
+type ListEventsParamsRoutine string
 
 // HoldListParams defines parameters for HoldList.
 type HoldListParams struct {

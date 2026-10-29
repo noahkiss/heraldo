@@ -18,6 +18,7 @@ import (
 	"modernc.org/sqlite"
 
 	"github.com/noahkiss/heraldo/api"
+	"github.com/noahkiss/heraldo/internal/routine"
 )
 
 //go:embed migrations/*.sql
@@ -386,7 +387,17 @@ type Filter struct {
 	// Projects keeps events in any of these projects; NoProject in it
 	// keeps the events with none.
 	Projects []string
+	// Routine is routine.Exclude to leave routine events out, or
+	// routine.Only to keep only them. Empty keeps both.
+	Routine string
 }
+
+// RoutineWhere is the SQL form of routine.Is: progress and status events,
+// and check-ins that do not push by the push table (push.Decide). The
+// partial index events_main (migration 0010) is on NOT RoutineWhere, so a
+// query must use this exact expression for SQLite to pick it.
+const RoutineWhere = `(kind IN ('progress', 'status') OR (kind = 'checkin' AND NOT (coalesce(action, '') = 'fail'
+	OR (coalesce(action, '') != 'log' AND coalesce(json_extract(event, '$.checkin.exit_code'), 0) != 0))))`
 
 // NoProject is the project filter value for "no project".
 const NoProject = "-"
@@ -442,6 +453,12 @@ func (s *Store) List(ctx context.Context, f Filter) ([]Record, error) {
 	if w, a := projectWhere("project", f.Projects); w != "" {
 		where = append(where, w)
 		args = append(args, a...)
+	}
+	switch f.Routine {
+	case routine.Exclude:
+		where = append(where, "NOT "+RoutineWhere)
+	case routine.Only:
+		where = append(where, RoutineWhere)
 	}
 	if q := ftsQuery(f.Q); q != "" {
 		where = append(where, "seq IN (SELECT rowid FROM events_fts WHERE events_fts MATCH ?)")

@@ -22,6 +22,7 @@ import (
 	"github.com/noahkiss/heraldo/internal/hold"
 	"github.com/noahkiss/heraldo/internal/ids"
 	"github.com/noahkiss/heraldo/internal/rules"
+	"github.com/noahkiss/heraldo/internal/routine"
 	"github.com/noahkiss/heraldo/internal/store"
 	"github.com/noahkiss/heraldo/internal/validate"
 )
@@ -624,6 +625,17 @@ func (s *server) listEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	if v := q.Get("hold"); v != "" {
 		f.Hold = v
+	}
+	switch v := q.Get("routine"); v {
+	case "":
+	case routine.Exclude, routine.Only:
+		f.Routine = v
+		// A server before the filter ignores the parameter and sends no
+		// header, so a client can tell.
+		w.Header().Set("Heraldo-Routine", v)
+	default:
+		writeError(w, http.StatusBadRequest, "routine: want exclude or only")
+		return
 	}
 	// A client can tell from this header that the order was applied; a
 	// server before stage 3 ignored the parameter.
