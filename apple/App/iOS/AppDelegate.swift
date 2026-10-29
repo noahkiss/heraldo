@@ -30,7 +30,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         // A push in the foreground: show it, and sync, since it means something new.
+        // A push with a key also removes the notifications of that key it supersedes.
         Task { @MainActor in AppSync.shared.driver?.hint() }
+        if let info = PushInfo(userInfo: notification.request.content.userInfo) {
+            let id = notification.request.identifier
+            Task { await Superseded.remove(for: info, keeping: id) }
+        }
         completionHandler([.banner, .list, .sound])
     }
 

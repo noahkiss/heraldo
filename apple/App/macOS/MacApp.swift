@@ -50,9 +50,14 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationC
     }
 
     /// An alert push with content-available reaches a running app here,
-    /// frontmost or not: something changed on the server.
+    /// frontmost or not: something changed on the server. The Mac has no
+    /// notification extension, so this is where a push with a key removes
+    /// the notifications of that key it supersedes.
     func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
         AppSync.shared.driver?.hint()
+        if let info = PushInfo(userInfo: userInfo) {
+            Task { await Superseded.remove(for: info) }
+        }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -73,7 +78,12 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationC
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         // A push while the app is frontmost: show it, and sync, since it means something new.
+        // A push with a key also removes the notifications of that key it supersedes.
         Task { @MainActor in AppSync.shared.driver?.hint() }
+        if let info = PushInfo(userInfo: notification.request.content.userInfo) {
+            let id = notification.request.identifier
+            Task { await Superseded.remove(for: info, keeping: id) }
+        }
         completionHandler([.banner, .list, .sound])
     }
 

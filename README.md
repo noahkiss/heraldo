@@ -452,7 +452,10 @@ app group.
   incident's key and pushes it again in an hour if it is still open
   (`remind: true`). An incident's context menu has Snooze 1 h too, and a
   flapping incident's row shows a "flapping" badge. A resolve replaces the incident's
-  notification with "Resolved after 12 min". A passive event shows no
+  notification with "Resolved after 12 min": the push shares the open's
+  collapse id, and the extension also removes any delivered notification of
+  the same key, for when the open came with another one (a bundle or a hold
+  forward). A passive event shows no
   notification; it waits in the inbox. The extension fetches the full
   event by id and attaches the image, else the source's icon from the
   server's registry. A digest keeps its one line; a tap opens the full text.

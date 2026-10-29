@@ -13,9 +13,12 @@ import WidgetKit
 /// Each push also tells the app something changed: it writes the event into
 /// the widget snapshot in the app group and reloads only the widget kinds
 /// whose content changed, and it posts the `SyncSignal` a running app
-/// observes. A Mac build without the app group (no Developer ID profile for
-/// the extension) cannot read the credentials: it posts the signal and
-/// shows the push as it came.
+/// observes. A push with a key removes the delivered notifications of that
+/// key it supersedes (`Superseded`), so a resolve replaces its open alert
+/// even when the two came with different collapse ids.
+///
+/// iOS only. The Mac app does not embed it: macOS kills the extension at
+/// startup on every push, and the server puts the full body in a Mac's push.
 final class NotificationService: UNNotificationServiceExtension {
     private var contentHandler: ((UNNotificationContent) -> Void)?
     private var bestAttempt: UNMutableNotificationContent?
@@ -42,13 +45,17 @@ final class NotificationService: UNNotificationServiceExtension {
         bestAttempt = content
         // A running app syncs; it costs nothing when the app is not running.
         if let name = SyncSignal.extensionName() { SyncSignal.post(name) }
-        guard AppGroup.identifier() != nil else {
-            deliver(content)
-            return
-        }
+        let identifier = request.identifier
         work = Task {
-            let (final, event) = await Self.enrich(content, info: info)
-            Self.updateWidgets(event ?? Self.event(from: info, content: content))
+            // Runs beside the fetch: one local call, done before delivery.
+            async let removed: Void = Superseded.remove(for: info, keeping: identifier)
+            var final: UNNotificationContent = content
+            if AppGroup.identifier() != nil {
+                let (enriched, event) = await Self.enrich(content, info: info)
+                Self.updateWidgets(event ?? Self.event(from: info, content: content))
+                final = enriched
+            }
+            await removed
             self.deliver(final)
         }
     }
