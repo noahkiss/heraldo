@@ -200,7 +200,14 @@ func (p *Pusher) sendBundleText(ctx context.Context, last bundlePush, name strin
 	ev.Title, ev.Summary = &title, &summary
 	d := last.decision
 	d.Level = api.LevelPassive
-	body, h, err := Build(&ev, d, Extra{Icon: p.icon(ctx, &ev)})
+	x := Extra{Icon: p.icon(ctx, &ev)}
+	body, h, err := Build(&ev, d, x)
+	if err != nil {
+		p.cfg.Logger.Error("push: bundle text payload", "err", err)
+		return 0
+	}
+	x.ContentAvailable = true
+	mac, _, err := Build(&ev, d, x)
 	if err != nil {
 		p.cfg.Logger.Error("push: bundle text payload", "err", err)
 		return 0
@@ -208,7 +215,11 @@ func (p *Pusher) sendBundleText(ctx context.Context, last bundlePush, name strin
 	h.CollapseID = last.collapse
 	sent := 0
 	for _, dev := range last.devices {
-		if out := p.deliver(ctx, dev, body, h); out.Outcome == "sent" {
+		b := body
+		if ContentAvailableFor(dev) {
+			b = mac
+		}
+		if out := p.deliver(ctx, dev, b, h); out.Outcome == "sent" {
 			sent++
 		}
 	}

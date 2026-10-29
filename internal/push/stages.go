@@ -192,26 +192,32 @@ func (p *Pusher) deliverStage(ctx context.Context, r *Run) Verdict {
 	} else {
 		x.Badge = &n
 	}
-	// One payload per level: the focus stage may lower a device's push.
+	// One payload per level, since the focus stage may lower a device's
+	// push, and per platform, since a Mac gets content-available.
 	type built struct {
 		body []byte
 		h    Headers
 	}
-	payloads := map[api.Level]built{}
-	payload := func(lvl api.Level) (built, error) {
-		if b, ok := payloads[lvl]; ok {
+	type variant struct {
+		lvl api.Level
+		mac bool
+	}
+	payloads := map[variant]built{}
+	payload := func(lvl api.Level, mac bool) (built, error) {
+		v := variant{lvl, mac}
+		if b, ok := payloads[v]; ok {
 			return b, nil
 		}
-		dl := d
-		dl.Level = lvl
-		body, h, err := Build(ev, dl, x)
+		dl, xv := d, x
+		dl.Level, xv.ContentAvailable = lvl, mac
+		body, h, err := Build(ev, dl, xv)
 		if r.CollapseID != "" {
 			h.CollapseID = r.CollapseID
 		}
-		payloads[lvl] = built{body, h}
+		payloads[v] = built{body, h}
 		return built{body, h}, err
 	}
-	if _, err := payload(d.Level); err != nil {
+	if _, err := payload(d.Level, false); err != nil {
 		r.Log.Error("push: payload", "err", err)
 		return Drop("payload: " + err.Error())
 	}
@@ -232,10 +238,10 @@ func (p *Pusher) deliverStage(ctx context.Context, r *Run) Verdict {
 			lvl, why = api.LevelTimeSensitive, "critical sent as time-sensitive: critical alerts are off on this device"
 			lowered++
 		}
-		b, err := payload(lvl)
+		b, err := payload(lvl, ContentAvailableFor(dev))
 		if err != nil {
 			r.Log.Error("push: payload", "device", dev.ID, "err", err)
-			b = payloads[d.Level]
+			b = payloads[variant{d.Level, false}]
 			lvl = d.Level
 		}
 		out := p.deliver(ctx, dev, b.body, b.h)

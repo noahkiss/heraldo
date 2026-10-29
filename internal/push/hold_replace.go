@@ -90,14 +90,24 @@ func (p *Pusher) Replace(ctx context.Context, id, title, summary string) (int, e
 	if summary != "" {
 		ev.Summary = &summary
 	}
-	body, h, err := Build(&ev, Decision{Push: true, Level: api.LevelPassive}, Extra{Icon: p.icon(ctx, &ev)})
+	x := Extra{Icon: p.icon(ctx, &ev)}
+	body, h, err := Build(&ev, Decision{Push: true, Level: api.LevelPassive}, x)
+	if err != nil {
+		return 0, err
+	}
+	x.ContentAvailable = true
+	mac, _, err := Build(&ev, Decision{Push: true, Level: api.LevelPassive}, x)
 	if err != nil {
 		return 0, err
 	}
 	h.CollapseID = CollapseID(collapse)
 	n := 0
 	for _, dev := range devices {
-		if out := p.deliver(ctx, dev, body, h); out.Outcome == "sent" {
+		b := body
+		if ContentAvailableFor(dev) {
+			b = mac
+		}
+		if out := p.deliver(ctx, dev, b, h); out.Outcome == "sent" {
 			n++
 		}
 	}

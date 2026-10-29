@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/noahkiss/heraldo/api"
+	"github.com/noahkiss/heraldo/internal/store"
 )
 
 // MaxPayload is the largest alert payload APNs takes, in bytes.
@@ -177,6 +178,10 @@ type APS struct {
 	MutableContent    int      `json:"mutable-content"`
 	InterruptionLevel string   `json:"interruption-level"`
 	RelevanceScore    *float32 `json:"relevance-score,omitempty"`
+	// ContentAvailable is 1 on an alert to a Mac (Extra.ContentAvailable),
+	// so a running Mac app gets a callback and syncs. iOS payloads leave it
+	// out: the iOS app has no background mode for it.
+	ContentAvailable int `json:"content-available,omitempty"`
 	// CriticalSound, when set, replaces Sound with the critical sound
 	// dictionary.
 	CriticalSound *CriticalSound `json:"-"`
@@ -280,6 +285,16 @@ type Extra struct {
 	OpenFor time.Duration
 	// Flap, on a flapping incident, leads the text with its opens.
 	Flap *FlapNote
+	// ContentAvailable sets content-available: 1. Set it for a Mac
+	// (ContentAvailableFor) and never for iOS.
+	ContentAvailable bool
+}
+
+// ContentAvailableFor reports whether an alert to dev carries
+// content-available: 1: it does to a macOS device, by the platform the app
+// registered.
+func ContentAvailableFor(dev store.Device) bool {
+	return strings.EqualFold(dev.Platform, "macOS")
 }
 
 // Build makes the payload and headers for ev with decision d. The payload
@@ -302,6 +317,9 @@ func Build(ev *api.Event, d Decision, x Extra) ([]byte, Headers, error) {
 			RelevanceScore:    ev.Relevance,
 		},
 		Heraldo: Heraldo{ID: ev.Id, Kind: string(ev.Kind), Source: ev.Source},
+	}
+	if x.ContentAvailable {
+		p.APS.ContentAvailable = 1
 	}
 	if ev.Thread != nil && *ev.Thread != "" {
 		p.APS.ThreadID = *ev.Thread
