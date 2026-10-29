@@ -46,7 +46,7 @@ const (
 // lower case; a name the envelope refuses is dropped with a warning, so a
 // bad name never costs the message.
 func (a *app) send(ctx context.Context, args []string) error {
-	fs := a.flags("send", "[-t title] [-m message] [--tag rung] [--source id] [--project name] [--url u] [--image u] [--level rung]")
+	fs := a.flags("send", "[-t title] [-m message] [--tag rung] [--source id] [--project name] [--url u] [--image u] [--level rung] [--attach file]...")
 	var title, message, tag, source, project, link, image, lvl string
 	for _, n := range []string{"t", "title"} {
 		fs.StringVar(&title, n, "System Notification", "notification title")
@@ -60,6 +60,8 @@ func (a *app) send(ctx context.Context, args []string) error {
 	fs.StringVar(&link, "url", "", "link to attach")
 	fs.StringVar(&image, "image", "", "https image URL to attach")
 	fs.StringVar(&lvl, "level", "", "rung that replaces the tag for routing")
+	var attach listFlag
+	fs.Var(&attach, "attach", "file to store with the event; repeat for more. Posts to the heraldo API ("+envURL+", "+envWriteToken+"), not the notify URL")
 	if pos, err := parse(fs, args); err != nil {
 		return err
 	} else if len(pos) > 0 {
@@ -70,7 +72,7 @@ func (a *app) send(ctx context.Context, args []string) error {
 	if target == "" {
 		target = a.setting(envAppriseURL)
 	}
-	if target == "" {
+	if target == "" && len(attach) == 0 {
 		return nil
 	}
 	if project == "" {
@@ -95,6 +97,9 @@ func (a *app) send(ctx context.Context, args []string) error {
 			return err
 		}
 		message = strings.TrimRight(string(b), "\n")
+	}
+	if len(attach) > 0 {
+		return a.sendAttached(ctx, attach, fallbackEvent(title, message, tag, source, link, image, lvl), project)
 	}
 	payload := map[string]any{}
 	if extra := strings.TrimSpace(a.setting(envExtraJSON)); extra != "" {

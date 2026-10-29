@@ -24,7 +24,9 @@ const usage = `usage: heraldo <command> [flags]
 
 reading (HERALDO_URL, HERALDO_TOKEN):
   peek             events since this client's read cursor; --mark moves it
-  show <id>        one event with its full body
+  show <id>        one event with its full body and its attachments
+  attachment get [-o file] <id>
+                   an attachment's bytes, to a file or stdout
   why <id>         why an event did or did not push, stage by stage
   ls               the newest events, without routine ones; --kind --source --host
                    --key --tag --project -q --open --routine
@@ -42,6 +44,7 @@ writing:
   checkins key [--remove] <slug>
                    print a new ping URL for a check; the old one stops working
   send             send a notification through HERALDO_SEND_URL or APPRISE_URL
+                   --attach <file> (repeatable) posts to the heraldo API instead
 
 server settings (reads: HERALDO_TOKEN; writes: HERALDO_ADMIN_TOKEN):
   settings [ls]    every server setting, its value and where it comes from
@@ -115,7 +118,7 @@ func (a *app) run(ctx context.Context, args []string) int {
 	}
 	cmds := map[string]func(context.Context, []string) error{
 		"peek": a.peek, "show": a.show, "ls": a.ls, "held": a.held, "checkins": a.checkins,
-		"tail": a.tail, "ack": a.ack, "resolve": a.resolve, "send": a.send,
+		"tail": a.tail, "ack": a.ack, "resolve": a.resolve, "send": a.send, "attachment": a.attachment,
 		"mcp": a.mcp, "settings": a.settings, "why": a.why,
 	}
 	name := args[0]

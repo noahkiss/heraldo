@@ -138,6 +138,9 @@ func detail(w io.Writer, e client.Event) {
 	}
 	row("title", str(e.Title))
 	row("summary", str(e.Summary))
+	for _, a := range attachmentRows(e) {
+		row("attached", a)
+	}
 	if b := str(e.Body); b != "" {
 		fmt.Fprintf(w, "\n%s\n", strings.TrimRight(clean(b), "\n"))
 	}
