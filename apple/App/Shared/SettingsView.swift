@@ -9,6 +9,9 @@ struct SettingsView: View {
     @State private var saving = false
     @State private var result: String?
     @State private var failed = false
+    #if os(macOS)
+    @AppStorage(DockPolicy.key) private var dockOnlyWithWindow = true
+    #endif
 
     var body: some View {
         NavigationStack {
@@ -41,6 +44,12 @@ struct SettingsView: View {
                 PushSection()
 
                 MutesSection()
+
+                #if os(macOS)
+                Section("Dock") {
+                    Toggle("Show in Dock only while a window is open", isOn: $dockOnlyWithWindow)
+                }
+                #endif
 
                 Section("Sync") {
                     LabeledContent("Events kept", value: "\(model.cache.events.count)")

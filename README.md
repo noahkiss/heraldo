@@ -301,7 +301,12 @@ brew install --cask noahkiss/tap/heraldo-app
   environment `production`, and reports the same permission health. The Dock
   icon shows the `unread` badge.
 - The app syncs every minute, on wake and on a push. Closing the window keeps
-  the menu bar item.
+  the app running in the menu bar. Quit is in the menu bar item's menu.
+- **Dock**: with "Show in Dock only while a window is open" on (Settings, on by
+  default), the Dock icon and the Command-Tab entry go away when the last
+  window closes, the Settings window included. Opening a window from the menu
+  bar, a notification or the app itself brings them back. The setting stays on
+  this Mac.
 
 ### Provision from the shell
 

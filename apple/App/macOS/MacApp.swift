@@ -20,6 +20,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationC
         push.start()
         if Provision.requested { Task { await Provision.run(AppModel.shared) } }
         startPolling()
+        DockPolicy.start()
         // After sleep the network can take a few seconds to return; sync then.
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
@@ -32,7 +33,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationC
         }
     }
 
-    /// The menu bar item stays when the window closes.
+    /// The menu bar item stays when the window closes. DockPolicy hides the Dock icon.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -101,6 +102,7 @@ struct MenuBarLabel: View {
         .accessibilityLabel(n > 0 ? "Heraldo, \(n) unread" : "Heraldo")
         .onAppear {
             model.showMain = {
+                DockPolicy.showIcon()
                 openWindow(id: MacAppDelegate.mainWindowID)
                 NSApp.activate()
             }
