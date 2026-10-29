@@ -162,7 +162,7 @@ func newRigRules(t *testing.T, queue int, rulesYAML string) *rig {
 	}
 	r.p = New(Config{
 		Settings: r.prefs,
-		Key: r.key, KeyID: "KEYID00001", TeamID: "TEAMID0001", Store: st, Logger: log,
+		Key:      r.key, KeyID: "KEYID00001", TeamID: "TEAMID0001", Store: st, Logger: log,
 		ProductionURL: r.prod.srv.URL, SandboxURL: r.sand.srv.URL, HTTPClient: r.prod.srv.Client(),
 		Backoff: []time.Duration{time.Millisecond, time.Millisecond}, Queue: queue,
 		Now: r.clock.now, Rules: rw.Rules, RealertTick: time.Hour,

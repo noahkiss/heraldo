@@ -118,6 +118,14 @@ func TestDevices(t *testing.T) {
 		!strings.Contains(r.stdout, "active") {
 		t.Fatalf("ls: %+v", r)
 	}
+	code, b = f.req(http.MethodPut, "/v1/devices/"+d.ID, readTok,
+		`{"token":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","environment":"production","topic":"org.example.heraldo","name":"Test Phone","focus_filter":{"active":true,"name":"Sleep","break_through":"critical"}}`)
+	if code != http.StatusOK {
+		t.Fatalf("focus: %d %s", code, b)
+	}
+	if r := f.run("devices"); !strings.Contains(r.stdout, "active, focus Sleep: critical only") {
+		t.Fatalf("focus: %+v", r)
+	}
 	if r := f.run("devices", "retire", d.ID); r.code != 0 || !strings.Contains(r.stdout, "retired "+d.ID) {
 		t.Fatalf("retire: %+v", r)
 	}
@@ -141,7 +149,7 @@ func TestProjectsStateActivities(t *testing.T) {
 	}
 	r = f.run("state")
 	if r.code != 0 || !strings.Contains(r.stdout, "incidents (1)") || !strings.Contains(r.stdout, "web down") ||
-		!strings.Contains(r.stdout, "progress (1)") {
+		!strings.Contains(r.stdout, "progress (1)") || !strings.Contains(r.stdout, "badge: 1\n") {
 		t.Fatalf("state: %+v", r)
 	}
 	if r := f.run("state", "--project", "-"); !strings.Contains(r.stdout, "incidents (0)") {

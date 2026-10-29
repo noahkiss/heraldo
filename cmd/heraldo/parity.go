@@ -327,6 +327,9 @@ func (a *app) devices(ctx context.Context, args []string) error {
 		if !d.Active {
 			state = "retired " + oneLine(str(d.RetiredReason))
 		}
+		if f := client.FocusText(d.FocusFilter); f != "" {
+			state += ", " + oneLine(f)
+		}
 		fmt.Fprintf(a.stdout, "%-28s %-24s %-8s %-11s %-9s %s\n", d.Id, cutLine(oneLine(str(d.Name)), 24),
 			oneLine(str(d.Platform)), d.Environment, "…"+d.TokenSuffix, state)
 	}
@@ -405,6 +408,9 @@ func (a *app) state(ctx context.Context, args []string) error {
 	if *asJSON {
 		a.printJSON(st)
 		return nil
+	}
+	if st.Badge != nil {
+		fmt.Fprintf(a.stdout, "badge: %d\n", *st.Badge)
 	}
 	for _, sec := range []struct {
 		name string

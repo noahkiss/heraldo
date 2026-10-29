@@ -78,6 +78,8 @@ type Page struct {
 
 // State is the derived state: the latest event per key.
 type State struct {
+	// Badge is the count by badge.scope; nil from servers before 0.7.
+	Badge     *int    `json:"badge,omitempty"`
 	Incidents []Event `json:"incidents"`
 	Progress  []Event `json:"progress"`
 	Checkins  []Event `json:"checkins"`

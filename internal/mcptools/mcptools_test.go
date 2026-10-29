@@ -305,8 +305,11 @@ func TestOverview(t *testing.T) {
 	if ck["total"].(float64) != 2 || len(ck["items"].([]any)) != 1 || ck["items"].([]any)[0].(map[string]any)["slug"] != "nightly" {
 		t.Fatalf("checkins: %v", ck)
 	}
-	if u := out["unread"].(map[string]any); u["count"].(float64) != 1 {
+	if u := out["unread"].(map[string]any); u["count"].(float64) != 1 || u["badge"] == nil {
 		t.Fatalf("unread: %v", u)
+	}
+	if !strings.Contains(text, ", badge ") {
+		t.Fatalf("text has no badge: %s", text)
 	}
 	if m := out["mutes"].(map[string]any)["items"].([]any); len(m) != 1 {
 		t.Fatalf("mutes: %v", m)

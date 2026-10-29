@@ -31,12 +31,12 @@ type overviewIn struct {
 	Sections []string `json:"sections,omitempty" jsonschema:"Default: unread, incidents, checkins, activities, mutes, stale. Ask for statuses, projects or devices by name."`
 }
 
-const overviewDesc = `Show what needs attention in heraldo now: unread count, open incidents, checks that are down or late, running Live Activities, mutes in force, stale incidents.
+const overviewDesc = `Show what needs attention in heraldo now: unread count and the badge, open incidents, checks that are down or late, running Live Activities, mutes in force, stale incidents.
 
 Best for: the first call in a session, and "is anything wrong / what happened".
 Returns: counts plus short lists (at most 20 per section, most urgent first). No event bodies.
 stale lists incidents open with no update for the server's stale.after (default 72h); it is empty while the server's stale.enabled is off.
-Ask for more by name in sections: statuses (set status widgets), projects (the project names events use, with counts; use them as project filters), devices (the owner's registered phones and Macs, and whether each gets pushes).
+Ask for more by name in sections: statuses (set status widgets), projects (the project names events use, with counts; use them as project filters), devices (the owner's registered phones and Macs, and whether each gets pushes, with its Focus filter).
 Not for: history or search; use events_search.
 Follow up with event_read for an incident's full text, checkin_read for a check, activity_read for an activity, events_search with key=<key> for an incident's history.`
 
@@ -53,7 +53,8 @@ func (t *tools) addOverview(s *mcp.Server) {
 				"url_host": str(""), "version": str(""), "push": str(""), "write": boolean("Write tools are registered."),
 				"write_off": str("Why write is false."), "source": str("The source of events this server posts."),
 			}),
-			"unread": obj("", map[string]*jsonschema.Schema{"cursor_name": str(""), "count": integer(""), "cursor": str("")}),
+			"unread": obj("", map[string]*jsonschema.Schema{"cursor_name": str(""), "count": integer(""), "cursor": str(""),
+				"badge": integer("The badge the owner's devices show, by the badge.scope setting.")}),
 			"incidents": obj("Not resolved: open before acked, oldest first.", map[string]*jsonschema.Schema{
 				"total": integer(""), "items": arr("", anyObj("key, state, opened_at, level, source, title, project, event_id; flapping, flap_count, flap_since while the key flaps")),
 			}),
@@ -74,7 +75,7 @@ func (t *tools) addOverview(s *mcp.Server) {
 			}),
 			"devices": obj("Active first.", map[string]*jsonschema.Schema{
 				"total": integer(""), "active": integer(""),
-				"items": arr("", anyObj("id, name, platform, environment, active, token_suffix, permissions, retired_reason, updated_at")),
+				"items": arr("", anyObj("id, name, platform, environment, active, token_suffix, permissions, retired_reason, updated_at, focus_filter")),
 			}),
 			"notes": arr("", str("")),
 		},
@@ -224,8 +225,14 @@ func (t *tools) overview(ctx context.Context, req *mcp.CallToolRequest, in overv
 	}
 	if want["unread"] && section("unread", cerr) {
 		if cfound {
-			out["unread"] = map[string]any{"cursor_name": t.Cursor, "count": cs.Unread, "cursor": cs.Cursor}
-			lines = append(lines, fmt.Sprintf("unread: %d (cursor %s)", cs.Unread, t.Cursor))
+			u := map[string]any{"cursor_name": t.Cursor, "count": cs.Unread, "cursor": cs.Cursor}
+			l := fmt.Sprintf("unread: %d (cursor %s)", cs.Unread, t.Cursor)
+			if cs.Badge != nil {
+				u["badge"] = *cs.Badge
+				l += fmt.Sprintf(", badge %d", *cs.Badge)
+			}
+			out["unread"] = u
+			lines = append(lines, l)
 		} else {
 			out["unread"] = map[string]any{"cursor_name": t.Cursor, "count": 0}
 			notes = append(notes, fmt.Sprintf("the read cursor %q does not exist yet", t.Cursor))
@@ -443,11 +450,15 @@ func (t *tools) overview(ctx context.Context, req *mcp.CallToolRequest, in overv
 					it[k] = *v
 				}
 			}
-			items = append(items, it)
 			state := "active"
 			if !d.Active {
 				state = "retired: " + deref(d.RetiredReason)
 			}
+			if d.FocusFilter != nil {
+				it["focus_filter"] = d.FocusFilter
+				state += ", " + client.FocusText(d.FocusFilter)
+			}
+			items = append(items, it)
 			lines = append(lines, fmt.Sprintf("  %s %s (%s) %s", d.Id, deref(d.Name), deref(d.Platform), state))
 		}
 		out["devices"] = map[string]any{"total": len(devs), "active": active, "items": items}

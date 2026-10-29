@@ -27,7 +27,7 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `POST /notify/{key}`, `POST /v1/notify` | Apprise-compatible ingest: JSON, form or multipart. Answers 200 with a `Sent` line, or 424. See "Apprise compatibility". | served |
 | `GET /recent?n=&tag=&source=&routine=`, `GET /entry/{id}` | The newest events, or one, in the apprise-tee catalogue's shape. | served |
 | `GET /v1/hold?state=&peek=`, `POST /v1/hold/release`, `POST /v1/hold/suppress` | The alert hold: its queue, and closing entries. Also served as `/held`, `/held/release` and `/held/suppress`. See "Hold". | served |
-| `GET /v1/state?project=&stale=` | Flat arrays of the latest event per key: incidents not resolved, progress not ended, every check-in, set statuses. `stale=1` keeps only the stale incidents (see "Stale incidents"). The shape is a stand-in until stage 12. | served |
+| `GET /v1/state?project=&stale=` | Flat arrays of the latest event per key: incidents not resolved, progress not ended, every check-in, set statuses, and the `badge` ("Badge"). `stale=1` keeps only the stale incidents (see "Stale incidents"). The shape is a stand-in until stage 12. | served |
 | `GET /v1/digest/preview` | The daily digest as it would go out now. Stores and sends nothing. See "Digest". | served |
 | `POST /v1/digest/send` | Builds the digest and sends it now (write). It does not replace the scheduled one. A standby answers 409. | served |
 | `GET /v1/projects` | The projects the stored events name, with counts. See "Projects". | served |
@@ -157,10 +157,34 @@ Read cursors:
   missing, at the newest event: the history from before push went on is
   read. The app makes its cursor the same way on first launch.
 - Every answer carries `unread`: the events after the cursor that push an
-  alert (see "Push"). It is the app's badge. Held, store-only and passive
-  events (digests and incident resolves among them), incident acks,
+  alert (see "Push"). It is the Inbox's unread count. Held, store-only and
+  passive events (digests and incident resolves among them), incident acks,
   progress, status and passing check-ins do not count, nor does an event a
   mute or an inhibit rule held back.
+- Every answer also carries `badge`: the count the `badge.scope` setting
+  picks ("Badge"). The apps show it on the iOS icon, the Mac Dock and the
+  menu bar. Servers before 0.7 leave it out; there, `unread` was the badge.
+
+### Badge
+
+`badge.scope` picks what the badge counts. APNs pushes carry it as
+`aps.badge`, and the cursor answers and `GET /v1/state` return it as `badge`,
+so every device shows the same number.
+
+| `badge.scope` | Counts |
+|---|---|
+| `attention` (default) | Unacknowledged open incidents, plus checks that are down, plus unread events at `time-sensitive` or above. A number means something needs you. |
+| `pushed` | The unread events that pushed visibly: `unread`, the rule before 0.7. |
+| `none` | Nothing: the badge is 0. |
+
+- `attention` counts each thing once. A down check with an open incident
+  counts once. An unread event of an open incident or a down check does not
+  count again.
+- An acknowledged incident leaves the count. Its unread `time-sensitive`
+  events count until they are read.
+- `badge.projects`, a list, narrows any scope to those projects. Empty means
+  every project.
+- The Inbox's own unread count (`unread`) does not follow `badge.scope`.
 
 Event stream:
 
@@ -197,13 +221,15 @@ token and gives it an id, `dev_` plus a ULID. The app keeps the id.
 | `app_version` | string, 64 | The app's version and build. |
 | `permissions` | `{alerts, time_sensitive, live_activities}`, booleans | Permission health. A field left out is unknown. |
 | `live_activity_token` | hex, 32 to 400 characters | ActivityKit's push-to-start token for the app's Live Activities. |
+| `focus_filter` | `{active, name, projects, break_through}` | The device's Focus filter ("Focus filters"). |
 
 - `POST` with an unknown token creates a device: 201. With a known token it
   updates that device: 200. Either way the device is active.
 - `PUT /v1/devices/{id}` replaces the registration, token included, such as
   after APNs gave the app a new token. 404 for an unknown id; 409 when another
   device holds the token.
-- Both replace every field: a field left out is cleared.
+- Both replace every field: a field left out is cleared. `focus_filter` is the
+  one exception: left out, the stored filter stays.
 - `DELETE /v1/devices/{id}` retires the device with reason `removed`. Nothing
   is deleted; the device stays in the list with its delivery history.
   Registering its token again brings it back.
@@ -214,7 +240,40 @@ characters of the token; the server never returns the full token), `name`,
 `platform`, `app_version`, `permissions`, `active`, `registered_at`,
 `updated_at`, `live_activity_token_suffix` when the app reported one, and for
 a retired device `retired_at` and `retired_reason` (`removed`, or the APNs
-reason such as `apns: Unregistered`).
+reason such as `apns: Unregistered`), and `focus_filter` while one is in
+force, with `updated_at`.
+
+### Focus filters
+
+The apps offer a Focus filter (iOS and macOS Settings > Focus > a Focus >
+Focus filters > Heraldo). When the Focus turns on, the app sends the filter
+with `PUT /v1/devices/{id}`. When it turns off, the app sends
+`{"active": false}`. Off by default: a device without a filter gets every
+push as the push table decides.
+
+| Field | Meaning |
+|---|---|
+| `active` | Required. `false` clears the stored filter. |
+| `name` | The Focus's name, up to 64 bytes, when the app knows it. |
+| `projects` | Up to 64 projects whose events may break through. Empty means every project. |
+| `break_through` | `time-sensitive` (default): `time-sensitive` and `critical` break through. `critical`: only `critical` does. |
+
+- While a filter is in force, the server sends that device's pushes above it
+  at `active`. The system Focus silences `active`, so the notification lands
+  in Notification Center with no sound. Other devices are not changed.
+- Above the filter means: `time-sensitive` under `break_through: critical`,
+  and any level above `active` from a project the filter does not list.
+- An event sent as `critical` is never lowered, even while the server sends
+  `critical` as `time-sensitive`.
+- The delivery row of a lowered device has `level: active` and a note in
+  `error`, such as `focus: time-sensitive sent as active`. The `focus` stage
+  lists the devices it lowered ("Why it pushed").
+- Recommended for Sleep: `break_through: critical`, once the app has the
+  critical-alerts grant. Before it, `critical` goes out as `time-sensitive`,
+  which the filter still lets through.
+- A standby copies each device's filter with the device.
+- A server before 0.7 refuses `focus_filter` with 400. The app sends it only
+  from the Focus filter, never with its usual registration.
 
 Permission health:
 
@@ -254,7 +313,7 @@ event is stored either way: the app syncs history by cursor.
   24 hours and 15 minutes ago that should have pushed an alert and reached no
   device. APNs refused every device, no device is registered, or the push
   never ran. Point a monitor at it and alert above 0. It counts by the
-  badge's rule ("Read cursors"), so held, store-only, passive and muted
+  rule of `unread` ("Read cursors"), so held, store-only, passive and muted
   events do not count.
 
 Which events push, and how loud:
@@ -288,11 +347,29 @@ Which events push, and how loud:
   replaces that notification. An incident resolve ("Resolved after 12 min")
   is the usual case. A resolve of an incident that opened passive, or whose
   open a mute held back, pushes nothing.
+- After the mutes: quiet hours lower a push below `quiet.floor` to `passive`
+  while they are on (below). Then each device's Focus filter may lower that
+  device's push to `active` ("Focus filters").
 - `critical` goes out as `time-sensitive`: the app has no critical-alerts
   entitlement. `delivery` records `level: time-sensitive` and the note
   `critical sent as time-sensitive` in `error`.
-- A replacing passive push has no sound and `apns-priority` 5; the others
-  have 10.
+- A passive push has no sound and `apns-priority` 5; the others have 10.
+
+### Quiet hours
+
+Quiet hours are off by default. With `quiet.enabled` true, from
+`quiet.start` to `quiet.end` in `quiet.tz`, a push below `quiet.floor`
+(`time-sensitive` by default) goes out `passive`: it lands in Notification
+Center with no sound, no buzz and no lock-screen wake.
+
+- A window whose end is before its start runs past midnight, such as
+  22:00 to 07:00. Equal times mean no quiet hours.
+- An event sent as `critical` is never lowered, whatever the floor.
+- The `quiet` stage records each decision, such as
+  `quiet hours: active sent as passive`, with the window and the floor.
+- Quiet hours hold for every device. A device's Focus filter works on top,
+  from the level quiet hours left.
+- A standby keeps its own settings, so it has its own quiet hours.
 
 Answers from APNs:
 
@@ -327,7 +404,9 @@ a bundle). Every stage that runs writes one row of the event's trace.
 | `mute` | A mute matches. Records `skipped` on each device. |
 | `inhibit` | An inhibit rule's parent is open. Records `skipped` on each device. |
 | `bundle` | Never. A saved view's bundle turns the push into the view's collapsed notification, and quiets it after the first ("Saved views"). Its detail names the view, the count and the window. |
-| `deliver` | APNs refused every device. Its detail lists each device's outcome. |
+| `quiet` | Never. Lowers a push below `quiet.floor` to `passive` during quiet hours ("Quiet hours"). |
+| `focus` | Never. Lowers the push on each device whose Focus filter it is above; its detail lists them ("Focus filters"). |
+| `deliver` | APNs refused every device. Its detail lists each device's outcome and level, the `badge` and the `badge_scope`. |
 
 - `why` on an event, from `GET /v1/events` and `GET /v1/events/{id}`, is one
   line: the reason of the stage that ended the pipeline, then each downgrade.
@@ -378,7 +457,7 @@ a bundle). Every stage that runs writes one row of the event's trace.
 |---|---|
 | `alert.title` | `title`, else `source` |
 | `alert.body` | `summary`, else `body`. A body is cut at a character boundary, with `…`, so the payload fits 4 KB. An incident resolve says `Resolved after 12 min` instead; a re-alert starts with `Still open after 30 min.`; a digest without a summary shows the first line of its body. |
-| `badge` | `unread` of the `inbox` cursor when the push goes out; 0 when there is no `inbox` cursor |
+| `badge` | The `badge` of the `inbox` cursor when the push goes out, by `badge.scope` ("Badge"). With no `inbox` cursor, `attention` counts incidents and checks only, and `pushed` is 0. |
 | `sound` | `sound`, default `default`; none for `passive` or `sound: none` |
 | `thread-id` | `thread`, else `source` |
 | `category` | `incident` for an incident `open`, `update` or no action; `event` for the rest. The app registers both: `incident` has Ack, Snooze 1 h, Mute 1 h and Open; `event` has Mute 1 h and Open. Mute 1 h on an incident mutes its key; on a check-in, its check's incident key `checkin:<key>`; on any other event, its source. |
@@ -1046,6 +1125,8 @@ and never reaches a log.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
+| `badge.projects` | list | `[]` | Projects the badge counts; empty counts every project. |
+| `badge.scope` | `attention`, `pushed`, `none` | `"attention"` | What the badge counts: attention (open incidents, down checks, unread time-sensitive and up), pushed (unread that pushed), or none. |
 | `digest.at` | clock | `"07:30"` | When the digest is sent, HH:MM. |
 | `digest.enabled` | bool | `false` | Send a daily digest. |
 | `digest.tz` | tz | `"UTC"` | The time zone of digest.at. |
@@ -1076,7 +1157,8 @@ and never reaches a log.
 | `stale.after` | duration | `"72h"` | How long an incident stays open before it is stale. |
 | `stale.enabled` | bool | `false` | Flag incidents open too long. |
 
-These keys only hold values in this release. The features that read them
+The server reads `badge.*` and `quiet.*` ("Badge", "Quiet hours"). The
+other keys only hold values in this release; the features that read them
 come in later releases.
 
 ```sh

@@ -49,6 +49,8 @@ func (c *Client) ChecksIn(ctx context.Context, projects []string) ([]CheckEntry,
 type CursorState struct {
 	Cursor string `json:"cursor"`
 	Unread int    `json:"unread"`
+	// Badge is the count by badge.scope; nil from servers before 0.7.
+	Badge *int `json:"badge,omitempty"`
 }
 
 // CursorUnread returns the read cursor under name with its unread count.

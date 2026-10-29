@@ -45,7 +45,7 @@ heraldo mcp [--read-only]
 
 | Tool | Does | Token |
 |---|---|---|
-| `overview` | Unread count, open incidents (flapping ones marked), checks that are down or late, running Live Activities, mutes and snoozes in force, stale incidents. On request: statuses, projects, devices | read (mutes: write) |
+| `overview` | Unread count and badge, open incidents (flapping ones marked), checks that are down or late, running Live Activities, mutes and snoozes in force, stale incidents. On request: statuses, projects, devices (with each Focus filter) | read (mutes: write) |
 | `events_search` | List or search events: filters, full text, unread, cursor paging | read |
 | `event_read` | One event in full: body (paged), details, delivery, why it did or did not push (`why`, `decisions`), attachment list; `markdown: true` adds the shareable text | read |
 | `checkin_read` | One check: schedule, state, due times, the end of the last log | read |
@@ -94,7 +94,8 @@ with no update for the server's `stale.after`; it is empty while the
 server's `stale.enabled` is off, and the incidents it lists carry
 `stale: true` in `incidents` too. Ask for `statuses`, `projects` (the
 names to filter by, with counts) or `devices` (the owner's phones and Macs,
-and whether each gets pushes) by name.
+and whether each gets pushes, with its Focus filter) by name. `unread`
+carries `badge`, the number the owner's devices show, by `badge.scope`.
 
 Left out on purpose:
 
