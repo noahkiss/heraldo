@@ -337,6 +337,32 @@ func TestRecentAndEntry(t *testing.T) {
 	if rec := e.req("GET", "/entry/nope", readTok, "", "", nil); rec.Code != 404 {
 		t.Fatalf("unknown entry: %d", rec.Code)
 	}
+
+	// routine: a passing check-in and a progress update are routine.
+	for _, b := range []string{
+		`{"source":"cron","kind":"checkin","key":"backup","action":"success"}`,
+		`{"source":"ci","kind":"progress","key":"build/1","action":"update","content":{"progress":0.5}}`,
+	} {
+		if rec := e.req("POST", "/v1/events", writeTok, "", "application/json", []byte(b)); rec.Code != 201 {
+			t.Fatalf("post %s: %d %s", b, rec.Code, rec.Body)
+		}
+	}
+	if all := get("?n=1000"); len(all) != 6 {
+		t.Fatalf("default keeps routine: %d", len(all))
+	}
+	if ex := get("?n=2&routine=exclude"); len(ex) != 2 || ex[1]["body"] != "4" {
+		t.Fatalf("routine=exclude = %v", ex)
+	}
+	if only := get("?routine=only"); len(only) != 2 {
+		t.Fatalf("routine=only = %v", only)
+	}
+	rec = e.req("GET", "/recent?routine=exclude", readTok, "", "", nil)
+	if rec.Header().Get("Heraldo-Routine") != "exclude" {
+		t.Fatalf("header: %v", rec.Header())
+	}
+	if rec := e.req("GET", "/recent?routine=bogus", readTok, "", "", nil); rec.Code != 400 {
+		t.Fatalf("routine=bogus: %d", rec.Code)
+	}
 }
 
 // ---- the hold: shadow --------------------------------------------------

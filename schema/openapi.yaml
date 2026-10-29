@@ -1719,13 +1719,17 @@ paths:
       description: |
         The newest n events, newest last, as apprise-tee's /recent gave them.
         `tag=none` keeps untagged events; `source` matches exactly or by the part
-        before "/", ignoring case. A read token, or a trusted network.
+        before "/", ignoring case. `routine=exclude` leaves routine events out
+        (passing check-in pings, progress, status) and `only` keeps only them, as on
+        GET /v1/events; without it the list holds both. The answer then carries a
+        Heraldo-Routine header. A read token, or a trusted network.
       tags: [compat]
       security: [{bearerAuth: []}, {}]
       parameters:
         - {name: n, in: query, schema: {type: integer, minimum: 1, maximum: 1000, default: 50}}
         - {name: tag, in: query, schema: {type: string}}
         - {name: source, in: query, schema: {type: string}}
+        - {name: routine, in: query, schema: {type: string, enum: [exclude, only]}}
       responses:
         "200":
           description: Catalogue entries, newest last.

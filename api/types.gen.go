@@ -687,6 +687,24 @@ func (e NotifyLiveActivityUpsertParamsNew) Valid() bool {
 	}
 }
 
+// Defines values for NotifyRecentParamsRoutine.
+const (
+	NotifyRecentParamsRoutineExclude NotifyRecentParamsRoutine = "exclude"
+	NotifyRecentParamsRoutineOnly    NotifyRecentParamsRoutine = "only"
+)
+
+// Valid indicates whether the value is a known member of the NotifyRecentParamsRoutine enum.
+func (e NotifyRecentParamsRoutine) Valid() bool {
+	switch e {
+	case NotifyRecentParamsRoutineExclude:
+		return true
+	case NotifyRecentParamsRoutineOnly:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListActivitiesParamsAll.
 const (
 	ListActivitiesParamsAllN0 ListActivitiesParamsAll = 0
@@ -2290,10 +2308,14 @@ type PingExitCodeWithLogParams struct {
 
 // NotifyRecentParams defines parameters for NotifyRecent.
 type NotifyRecentParams struct {
-	N      *int    `form:"n,omitempty" json:"n,omitempty"`
-	Tag    *string `form:"tag,omitempty" json:"tag,omitempty"`
-	Source *string `form:"source,omitempty" json:"source,omitempty"`
+	N       *int                       `form:"n,omitempty" json:"n,omitempty"`
+	Tag     *string                    `form:"tag,omitempty" json:"tag,omitempty"`
+	Source  *string                    `form:"source,omitempty" json:"source,omitempty"`
+	Routine *NotifyRecentParamsRoutine `form:"routine,omitempty" json:"routine,omitempty"`
 }
+
+// NotifyRecentParamsRoutine defines parameters for NotifyRecent.
+type NotifyRecentParamsRoutine string
 
 // ListActivitiesParams defines parameters for ListActivities.
 type ListActivitiesParams struct {

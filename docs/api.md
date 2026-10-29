@@ -25,7 +25,7 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `POST /v1/checkins/{slug}/pause`, `/resume` | Pauses or resumes a check. | served |
 | `POST`, `DELETE /v1/checkins/{slug}/key` | Mints a check's ping key (replacing the old one), or removes it. | served |
 | `POST /notify/{key}`, `POST /v1/notify` | Apprise-compatible ingest: JSON, form or multipart. Answers 200 with a `Sent` line, or 424. See "Apprise compatibility". | served |
-| `GET /recent?n=&tag=&source=`, `GET /entry/{id}` | The newest events, or one, in the apprise-tee catalogue's shape. | served |
+| `GET /recent?n=&tag=&source=&routine=`, `GET /entry/{id}` | The newest events, or one, in the apprise-tee catalogue's shape. | served |
 | `GET /v1/hold?state=&peek=`, `POST /v1/hold/release`, `POST /v1/hold/suppress` | The alert hold: its queue, and closing entries. Also served as `/held`, `/held/release` and `/held/suppress`. See "Hold". | served |
 | `GET /v1/state?project=` | Flat arrays of the latest event per key: incidents not resolved, progress not ended, every check-in, set statuses. The shape is a stand-in until stage 12. | served |
 | `GET /v1/projects` | The projects the stored events name, with counts. See "Projects". | served |
@@ -553,7 +553,7 @@ a sender that checks for HTTP 200 and a `Sent` line keeps working.
 |---|---|
 | `POST /notify/{key}` | Apprise's keyed notify. `key` is `apprise` (Apprise's default key) or a `notify-key` token. |
 | `POST /v1/notify` | The same message, `body` required. The answer adds `id` (the event), `delivered` (false when held), `backends` and `hold_id`. |
-| `GET /recent?n=50&tag=&source=` | The newest `n` events (1 to 1000), newest last, in the tee catalogue's shape. |
+| `GET /recent?n=50&tag=&source=&routine=` | The newest `n` events (1 to 1000), newest last, in the tee catalogue's shape. `routine=exclude` leaves out routine events (see "Routine events"), so `n` counts alerts and messages only; `only` keeps only them. Without `routine` the list holds both, as the tee's did. |
 | `GET /entry/{id}` | One event in that shape, by event id. 404 for an unknown id. |
 
 The body is a JSON object, a form (`application/x-www-form-urlencoded`) or

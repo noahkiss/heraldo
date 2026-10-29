@@ -20,6 +20,7 @@ import (
 
 	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/auth"
+	"github.com/noahkiss/heraldo/internal/routine"
 	"github.com/noahkiss/heraldo/internal/rules"
 	"github.com/noahkiss/heraldo/internal/store"
 	"github.com/noahkiss/heraldo/internal/validate"
@@ -515,6 +516,17 @@ func (s *server) recent(w http.ResponseWriter, r *http.Request) {
 	tag, src := q.Get("tag"), q.Get("source")
 	var out []map[string]any
 	f := store.Filter{Desc: true, Limit: 500}
+	// routine filters in the query, as on GET /v1/events, so n counts only
+	// the events kept. Without it the list holds both, as the tee did.
+	switch v := q.Get("routine"); v {
+	case "":
+	case routine.Exclude, routine.Only:
+		f.Routine = v
+		w.Header().Set("Heraldo-Routine", v)
+	default:
+		writeError(w, http.StatusBadRequest, "routine: want exclude or only")
+		return
+	}
 	for scanned := 0; len(out) < n && scanned < recentScan; {
 		recs, err := s.Store.List(r.Context(), f)
 		if err != nil {
