@@ -315,6 +315,35 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(event.flatMap(PushCategory.muteInput), MuteInput(source: "backup", for: "1h"))
         let run = PushInfo(userInfo: ["heraldo": ["id": "z", "kind": "checkin", "source": "checkin", "key": "nightly"]])
         XCTAssertEqual(run.flatMap(PushCategory.muteInput), MuteInput(key: "checkin:nightly", for: "1h"))
+        // Snooze 1 h: incidents only, with remind.
+        XCTAssertEqual(incident.flatMap(PushCategory.snoozeInput), MuteInput(key: "web", for: "1h", remind: true))
+        XCTAssertNil(event.flatMap(PushCategory.snoozeInput))
+        XCTAssertNil(run.flatMap(PushCategory.snoozeInput))
+    }
+
+    func testSnoozeAndFlapCoding() throws {
+        // A plain mute leaves remind out, so a server before 0.7 takes it.
+        let plain = String(decoding: try JSON.encoder.encode(MuteInput(key: "k", for: "1h")), as: UTF8.self)
+        XCTAssertFalse(plain.contains("remind"))
+        let snooze = String(decoding: try JSON.encoder.encode(MuteInput(key: "k", for: "1h", remind: true)), as: UTF8.self)
+        XCTAssertTrue(snooze.contains(#""remind":true"#))
+        let m = try JSON.decoder.decode(Mute.self, from: Data(#"""
+            {"id":"mute_1","key":"k","until":"2026-10-26T13:00:00Z","active":false,"remind":true,
+             "reminded_at":"2026-10-26T13:00:05Z"}
+            """#.utf8))
+        XCTAssertTrue(m.isSnooze)
+        XCTAssertNotNil(m.remindedAt)
+        let e = try JSON.decoder.decode(Event.self, from: Data(#"""
+            {"id":"a","source":"uptime","kind":"incident","key":"host:web-1","action":"open",
+             "incident":{"state":"open","opened_at":"2026-10-26T12:40:01Z","flapping":true,"flap_count":4,
+             "flap_since":"2026-10-26T12:00:01Z"}}
+            """#.utf8))
+        XCTAssertEqual(e.incident?.isFlapping, true)
+        XCTAssertEqual(e.incident?.flapCount, 4)
+        let old = try JSON.decoder.decode(Event.self, from: Data(#"""
+            {"id":"b","source":"uptime","kind":"incident","incident":{"state":"open","opened_at":"2026-10-26T12:40:01Z"}}
+            """#.utf8))
+        XCTAssertEqual(old.incident?.isFlapping, false)
     }
 
     func testCacheHoldStatesAndResolved() {

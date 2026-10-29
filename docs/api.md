@@ -57,7 +57,7 @@ Auth:
 - A `read` token may register, update and remove devices, as it may move the
   read cursors. The apps hold a token pair, like the CLI: a `read` token for
   history, cursors and device registration, and a `write` token for the
-  notification actions (Ack, Mute 1 h) and for sending an event.
+  notification actions (Ack, Snooze 1 h, Mute 1 h) and for sending an event.
 - A missing or unknown token gets 401. A token without the scope gets 403.
 - `GET /v1/send` and the Notify! compatibility paths (`/live-activity/{id}`,
   `/link`, `/notify-json/{id}`) also take the token as a `token` query
@@ -381,7 +381,7 @@ a bundle). Every stage that runs writes one row of the event's trace.
 | `badge` | `unread` of the `inbox` cursor when the push goes out; 0 when there is no `inbox` cursor |
 | `sound` | `sound`, default `default`; none for `passive` or `sound: none` |
 | `thread-id` | `thread`, else `source` |
-| `category` | `incident` for an incident `open`, `update` or no action; `event` for the rest. The app registers both: `incident` has Ack, Mute 1 h and Open; `event` has Mute 1 h and Open. Mute 1 h on an incident mutes its key; on a check-in, its check's incident key `checkin:<key>`; on any other event, its source. |
+| `category` | `incident` for an incident `open`, `update` or no action; `event` for the rest. The app registers both: `incident` has Ack, Snooze 1 h, Mute 1 h and Open; `event` has Mute 1 h and Open. Mute 1 h on an incident mutes its key; on a check-in, its check's incident key `checkin:<key>`; on any other event, its source. |
 | `mutable-content` | Always 1, so the notification service extension runs. |
 | `interruption-level` | The table above. |
 | `relevance-score` | `relevance` |
@@ -880,7 +880,8 @@ Schedule:
 
 A mute holds back pushes for a while. Matching events are stored, listed and
 synced as usual; only the push is skipped. The app's Mute 1 h action makes one,
-and so does its Mute project for 1 h menu action.
+and so does its Mute project for 1 h menu action. Snooze 1 h makes a snooze
+(see "Snooze").
 
 `POST /v1/mutes` takes a write token and a `MuteInput`:
 

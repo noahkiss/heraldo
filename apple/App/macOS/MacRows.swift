@@ -66,6 +66,7 @@ struct MacEventRow: View {
                     if showProject, let project = event.project {
                         ProjectChip(project: project)
                     }
+                    FlapBadge(event: event)
                     if event.isAcked {
                         Label("Acknowledged", systemImage: "hand.raised")
                             .labelStyle(.iconOnly)

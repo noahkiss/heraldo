@@ -300,6 +300,7 @@ struct MacItemMenu: View {
                 }
                 if e.isOpenIncident && !e.isAcked && model.canWrite {
                     Button("Acknowledge") { model.perform { try await $0.ack(e) } }
+                    Button("Snooze 1 h") { model.perform { try await $0.snooze(e) } }
                 }
                 if let p = e.project, model.canWrite {
                     Button("Mute Project for 1 h") { model.perform { try await $0.muteProject(p) } }

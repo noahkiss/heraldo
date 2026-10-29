@@ -331,20 +331,36 @@ public struct IncidentInfo: Codable, Hashable, Sendable {
     /// Set by `/v1/state` (server 0.7 and later, with `stale.enabled` on):
     /// the incident's last event is older than `stale.after`. Never stored.
     public var stale: Bool?
+    /// Set while the key opens and resolves again and again: its pushes
+    /// update one notification and do not page. A server before 0.7, or
+    /// with flap grouping off, never sets it.
+    public var flapping: Bool?
+    /// The opens counted from `flapSince`, while flapping.
+    public var flapCount: Int?
+    public var flapSince: Date?
 
     enum CodingKeys: String, CodingKey {
-        case state
+        case state, flapping
         case openedAt = "opened_at"
         case resolvedAt = "resolved_at"
         case stale
+        case flapCount = "flap_count"
+        case flapSince = "flap_since"
     }
 
-    public init(state: String, openedAt: Date? = nil, resolvedAt: Date? = nil, stale: Bool? = nil) {
+    public init(state: String, openedAt: Date? = nil, resolvedAt: Date? = nil, stale: Bool? = nil,
+                flapping: Bool? = nil, flapCount: Int? = nil, flapSince: Date? = nil) {
         self.state = state
         self.openedAt = openedAt
         self.resolvedAt = resolvedAt
         self.stale = stale
+        self.flapping = flapping
+        self.flapCount = flapCount
+        self.flapSince = flapSince
     }
+
+    /// Whether the key is flapping.
+    public var isFlapping: Bool { flapping ?? false }
 
     /// How long the incident was open, for a resolved one.
     public var openFor: TimeInterval? {
@@ -364,12 +380,20 @@ public struct Mute: Codable, Hashable, Identifiable, Sendable {
     public var createdAt: Date?
     public var endedAt: Date?
     public var active: Bool
+    /// A snooze: when it ends and the key is still open, the server pushes
+    /// the key's last event again. Missing from a server before 0.7.
+    public var remind: Bool?
+    public var remindedAt: Date?
 
     enum CodingKeys: String, CodingKey {
-        case id, source, key, project, until, active
+        case id, source, key, project, until, active, remind
         case createdAt = "created_at"
         case endedAt = "ended_at"
+        case remindedAt = "reminded_at"
     }
+
+    /// Whether the mute is a snooze.
+    public var isSnooze: Bool { remind ?? false }
 }
 
 /// The body of `POST /v1/mutes`.
@@ -381,12 +405,17 @@ public struct MuteInput: Codable, Hashable, Sendable {
     public var project: String?
     /// A Go duration such as 1h.
     public var `for`: String?
+    /// true makes a snooze of one key. Left out unless set, so a server
+    /// before 0.7 takes a plain mute; it refuses the field with 400.
+    public var remind: Bool?
 
-    public init(source: String? = nil, key: String? = nil, project: String? = nil, for duration: String) {
+    public init(source: String? = nil, key: String? = nil, project: String? = nil, for duration: String,
+                remind: Bool? = nil) {
         self.source = source
         self.key = key
         self.project = project
         self.for = duration
+        self.remind = remind
     }
 }
 

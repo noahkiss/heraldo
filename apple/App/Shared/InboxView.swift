@@ -175,6 +175,7 @@ struct EventRow: View {
                     if showProject, let project = event.project {
                         ProjectChip(project: project)
                     }
+                    FlapBadge(event: event)
                 }
                 if let hold = event.hold, !hold.label.isEmpty {
                     Label(hold.label, systemImage: "tray.full")

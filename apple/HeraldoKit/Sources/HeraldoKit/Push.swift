@@ -34,17 +34,28 @@ public struct PushInfo: Equatable, Sendable {
 
 /// The notification categories and actions, as the server sets `category`.
 public enum PushCategory {
-    /// An incident open, update or untyped: Ack, Mute 1 h and Open.
+    /// An incident open, update or untyped: Ack, Snooze 1 h, Mute 1 h and Open.
     public static let incident = "incident"
     /// Everything else: Mute 1 h and Open.
     public static let event = "event"
 
     public static let ackAction = "ack"
     public static let muteAction = "mute"
+    public static let snoozeAction = "snooze"
     public static let openAction = "open"
 
     /// How long Mute lasts, as the server reads it.
     public static let muteFor = "1h"
+    /// How long Snooze lasts.
+    public static let snoozeFor = "1h"
+
+    /// What Snooze 1 h asks for: a mute of the incident's key that pushes
+    /// the incident again when it ends, if it is still open. nil for an
+    /// event without an incident key.
+    public static func snoozeInput(_ info: PushInfo) -> MuteInput? {
+        guard info.kind == "incident", let key = info.key, !key.isEmpty else { return nil }
+        return MuteInput(key: key, for: snoozeFor, remind: true)
+    }
 
     /// What Mute 1 h holds back: an incident's key; for a check-in, its
     /// check's incident key `checkin:<key>`, which the server applies to the

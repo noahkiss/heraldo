@@ -356,9 +356,12 @@ app group.
 - **Push**: the app registers its APNs token with `POST /v1/devices` on every
   launch, and again when a permission changes. A Debug build reports
   `sandbox`; a TestFlight or App Store build reports `production`.
-- **Notifications**: `incident` has Ack, Mute 1 h and Open; `event` has
-  Mute 1 h and Open. Mute 1 h mutes an incident's key, or an event's source
-  (`POST /v1/mutes`, write token). A resolve replaces the incident's
+- **Notifications**: `incident` has Ack, Snooze 1 h, Mute 1 h and Open;
+  `event` has Mute 1 h and Open. Mute 1 h mutes an incident's key, or an
+  event's source (`POST /v1/mutes`, write token). Snooze 1 h mutes the
+  incident's key and pushes it again in an hour if it is still open
+  (`remind: true`). An incident's context menu has Snooze 1 h too, and a
+  flapping incident's row shows a "flapping" badge. A resolve replaces the incident's
   notification with "Resolved after 12 min". A passive event shows no
   notification; it waits in the inbox. The extension fetches the full
   event by id and attaches the image, else the source's icon from the

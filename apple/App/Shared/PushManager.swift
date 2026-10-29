@@ -86,11 +86,14 @@ final class PushManager {
         let mute = UNNotificationAction(identifier: PushCategory.muteAction, title: "Mute 1 h",
                                         options: [.authenticationRequired],
                                         icon: UNNotificationActionIcon(systemImageName: "bell.slash"))
+        let snooze = UNNotificationAction(identifier: PushCategory.snoozeAction, title: "Snooze 1 h",
+                                          options: [.authenticationRequired],
+                                          icon: UNNotificationActionIcon(systemImageName: "clock.arrow.circlepath"))
         let open = UNNotificationAction(identifier: PushCategory.openAction, title: "Open",
                                         options: [.foreground],
                                         icon: UNNotificationActionIcon(systemImageName: "arrow.up.forward.app"))
         return [
-            UNNotificationCategory(identifier: PushCategory.incident, actions: [ack, mute, open], intentIdentifiers: []),
+            UNNotificationCategory(identifier: PushCategory.incident, actions: [ack, snooze, mute, open], intentIdentifiers: []),
             UNNotificationCategory(identifier: PushCategory.event, actions: [mute, open], intentIdentifiers: []),
         ]
     }
@@ -221,6 +224,8 @@ final class PushManager {
             await ack(info)
         case PushCategory.muteAction:
             await mute(info)
+        case PushCategory.snoozeAction:
+            await snooze(info)
         case PushCategory.openAction:
             if let url = info.url.flatMap(URL.init(string:)) {
                 #if os(iOS)
@@ -246,6 +251,18 @@ final class PushManager {
             log.info("push: muted \(m.key ?? m.source ?? "", privacy: .public) until \(m.until, privacy: .public)")
         } catch {
             await failed("Mute failed", error, id: "mute-failed-\(info.id)")
+        }
+    }
+
+    /// Snooze 1 h: mutes the incident's key, and the server pushes it again
+    /// in an hour if it is still open.
+    private func snooze(_ info: PushInfo) async {
+        guard let input = PushCategory.snoozeInput(info) else { return }
+        do {
+            let m = try await AppModel.shared.client().mute(input)
+            log.info("push: snoozed \(m.key ?? "", privacy: .public) until \(m.until, privacy: .public)")
+        } catch {
+            await failed("Snooze failed", error, id: "snooze-failed-\(info.id)")
         }
     }
 

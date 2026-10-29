@@ -75,6 +75,15 @@ struct IncidentsView: View {
             }
         }
         .contextMenu {
+            if e.isOpenIncident && !e.isAcked && model.canWrite {
+                Button {
+                    Task {
+                        do { try await model.snooze(e); error = nil } catch { self.error = error.localizedDescription }
+                    }
+                } label: {
+                    Label("Snooze 1 h", systemImage: "clock.arrow.circlepath")
+                }
+            }
             if let project = e.project, model.canWrite {
                 Button {
                     Task {
