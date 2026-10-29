@@ -249,6 +249,27 @@ final class ServerTests: XCTestCase {
         XCTAssertFalse(after.contains { $0.id == m.id })
     }
 
+    func testProjectMuteAndRoutineFilter() async throws {
+        let project = unique("proj")
+        let m = try await client.mute(MuteInput(project: project, for: "1h"))
+        XCTAssertEqual(m.project, project)
+        XCTAssertNil(m.source)
+        _ = try await client.endMute(id: m.id)
+
+        let source = unique("routine")
+        try await client.post(EventInput(source: source, kind: "message", title: "hello"))
+        try await client.post(EventInput(source: source, kind: "checkin", key: source, action: "success"))
+        try await client.post(EventInput(source: source, kind: "checkin", key: source, action: "fail"))
+        let main = try await client.listEvents(EventQuery(source: source, routine: .exclude)).events
+        XCTAssertEqual(main.map(\.kind), ["message", "checkin"])
+        let routine = try await client.listEvents(EventQuery(source: source, routine: .only)).events
+        XCTAssertEqual(routine.map(\.action), ["success"])
+        let history = try await client.listEvents(EventQuery(key: source)).events
+        XCTAssertEqual(history.count, 2)
+        let projects = try await client.projects()
+        XCTAssertNotNil(projects)
+    }
+
     func testIncidentStateAndHoldFilter() async throws {
         let key = unique("inc")
         try await client.post(EventInput(source: key, kind: "incident", key: key, action: "open", title: "Down"))
