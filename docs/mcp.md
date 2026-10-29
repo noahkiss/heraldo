@@ -45,7 +45,7 @@ heraldo mcp [--read-only]
 |---|---|---|
 | `overview` | Unread count, open incidents, checks that are down or late, running Live Activities, mutes in force | read (mutes: write) |
 | `events_search` | List or search events: filters, full text, unread, cursor paging | read |
-| `event_read` | One event in full: body (paged), details, delivery | read |
+| `event_read` | One event in full: body (paged), details, delivery, and why it did or did not push (`why`, `decisions`) | read |
 | `checkin_read` | One check: schedule, state, due times, the end of the last log | read |
 | `activity_read` | One Live Activity: content, device instances, timeline | read |
 | `incident_act` | Ack or resolve an open incident | write |
@@ -78,6 +78,7 @@ that matches the tool's `outputSchema`.
 | `event_read` body | 16 KiB per call; pass `body_page.next_offset` as `body_offset` |
 | `event_read` details | 4 KiB of JSON, else `{"_omitted_bytes": n}` |
 | `event_read` delivery | counts, plus the first 10 outcomes |
+| `event_read` decisions | every push stage the event passed through; absent before the server decides it |
 | Check `last_log` | the last 8 KiB |
 | `activity_read` timeline | the newest 50 by default, 200 at most |
 | Any result | 64 KiB of JSON; `events_search` drops rows to fit and sets `truncated` |

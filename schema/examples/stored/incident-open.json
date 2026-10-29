@@ -17,5 +17,6 @@
   "delivery": [
     { "device": "dev_01", "outcome": "sent", "level": "time-sensitive", "at": "2026-10-26T12:00:02Z" },
     { "device": "dev_02", "outcome": "failed", "at": "2026-10-26T12:00:02Z", "error": "BadDeviceToken" }
-  ]
+  ],
+  "why": "pushed time-sensitive to 1 of 2 devices; critical sent as time-sensitive"
 }

@@ -16,6 +16,7 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `POST /v1/events` | Stores one `EventInput`. Returns the stored `Event` (201), or the first event for a repeated `dedup` (200). | served |
 | `GET /v1/events?after=&before=&order=&limit=&source=&kind=&host=&key=&tag=&q=&hold=&project=&routine=` | Lists events after a cursor, in arrival order. `q` is full-text search over title, summary and body. `order=desc` lists newest first. `hold` keeps events whose `hold.state` matches. `project` takes a list (see "Projects"). `routine=exclude` or `only` filters routine events (see "Routine events"). | served |
 | `GET /v1/events/{id}` | Returns one event with its full body. | served |
+| `GET /v1/events/{id}/why` | Why the event did or did not push: one row per push pipeline stage. See "Why it pushed". | served |
 | `GET /v1/send?source=&kind=&...` | Same as `POST /v1/events` for GET-only clients. Scalar fields and `tags` (repeat the parameter) only. | served |
 | `GET` or `POST /ping/{slug}`, `/start`, `/fail`, `/log`, `/{exit_code}` | Check-in pings in the healthchecks.io shape, with a write token. `?rid=` pairs runs; `?create=1` creates an unknown check. Answers `OK`. See "Check-ins". | served |
 | `GET` or `POST /p/{key}`, `/start`, `/fail`, `/log`, `/{exit_code}` | The same pings with a check's ping key and no bearer token. | served |
@@ -295,6 +296,40 @@ Answers from APNs:
 `delivery` on an event, from `GET /v1/events` and `GET /v1/events/{id}`,
 lists the outcome per device: `device`, `outcome`, `level`, `at`, `error`. An
 event that did not push has no `delivery`.
+
+### Why it pushed
+
+The server runs each event through the push pipeline, an ordered list of
+stages. Each stage passes the event on, lowers its level (`downgrade`), or
+ends the pipeline: `drop` (no push), `delay` (pushes later) or `merge` (joins
+a bundle). Every stage that runs writes one row of the event's trace.
+
+| Stage | Ends the pipeline when |
+|---|---|
+| `hold` | The event is store-only, or held and not forwarded. |
+| `expiry` | The event is past `expires_at`. |
+| `table` | The push table says no, or the event is passive without a key. Records the `critical` downgrade. |
+| `replace` | A passive push has no visible push of its key to replace. |
+| `devices` | No device is active. |
+| `mute` | A mute matches. Records `skipped` on each device. |
+| `inhibit` | An inhibit rule's parent is open. Records `skipped` on each device. |
+| `deliver` | APNs refused every device. Its detail lists each device's outcome. |
+
+- `why` on an event, from `GET /v1/events` and `GET /v1/events/{id}`, is one
+  line: the reason of the stage that ended the pipeline, then each downgrade.
+  Examples: `pushed active to 2 devices`, `passive: inbox only`,
+  `muted by mute_01J... (project)`,
+  `pushed time-sensitive to 1 device; critical sent as time-sensitive`.
+- `GET /v1/events/{id}/why` returns `{event_id, why, decisions}`. Each
+  decision has `stage`, `outcome`, `reason`, `at`, and `detail` where the stage
+  has data (the level, the mute id, the inhibit rule and parent, the devices).
+- The trace is the event's latest push decision. A re-alert that pushes
+  replaces it, like it replaces `delivery`. A re-alert a mute holds back
+  keeps the earlier trace.
+- An event has no trace, and no `why`, while it waits in the queue, when it
+  was imported, and on a server with push off.
+- A downgrade never raises the level: the pipeline refuses a louder one and
+  records the refusal.
 
 ### Payload
 
@@ -952,7 +987,7 @@ A script can post to the standby's `POST /v1/events` itself.
 
 - **`EventInput`** is what a sender posts. It is the schema root.
 - **`Event`** is what the read API returns: `$defs/Event` in the schema.
-- The server owns `id`, `received_at`, `cursor`, `hold`, `delivery` and `incident`. An
+- The server owns `id`, `received_at`, `cursor`, `hold`, `delivery`, `why` and `incident`. An
   input that sets any of them is rejected. `ts` stays the sender's; the server fills it with the
   arrival time when it is missing.
 
@@ -1242,6 +1277,7 @@ that, the check's config lives on the server. See "Check-ins".
 | `cursor` | The event's list cursor (see "Paging"). |
 | `hold` | Triage state. |
 | `delivery` | Per-device outcome: `sent`, `failed`, or `skipped` (a mute or an inhibit rule held it back), with the level the push carried. See "Push". |
+| `why` | One line on the push decision, such as `pushed active to 2 devices`. See "Why it pushed". |
 | `incident` | On an incident event: the incident after this event, `{state, opened_at, resolved_at}`. `state` is `open`, `acked` or `resolved`. See "Incidents". |
 
 ## APNs mapping

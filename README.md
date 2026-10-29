@@ -212,7 +212,8 @@ any `-wal` and `-shm` files left beside the old database first.
 | Command | Does |
 |---|---|
 | `heraldo peek [--mark]` | Lists the events after the read cursor. `--mark` moves the cursor past them. With no cursor yet, it lists the newest events. `--project` keeps the unread events in those projects; not with `--mark`. |
-| `heraldo show [--json] <id>` | Prints one event with its full body. |
+| `heraldo show [--json] <id>` | Prints one event with its full body, and `why`: one line on why it did or did not push. |
+| `heraldo why [--json] <id>` | Prints why an event did or did not push, one line per push stage: hold, expiry, push table, mutes, inhibit rules, delivery per device. See [docs/api.md](docs/api.md), "Why it pushed". |
 | `heraldo ls` | Lists the newest events (20 by default, oldest first). Filters: `--kind`, `--source`, `--host`, `--key`, `--tag`, `--project` (a comma-separated list; `-` for none), `-q` (full text). `--open` lists the incidents that are not resolved. Routine events (passing check-ins, progress, status) stay out unless `--routine` is given, or `--kind` or `--key` names them. |
 | `heraldo held` | Lists events held for triage (`hold.state` is `held`). |
 | `heraldo checkins` | Lists every check: state, next due time, last run length, first line of the last log. `--project` keeps the checks in those projects. `checkins show <slug>` prints one check with its full last log. |
