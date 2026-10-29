@@ -49,6 +49,8 @@ struct SettingsView: View {
 
                 ServerSettingsSection()
 
+                GuidanceSection()
+
                 MutesSection()
 
                 #if os(macOS)

@@ -26,6 +26,9 @@ final class AppModel {
     /// The server answers `/v1/views`. Off on a server before views: the
     /// Views UI hides.
     private(set) var viewsSupported = false
+    /// The server's assistant takes questions (`GET /v1/llm/status` chat).
+    /// Off on a server before 0.8: the Ask buttons hide.
+    private(set) var chatAvailable = false
     /// The running Live Activities. The Mac app's home; empty on iOS and
     /// on a server before Live Activities.
     private(set) var activities: [ActivitySummary] = []
@@ -149,6 +152,7 @@ final class AppModel {
             checks = try await sync.client.checks() ?? []
             projects = (try? await sync.client.projects())?.projects.map(\.name) ?? []
             await reloadViews()
+            chatAvailable = (try? await sync.client.llmStatus())?.chat ?? false
             #if os(macOS)
             activities = (try? await sync.client.activities()) ?? []
             held = (try? await sync.client.heldEntries())?.held.filter(\.isOpen) ?? []

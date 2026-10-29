@@ -454,6 +454,13 @@ app group.
   Projects; selecting one scopes the list, and its context menu has Delete.
   A view with a bundle folds a burst of its pushes into one notification
   ([docs/api.md](docs/api.md), "Saved views").
+- **Ask**: while the server's assistant takes questions (`llm.chat` on), the
+  Inbox, a saved view (the Mac toolbar) and an incident's detail get an Ask
+  button. The sheet shows the answer, the events it cites (tap one to open
+  it), and Apply for a suggested filter, view, guidance line or mute. Apply
+  makes the ordinary write call (write token; a filter needs none). Settings
+  lists the server's guidance lines; the write token adds, turns off and
+  deletes them ([docs/api.md](docs/api.md#llm)).
 - **Display**: these preferences sync to your other devices through the
   iCloud key-value store, with a copy on the device:
   - Group notifications: by thread or source (the default), or by project.

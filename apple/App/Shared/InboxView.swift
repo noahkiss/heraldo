@@ -79,6 +79,9 @@ struct InboxView: View {
         ToolbarItem(placement: .primaryAction) {
             InboxFilterMenu(feed: feed, saves: .withProject)
         }
+        ToolbarItem(placement: .primaryAction) {
+            AskButton(scope: feed.askScope) { feed.apply($0) }
+        }
         ToolbarItem(placement: .secondaryAction) {
             Button {
                 Task { await model.markAllRead() }

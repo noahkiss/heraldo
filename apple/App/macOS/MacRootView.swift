@@ -80,6 +80,7 @@ struct MacRootView: View {
                 InboxFilterMenu(feed: feed, showsProject: false, showsViews: false,
                                 saves: feed === state.inbox ? .withoutProject : .no)
                     .help("Filter")
+                AskButton(scope: feed.askScope) { feed.apply($0) }
             }
             Button {
                 Task { await state.refresh() }

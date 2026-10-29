@@ -432,6 +432,62 @@ public struct HeraldoClient: Sendable {
         try check(data, response)
     }
 
+    // MARK: Assistant
+
+    /// The server's LLM assistant. Nil from a server before 0.8.
+    public func llmStatus() async throws -> LLMStatus? {
+        do {
+            return try await get("v1/llm/status")
+        } catch let e as HeraldoError where e.status == 404 || e.status == 405 {
+            return nil
+        }
+    }
+
+    /// Asks the assistant a question, with the read token. The model may
+    /// take several rounds, so this waits up to six minutes. A 409 means
+    /// the assistant is off.
+    public func ask(_ input: AskInput) async throws -> AskAnswer {
+        var r = request("v1/ask", method: "POST", token: readToken)
+        r.timeoutInterval = 360
+        r.httpBody = try JSON.encoder.encode(input)
+        return try await send(r)
+    }
+
+    /// The guidance lines, oldest first. Nil from a server before 0.8.
+    public func guidance() async throws -> [Guidance]? {
+        do {
+            let list: GuidanceList = try await get("v1/guidance")
+            return list.guidance
+        } catch let e as HeraldoError where e.status == 404 || e.status == 405 {
+            return nil
+        }
+    }
+
+    /// Adds a guidance line with the write token.
+    @discardableResult
+    public func addGuidance(_ input: GuidanceInput) async throws -> Guidance {
+        guard let writeToken else { throw HeraldoError.notConfigured("The write token") }
+        var r = request("v1/guidance", method: "POST", token: writeToken)
+        r.httpBody = try JSON.encoder.encode(input)
+        return try await send(r)
+    }
+
+    /// Changes a guidance line with the write token.
+    @discardableResult
+    public func updateGuidance(id: String, _ patch: GuidancePatch) async throws -> Guidance {
+        guard let writeToken else { throw HeraldoError.notConfigured("The write token") }
+        var r = request("v1/guidance/\(escape(id))", method: "PUT", token: writeToken)
+        r.httpBody = try JSON.encoder.encode(patch)
+        return try await send(r)
+    }
+
+    /// Deletes a guidance line with the write token.
+    public func deleteGuidance(id: String) async throws {
+        guard let writeToken else { throw HeraldoError.notConfigured("The write token") }
+        let (data, response) = try await session.data(for: request("v1/guidance/\(escape(id))", method: "DELETE", token: writeToken))
+        try check(data, response)
+    }
+
     // MARK: Plumbing
 
 

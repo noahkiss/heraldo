@@ -59,6 +59,9 @@ struct EventDetailView: View {
                       preview: SharePreview(event.headline)) {
                 Label("Share", systemImage: "square.and.arrow.up")
             }
+            if event.kind == "incident", let key = event.key, !key.isEmpty {
+                AskButton(scope: AskScope(key: key))
+            }
             if model.isUnread(event) {
                 Button {
                     Task { await model.markRead(event) }
