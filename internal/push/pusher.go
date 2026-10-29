@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/noahkiss/heraldo/api"
-	"github.com/noahkiss/heraldo/internal/checkin"
 	"github.com/noahkiss/heraldo/internal/rules"
 	"github.com/noahkiss/heraldo/internal/store"
 )
@@ -204,20 +203,7 @@ func (p *Pusher) handle(ctx context.Context, rec store.Record) {
 		log.Error("push: decode event", "err", err)
 		return
 	}
-	d := Decide(&ev, p.cfg.Now())
-	if !d.Push {
-		return
-	}
-	if d.Replace {
-		ok, err := p.cfg.Store.ReplacesVisible(ctx, *ev.Key, rec.Seq)
-		if err != nil {
-			log.Error("push: earlier pushes", "err", err)
-		}
-		if !ok {
-			return
-		}
-	}
-	p.push(ctx, log, &ev, d, 0)
+	p.run(ctx, &Run{Rec: rec, Event: &ev, Now: p.cfg.Now(), Log: log})
 }
 
 // Realert pushes every due re-alert once and moves its schedule on. A
@@ -254,54 +240,8 @@ func (p *Pusher) Realert(ctx context.Context) {
 			log.Error("push: decode event", "err", err)
 			continue
 		}
-		d := Decide(&ev, now)
-		if !d.Push {
-			continue
-		}
-		p.push(ctx, log, &ev, d, max(now.Sub(a.OpenedAt), time.Minute))
+		p.run(ctx, &Run{Rec: rec, Event: &ev, Now: now, OpenFor: max(now.Sub(a.OpenedAt), time.Minute), Log: log})
 	}
-}
-
-// suppressed says why a mute or an inhibit rule holds back the push of ev,
-// or "" when none does.
-func (p *Pusher) suppressed(ctx context.Context, ev *api.Event) (string, error) {
-	key := ""
-	if ev.Key != nil {
-		key = *ev.Key
-	}
-	set := p.cfg.Rules()
-	// A project mute names the alias target; the event may carry the old
-	// name.
-	project := ""
-	if ev.Project != nil {
-		project = set.Alias(*ev.Project)
-	}
-	m, ok, err := p.cfg.Store.MatchMute(ctx, ev.Source, key, project, p.cfg.Now())
-	if err == nil && !ok && key != "" && ev.Kind == api.KindCheckin {
-		// A check-in's own events fall under its check's incident key, so
-		// one mute on checkin:<slug> covers the incident and the runs.
-		m, ok, err = p.cfg.Store.MatchMute(ctx, ev.Source, checkin.IncidentPrefix+key, project, p.cfg.Now())
-	}
-	if err != nil {
-		return "", err
-	}
-	if ok {
-		if m.Project != "" {
-			return "muted by " + m.ID + " (project)", nil
-		}
-		return "muted by " + m.ID, nil
-	}
-	if key == "" || len(set.InhibitRules()) == 0 {
-		return "", nil
-	}
-	open, err := p.cfg.Store.OpenIncidentKeys(ctx)
-	if err != nil {
-		return "", err
-	}
-	if rule, parent, ok := set.Inhibited(key, open); ok {
-		return fmt.Sprintf("inhibited by %s: %s is open", rule, parent), nil
-	}
-	return "", nil
 }
 
 // icon returns the registry icon for ev: its icon field when the registry
@@ -317,66 +257,6 @@ func (p *Pusher) icon(ctx context.Context, ev *api.Event) string {
 		}
 	}
 	return ""
-}
-
-// push sends ev with decision d to every active device and records the
-// outcomes. openFor is set on a re-alert. A mute or an inhibit rule records
-// skipped instead. A re-alert overwrites the event's delivery with its own
-// outcome.
-func (p *Pusher) push(ctx context.Context, log *slog.Logger, ev *api.Event, d Decision, openFor time.Duration) {
-	devices, err := p.cfg.Store.Devices(ctx, true)
-	if err != nil {
-		log.Error("push: devices", "err", err)
-		return
-	}
-	if len(devices) == 0 {
-		return
-	}
-	why, err := p.suppressed(ctx, ev)
-	if err != nil {
-		log.Error("push: mutes and inhibit rules", "err", err)
-	}
-	if why != "" && openFor > 0 {
-		// A held-back re-alert leaves the event's delivery as it was.
-		log.Info("push: re-alert held back", "why", why)
-		return
-	}
-	if why != "" {
-		for _, dev := range devices {
-			out := store.Delivery{EventID: ev.Id, DeviceID: dev.ID, Outcome: "skipped", Level: string(d.Level),
-				Error: why, At: p.cfg.Now()}
-			if err := p.cfg.Store.RecordDelivery(context.WithoutCancel(ctx), out); err != nil {
-				log.Error("push: record delivery", "device", dev.ID, "err", err)
-			}
-		}
-		log.Info("push: held back", "why", why)
-		return
-	}
-	x := Extra{Icon: p.icon(ctx, ev), OpenFor: openFor}
-	if n, err := p.cfg.Store.Unread(ctx, BadgeCursor); err != nil {
-		log.Error("push: badge", "err", err)
-	} else {
-		x.Badge = &n
-	}
-	body, h, err := Build(ev, d, x)
-	if err != nil {
-		log.Error("push: payload", "err", err)
-		return
-	}
-	for _, dev := range devices {
-		out := p.deliver(ctx, dev, body, h)
-		out.EventID, out.DeviceID, out.Level = ev.Id, dev.ID, string(d.Level)
-		if d.Downgraded && out.Outcome == "sent" {
-			out.Error = "critical sent as time-sensitive"
-		}
-		out.At = p.cfg.Now()
-		if err := p.cfg.Store.RecordDelivery(context.WithoutCancel(ctx), out); err != nil {
-			log.Error("push: record delivery", "device", dev.ID, "err", err)
-		}
-		if out.Outcome != "sent" {
-			log.Warn("push: not delivered", "device", dev.ID, "error", out.Error, "attempts", out.Attempts)
-		}
-	}
 }
 
 // answer is one APNs response.

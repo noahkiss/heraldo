@@ -34,7 +34,7 @@ func TestMigrateFromEmpty(t *testing.T) {
 	if err != nil || v != schemaVersion {
 		t.Fatalf("version = %d, %v; want %d", v, err, schemaVersion)
 	}
-	for _, table := range []string{"events", "events_fts", "incidents", "checkins", "activities", "status", "imports", "cursors", "devices", "deliveries", "mutes", "icons", "hold_entries", "hold_meta", "standby_state"} {
+	for _, table := range []string{"events", "events_fts", "incidents", "checkins", "activities", "status", "imports", "cursors", "devices", "deliveries", "mutes", "icons", "hold_entries", "hold_meta", "standby_state", "push_decisions"} {
 		var n int
 		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM `+table).Scan(&n); err != nil {
 			t.Fatalf("%s: %v", table, err)

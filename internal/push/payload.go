@@ -51,21 +51,44 @@ type Decision struct {
 // open alert on the lock screen gives way to "Resolved after 12 min".
 // critical goes out as time-sensitive. store.pushedWhere is the same table
 // in SQL, for the badge; keep them together.
+//
+// The pusher runs the same steps as the stages hold, expiry and table
+// (stages.go); Decide composes them for callers that want one answer.
 func Decide(ev *api.Event, now time.Time) Decision {
+	if why := holdStops(ev); why != "" {
+		return Decision{Reason: why}
+	}
+	if expired(ev, now) {
+		return Decision{Reason: "expired"}
+	}
+	return decideTable(ev)
+}
+
+// holdStops returns store-only or held when the hold keeps ev from
+// pushing, else "".
+func holdStops(ev *api.Event) string {
 	if ev.Hold != nil {
 		h := *ev.Hold
 		if so, _ := h["store_only"].(bool); so {
-			return Decision{Reason: "store-only"}
+			return "store-only"
 		}
 		// A held alert the hold forwarded at once (forwarded: true) pushes.
 		fwd, _ := h["forwarded"].(bool)
 		if st, _ := h["state"].(string); st == "held" && !fwd {
-			return Decision{Reason: "held"}
+			return "held"
 		}
 	}
-	if ev.ExpiresAt != nil && !ev.ExpiresAt.After(now) {
-		return Decision{Reason: "expired"}
-	}
+	return ""
+}
+
+// expired reports whether ev is past its expires_at at now.
+func expired(ev *api.Event, now time.Time) bool {
+	return ev.ExpiresAt != nil && !ev.ExpiresAt.After(now)
+}
+
+// decideTable applies the push table alone: Decide without the hold and
+// expiry checks.
+func decideTable(ev *api.Event) Decision {
 	action := ""
 	if ev.Action != nil {
 		action = string(*ev.Action)
