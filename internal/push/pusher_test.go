@@ -22,6 +22,7 @@ import (
 	"github.com/noahkiss/heraldo/internal/ids"
 	"github.com/noahkiss/heraldo/internal/rules"
 	"github.com/noahkiss/heraldo/internal/server"
+	"github.com/noahkiss/heraldo/internal/settings"
 	"github.com/noahkiss/heraldo/internal/store"
 	"github.com/noahkiss/heraldo/internal/validate"
 )
@@ -103,6 +104,16 @@ type rig struct {
 	key        *ecdsa.PrivateKey
 	prod, sand *fakeAPNs
 	clock      *clock
+	// prefs is the settings store the pusher and the server share.
+	prefs *settings.Manager
+}
+
+// set writes the setting name, as JSON, as PUT /v1/settings/{key} does.
+func (r *rig) set(t *testing.T, name, raw string) {
+	t.Helper()
+	if _, err := r.prefs.Set(context.Background(), name, json.RawMessage(raw), "test"); err != nil {
+		t.Fatalf("set %s: %v", name, err)
+	}
 }
 
 // clock is a test clock that only moves when told.
@@ -146,7 +157,11 @@ func newRigRules(t *testing.T, queue int, rulesYAML string) *rig {
 	}
 	r.key, _ = newKey(t)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if r.prefs, err = settings.New(ctx, settings.Options{Backend: st, Now: r.clock.now, Logger: log}); err != nil {
+		t.Fatal(err)
+	}
 	r.p = New(Config{
+		Settings: r.prefs,
 		Key: r.key, KeyID: "KEYID00001", TeamID: "TEAMID0001", Store: st, Logger: log,
 		ProductionURL: r.prod.srv.URL, SandboxURL: r.sand.srv.URL, HTTPClient: r.prod.srv.Client(),
 		Backoff: []time.Duration{time.Millisecond, time.Millisecond}, Queue: queue,
@@ -165,7 +180,7 @@ func newRigRules(t *testing.T, queue int, rulesYAML string) *rig {
 		t.Fatal(err)
 	}
 	r.h = server.New(server.Options{Store: st, Tokens: tokens, Validator: v, Logger: log, Pusher: r.p,
-		PushState: api.HealthPushOn, Now: r.clock.now, Rules: rw})
+		PushState: api.HealthPushOn, Now: r.clock.now, Rules: rw, Settings: r.prefs})
 	return r
 }
 
@@ -567,6 +582,7 @@ func TestResolveReplacesOpen(t *testing.T) {
 // in the badge, unless it replaces a visible push of its key.
 func TestPassiveIsInboxOnly(t *testing.T) {
 	r := newRig(t, 0)
+	r.set(t, "badge.scope", `"pushed"`)
 	r.register(t, prodToken, "production")
 	r.post(t, writeTok, `{"source":"s","title":"quiet","level":"passive"}`)
 	r.post(t, writeTok, `{"source":"s","kind":"digest","title":"nightly digest"}`)
@@ -597,6 +613,7 @@ func TestPassiveIsInboxOnly(t *testing.T) {
 
 func TestMuteHoldsBackPush(t *testing.T) {
 	r := newRig(t, 0)
+	r.set(t, "badge.scope", `"pushed"`)
 	dev := r.register(t, prodToken, "production")
 	if rec := r.do(t, http.MethodPost, "/v1/mutes", writeTok, `{"source":"backup","for":"1h"}`); rec.Code != http.StatusCreated {
 		t.Fatalf("mute: %d %s", rec.Code, rec.Body)

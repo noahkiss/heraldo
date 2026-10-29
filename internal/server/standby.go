@@ -72,6 +72,7 @@ func StandbyDeviceJSON(d store.Device) api.StandbyDevice {
 		Permissions:  api.Permissions{Alerts: d.Alerts, TimeSensitive: d.TimeSensitive, LiveActivities: d.LiveActivities},
 		RegisteredAt: d.RegisteredAt, UpdatedAt: d.UpdatedAt,
 		RetiredReason: str(d.RetiredReason), LiveActivityToken: str(d.LiveActivityToken),
+		FocusFilter: focusJSON(d.FocusFilter),
 	}
 	if !d.Active() {
 		t := d.RetiredAt
@@ -95,6 +96,7 @@ func StandbyDevice(d api.StandbyDevice, updatedBy string) store.Device {
 		Alerts: d.Permissions.Alerts, TimeSensitive: d.Permissions.TimeSensitive, LiveActivities: d.Permissions.LiveActivities,
 		RegisteredAt: d.RegisteredAt, UpdatedAt: d.UpdatedAt, UpdatedBy: updatedBy,
 		RetiredReason: val(d.RetiredReason), LiveActivityToken: val(d.LiveActivityToken),
+		FocusFilter: focusCopy(d.FocusFilter),
 	}
 	if d.RetiredAt != nil {
 		out.RetiredAt = *d.RetiredAt

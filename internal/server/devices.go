@@ -60,6 +60,7 @@ func deviceJSON(d store.Device) api.Device {
 	if t := d.LiveActivityToken; t != "" {
 		out.LiveActivityTokenSuffix = str(t[max(0, len(t)-8):])
 	}
+	out.FocusFilter = focusJSON(d.FocusFilter)
 	if !d.Active() {
 		t := d.RetiredAt
 		out.RetiredAt, out.RetiredReason = &t, str(d.RetiredReason)
@@ -115,6 +116,11 @@ func (s *server) readDevice(w http.ResponseWriter, r *http.Request) (store.Devic
 	}
 	if in.Permissions != nil {
 		d.Alerts, d.TimeSensitive, d.LiveActivities = in.Permissions.Alerts, in.Permissions.TimeSensitive, in.Permissions.LiveActivities
+	}
+	if in.FocusFilter != nil {
+		f, bad := focusFrom(in.FocusFilter)
+		d.FocusFilter, d.SetFocus = f, true
+		problems = append(problems, bad...)
 	}
 	if len(problems) > 0 {
 		writeError(w, http.StatusBadRequest, "%s", strings.Join(problems, "; "))

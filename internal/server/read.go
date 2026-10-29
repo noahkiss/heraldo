@@ -9,8 +9,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/noahkiss/heraldo/internal/settings"
 	"github.com/noahkiss/heraldo/internal/store"
 )
+
+// inboxCursor is the read cursor the badge counts against, as
+// push.BadgeCursor.
+const inboxCursor = "inbox"
 
 // ---- event stream ------------------------------------------------------
 
@@ -106,6 +111,8 @@ func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 // ---- state -------------------------------------------------------------
 
 type statePage struct {
+	// Badge is the badge by badge.scope against the inbox cursor.
+	Badge     *int              `json:"badge,omitempty"`
 	Incidents []json.RawMessage `json:"incidents"`
 	Progress  []json.RawMessage `json:"progress"`
 	Checkins  []json.RawMessage `json:"checkins"`
@@ -134,7 +141,15 @@ func (s *server) state(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.staleState(&st, only)
+	scope, bp := s.badgeScope()
+	b, err := s.Store.BadgeFor(r.Context(), inboxCursor, scope, bp)
+	if err != nil {
+		s.Logger.Error("state: badge", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
 	writeJSON(w, http.StatusOK, statePage{
+		Badge:     &b,
 		Incidents: st.Incidents, Progress: st.Progress, Checkins: st.Checkins, Statuses: st.Statuses,
 	})
 }
@@ -146,11 +161,14 @@ var cursorName = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 type cursorBody struct {
 	Name   string `json:"name,omitempty"`
 	Cursor string `json:"cursor"`
-	// Unread is set in answers: the badge count after the cursor.
+	// Unread is set in answers: the Inbox's unread count after the cursor.
 	Unread *int `json:"unread,omitempty"`
+	// Badge is set in answers: the badge count by badge.scope.
+	Badge *int `json:"badge,omitempty"`
 }
 
-// cursorAnswer writes the cursor called name at seq, with its unread count.
+// cursorAnswer writes the cursor called name at seq, with its unread count
+// and its badge.
 func (s *server) cursorAnswer(w http.ResponseWriter, r *http.Request, name string, seq int64) {
 	n, err := s.Store.UnreadAfter(r.Context(), seq)
 	if err != nil {
@@ -158,7 +176,19 @@ func (s *server) cursorAnswer(w http.ResponseWriter, r *http.Request, name strin
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusOK, cursorBody{Name: name, Cursor: store.CursorFor(seq), Unread: &n})
+	scope, projects := s.badgeScope()
+	b, err := s.Store.Badge(r.Context(), scope, projects, seq)
+	if err != nil {
+		s.Logger.Error("cursor: badge", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, cursorBody{Name: name, Cursor: store.CursorFor(seq), Unread: &n, Badge: &b})
+}
+
+// badgeScope is badge.scope and badge.projects in force.
+func (s *server) badgeScope() (string, []string) {
+	return settings.From[string](s.Settings, "badge.scope"), settings.From[[]string](s.Settings, "badge.projects")
 }
 
 func (s *server) cursorName(w http.ResponseWriter, r *http.Request) (string, bool) {

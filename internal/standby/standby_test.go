@@ -236,6 +236,41 @@ func TestStandbyCopiesDevicesAndDelivers(t *testing.T) {
 	}
 }
 
+// TestStandbyCopiesFocusFilter: the device round carries each device's
+// Focus filter, so the standby lowers pushes as the primary does.
+func TestStandbyCopiesFocusFilter(t *testing.T) {
+	r := newRig(t)
+	if err := r.tick(t); err != nil {
+		t.Fatal(err)
+	}
+	ds, _ := r.standby.st.Devices(context.Background(), true)
+	if len(ds) != 1 || ds[0].FocusFilter != nil {
+		t.Fatalf("before: %+v", ds)
+	}
+	code, b := r.primary.do(t, http.MethodPut, "/v1/devices/"+ds[0].ID, phoneTok,
+		fmt.Sprintf(`{"token":%q,"environment":"production","topic":%q,"focus_filter":{"active":true,"name":"Sleep","projects":["infra"],"break_through":"critical"}}`, devToken, topic))
+	if code != http.StatusOK {
+		t.Fatalf("focus: %d %s", code, b)
+	}
+	if err := r.tick(t); err != nil {
+		t.Fatal(err)
+	}
+	ds, _ = r.standby.st.Devices(context.Background(), true)
+	f := ds[0].FocusFilter
+	if f == nil || f.Name != "Sleep" || f.BreakThrough != "critical" || len(f.Projects) != 1 || f.UpdatedAt.IsZero() {
+		t.Fatalf("standby filter %+v", f)
+	}
+	// Cleared on the primary, cleared on the standby.
+	r.primary.do(t, http.MethodPut, "/v1/devices/"+ds[0].ID, phoneTok,
+		fmt.Sprintf(`{"token":%q,"environment":"production","topic":%q,"focus_filter":{"active":false}}`, devToken, topic))
+	if err := r.tick(t); err != nil {
+		t.Fatal(err)
+	}
+	if ds, _ = r.standby.st.Devices(context.Background(), true); ds[0].FocusFilter != nil {
+		t.Fatalf("standby filter after clear %+v", ds[0].FocusFilter)
+	}
+}
+
 func TestCatchUpImportsOnceAndNeverPushes(t *testing.T) {
 	r := newRig(t)
 	if err := r.tick(t); err != nil {

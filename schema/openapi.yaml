@@ -582,7 +582,8 @@ paths:
       operationId: updateDevice
       summary: Replace a device's registration, such as after APNs gave it a new token.
       description: |
-        Every field is replaced, and a retired device becomes active again. A token that
+        Every field is replaced, except focus_filter, which stays when left out; a
+        retired device becomes active again. A token that
         another device holds gets 409. Permission changes raise or resolve incidents as
         on POST.
       tags: [devices]
@@ -2580,6 +2581,12 @@ components:
       description: The latest event per key, by kind. A stand-in until stage 12.
       required: [incidents, progress, checkins, statuses]
       properties:
+        badge:
+          type: integer
+          description: |
+            The badge count by the badge.scope setting, against the inbox cursor: the
+            number the iOS icon, the Mac Dock and the menu bar show. Left out by servers
+            before 0.7.
         incidents:
           type: array
           description: Incidents that are not resolved.
@@ -2614,8 +2621,17 @@ components:
           type: integer
           description: |
             Set in answers. The number of events after the cursor that push an alert:
-            the app's badge. A held or store-only event, an incident ack, and progress,
-            status and passing check-in events do not count.
+            the Inbox's unread count. A held or store-only event, an incident ack, and
+            progress, status and passing check-in events do not count.
+        badge:
+          type: integer
+          description: |
+            Set in answers. The badge count by the badge.scope setting: the number the
+            iOS icon, the Mac Dock and the menu bar show, and the badge APNs pushes
+            carry. attention counts unacknowledged open incidents, checks that are
+            down, and unread events at time-sensitive or above; pushed is unread;
+            none is 0. badge.projects narrows it. Left out by servers before 0.7, where
+            unread was the badge.
     DeviceRegistration:
       type: object
       description: What the app sends to register or refresh a device.
@@ -2655,6 +2671,47 @@ components:
             The push-to-start token ActivityKit gives the app for its Live Activities, hex.
             The server starts an activity on the device with it.
           pattern: "^[0-9A-Fa-f]{32,400}$"
+        focus_filter:
+          $ref: "#/components/schemas/FocusFilter"
+    FocusFilter:
+      type: object
+      description: |
+        The device's Focus filter, as the app's SetFocusFilterIntent reports it. Left out
+        of a registration, the stored filter stays: the field is the one exception to
+        "every field is replaced". active false clears it. While a filter is set, the
+        server lowers this device's pushes above it to active, so the system Focus
+        silences them; critical is never lowered. Servers before 0.7 refuse the field
+        with 400.
+      required: [active]
+      additionalProperties: false
+      properties:
+        active:
+          type: boolean
+          description: A filter is in force. false clears the stored filter.
+        name:
+          type: string
+          description: The Focus's name, when the app knows it.
+          maxLength: 64
+        projects:
+          type: array
+          description: |
+            Projects whose events may break through. Empty means every project. An event
+            outside them is sent at active at most.
+          maxItems: 64
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        break_through:
+          type: string
+          enum: [time-sensitive, critical]
+          description: |
+            The lowest level that still breaks through. time-sensitive (the default) lets
+            time-sensitive and critical through; critical sends time-sensitive as active.
+        updated_at:
+          type: string
+          format: date-time
+          description: When the server stored the filter. Set in answers.
     Permissions:
       type: object
       description: |
@@ -2713,6 +2770,8 @@ components:
         live_activity_token_suffix:
           type: string
           description: The last 8 characters of the push-to-start token, when the app reported one.
+        focus_filter:
+          $ref: "#/components/schemas/FocusFilter"
     DeviceList:
       type: object
       required: [devices]
@@ -2758,6 +2817,8 @@ components:
         live_activity_token:
           type: string
           description: The push-to-start token, when the app reported one.
+        focus_filter:
+          $ref: "#/components/schemas/FocusFilter"
     StandbyDeviceList:
       type: object
       required: [devices]

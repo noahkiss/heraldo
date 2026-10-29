@@ -178,26 +178,56 @@ func (p *Pusher) holdBack(ctx context.Context, r *Run, why string) Verdict {
 func (p *Pusher) deliverStage(ctx context.Context, r *Run) Verdict {
 	ev, d := r.Event, r.Decision
 	x := Extra{Icon: p.icon(ctx, ev), OpenFor: r.OpenFor, Flap: r.Flap}
-	if n, err := p.cfg.Store.Unread(ctx, BadgeCursor); err != nil {
+	scope, projects := p.badgeScope()
+	if n, err := p.cfg.Store.BadgeFor(ctx, BadgeCursor, scope, projects); err != nil {
 		r.Log.Error("push: badge", "err", err)
 	} else {
 		x.Badge = &n
 	}
-	body, h, err := Build(ev, d, x)
-	if err != nil {
+	// One payload per level: the focus stage may lower a device's push.
+	type built struct {
+		body []byte
+		h    Headers
+	}
+	payloads := map[api.Level]built{}
+	payload := func(lvl api.Level) (built, error) {
+		if b, ok := payloads[lvl]; ok {
+			return b, nil
+		}
+		dl := d
+		dl.Level = lvl
+		body, h, err := Build(ev, dl, x)
+		if r.CollapseID != "" {
+			h.CollapseID = r.CollapseID
+		}
+		payloads[lvl] = built{body, h}
+		return built{body, h}, err
+	}
+	if _, err := payload(d.Level); err != nil {
 		r.Log.Error("push: payload", "err", err)
 		return Drop("payload: " + err.Error())
-	}
-	if r.CollapseID != "" {
-		h.CollapseID = r.CollapseID
 	}
 	r.delivered = true
 	sent := 0
 	var devs []map[string]any
 	for _, dev := range r.Devices {
-		out := p.deliver(ctx, dev, body, h)
-		out.EventID, out.DeviceID, out.Level = ev.Id, dev.ID, string(d.Level)
-		if d.Downgraded && out.Outcome == "sent" {
+		lvl := d.Level
+		if l, ok := r.DeviceLevel[dev.ID]; ok {
+			lvl = l
+		}
+		b, err := payload(lvl)
+		if err != nil {
+			r.Log.Error("push: payload", "device", dev.ID, "err", err)
+			b = payloads[d.Level]
+			lvl = d.Level
+		}
+		out := p.deliver(ctx, dev, b.body, b.h)
+		out.EventID, out.DeviceID, out.Level = ev.Id, dev.ID, string(lvl)
+		switch {
+		case out.Outcome != "sent":
+		case lvl != d.Level:
+			out.Error = r.DeviceWhy[dev.ID]
+		case d.Downgraded:
 			out.Error = "critical sent as time-sensitive"
 		}
 		out.At = p.cfg.Now()
@@ -213,9 +243,15 @@ func (p *Pusher) deliverStage(ctx context.Context, r *Run) Verdict {
 		if out.Error != "" {
 			row["error"] = out.Error
 		}
+		if lvl != d.Level {
+			row["level"] = lvl
+		}
 		devs = append(devs, row)
 	}
-	detail := map[string]any{"level": d.Level, "devices": devs}
+	detail := map[string]any{"level": d.Level, "devices": devs, "badge_scope": scope}
+	if x.Badge != nil {
+		detail["badge"] = *x.Badge
+	}
 	verb := "pushed"
 	if r.OpenFor > 0 {
 		verb = "re-alerted"

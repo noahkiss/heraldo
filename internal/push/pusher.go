@@ -18,6 +18,7 @@ import (
 
 	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/rules"
+	"github.com/noahkiss/heraldo/internal/settings"
 	"github.com/noahkiss/heraldo/internal/store"
 )
 
@@ -61,6 +62,9 @@ type Config struct {
 	// RealertTick is how often the pusher looks for due re-alerts; 0 means
 	// 30 seconds.
 	RealertTick time.Duration
+	// Settings holds quiet hours and the badge scope; nil means
+	// settings.Default().
+	Settings *settings.Manager
 }
 
 // Pusher sends events to every active device.
@@ -125,6 +129,14 @@ func (p *Pusher) Enqueue(rec store.Record) bool {
 		p.cfg.Logger.Warn("push: queue full; event not pushed", "event", rec.ID)
 		return false
 	}
+}
+
+// prefs is the settings manager in force.
+func (p *Pusher) prefs() *settings.Manager {
+	if p.cfg.Settings != nil {
+		return p.cfg.Settings
+	}
+	return settings.Default()
 }
 
 // Wait blocks until every queued event is handled. Tests use it.

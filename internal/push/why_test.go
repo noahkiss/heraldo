@@ -53,7 +53,7 @@ func TestWhyPushed(t *testing.T) {
 	r.register(t, sandboxToken, "sandbox")
 	id := r.post(t, writeTok, `{"source":"uptime","kind":"incident","key":"host:web-1","action":"open","title":"down"}`)
 	tr := r.why(t, id)
-	if got := stagesOf(tr); got != "hold:pass expiry:pass table:pass snooze:pass flap:pass replace:pass devices:pass mute:pass inhibit:pass bundle:pass deliver:pass" {
+	if got := stagesOf(tr); got != "hold:pass expiry:pass table:pass snooze:pass flap:pass replace:pass devices:pass mute:pass inhibit:pass bundle:pass quiet:pass focus:pass deliver:pass" {
 		t.Fatalf("stages %s", got)
 	}
 	if summary(tr) != "pushed active to 2 devices" || tr.EventId != id {

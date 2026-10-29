@@ -351,6 +351,24 @@ func (e EventAction) Valid() bool {
 	}
 }
 
+// Defines values for FocusFilterBreakThrough.
+const (
+	FocusFilterBreakThroughCritical      FocusFilterBreakThrough = "critical"
+	FocusFilterBreakThroughTimeSensitive FocusFilterBreakThrough = "time-sensitive"
+)
+
+// Valid indicates whether the value is a known member of the FocusFilterBreakThrough enum.
+func (e FocusFilterBreakThrough) Valid() bool {
+	switch e {
+	case FocusFilterBreakThroughCritical:
+		return true
+	case FocusFilterBreakThroughTimeSensitive:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HealthDb.
 const (
 	HealthDbError HealthDb = "error"
@@ -1174,6 +1192,14 @@ type Color = string
 
 // Cursor defines model for Cursor.
 type Cursor struct {
+	// Badge Set in answers. The badge count by the badge.scope setting: the number the
+	// iOS icon, the Mac Dock and the menu bar show, and the badge APNs pushes
+	// carry. attention counts unacknowledged open incidents, checks that are
+	// down, and unread events at time-sensitive or above; pushed is unread;
+	// none is 0. badge.projects narrows it. Left out by servers before 0.7, where
+	// unread was the badge.
+	Badge *int `json:"badge,omitempty"`
+
 	// Cursor A list cursor, as next_cursor gives it.
 	Cursor string `json:"cursor"`
 
@@ -1181,8 +1207,8 @@ type Cursor struct {
 	Name *string `json:"name,omitempty"`
 
 	// Unread Set in answers. The number of events after the cursor that push an alert:
-	// the app's badge. A held or store-only event, an incident ack, and progress,
-	// status and passing check-in events do not count.
+	// the Inbox's unread count. A held or store-only event, an incident ack, and
+	// progress, status and passing check-in events do not count.
 	Unread *int `json:"unread,omitempty"`
 }
 
@@ -1213,6 +1239,14 @@ type Device struct {
 	Active      bool              `json:"active"`
 	AppVersion  *string           `json:"app_version,omitempty"`
 	Environment DeviceEnvironment `json:"environment"`
+
+	// FocusFilter The device's Focus filter, as the app's SetFocusFilterIntent reports it. Left out
+	// of a registration, the stored filter stays: the field is the one exception to
+	// "every field is replaced". active false clears it. While a filter is set, the
+	// server lowers this device's pushes above it to active, so the system Focus
+	// silences them; critical is never lowered. Servers before 0.7 refuse the field
+	// with 400.
+	FocusFilter *FocusFilter `json:"focus_filter,omitempty"`
 
 	// Id The server's id for the device.
 	Id string `json:"id"`
@@ -1254,6 +1288,14 @@ type DeviceRegistration struct {
 
 	// Environment The APNs environment the token belongs to. A development build's token is sandbox; TestFlight and App Store tokens are production.
 	Environment DeviceRegistrationEnvironment `json:"environment"`
+
+	// FocusFilter The device's Focus filter, as the app's SetFocusFilterIntent reports it. Left out
+	// of a registration, the stored filter stays: the field is the one exception to
+	// "every field is replaced". active false clears it. While a filter is set, the
+	// server lowers this device's pushes above it to active, so the system Focus
+	// silences them; critical is never lowered. Servers before 0.7 refuse the field
+	// with 400.
+	FocusFilter *FocusFilter `json:"focus_filter,omitempty"`
 
 	// LiveActivityToken The push-to-start token ActivityKit gives the app for its Live Activities, hex.
 	// The server starts an activity on the device with it.
@@ -1630,6 +1672,35 @@ type EventPage struct {
 	// NextCursor Pass as after to get the next page. Present whenever the page has events; missing on an empty page.
 	NextCursor *string `json:"next_cursor,omitempty"`
 }
+
+// FocusFilter The device's Focus filter, as the app's SetFocusFilterIntent reports it. Left out
+// of a registration, the stored filter stays: the field is the one exception to
+// "every field is replaced". active false clears it. While a filter is set, the
+// server lowers this device's pushes above it to active, so the system Focus
+// silences them; critical is never lowered. Servers before 0.7 refuse the field
+// with 400.
+type FocusFilter struct {
+	// Active A filter is in force. false clears the stored filter.
+	Active bool `json:"active"`
+
+	// BreakThrough The lowest level that still breaks through. time-sensitive (the default) lets
+	// time-sensitive and critical through; critical sends time-sensitive as active.
+	BreakThrough *FocusFilterBreakThrough `json:"break_through,omitempty"`
+
+	// Name The Focus's name, when the app knows it.
+	Name *string `json:"name,omitempty"`
+
+	// Projects Projects whose events may break through. Empty means every project. An event
+	// outside them is sent at active at most.
+	Projects *[]string `json:"projects,omitempty"`
+
+	// UpdatedAt When the server stored the filter. Set in answers.
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+}
+
+// FocusFilterBreakThrough The lowest level that still breaks through. time-sensitive (the default) lets
+// time-sensitive and critical through; critical sends time-sensitive as active.
+type FocusFilterBreakThrough string
 
 // Health defines model for Health.
 type Health struct {
@@ -2018,7 +2089,15 @@ type SettingList struct {
 type StandbyDevice struct {
 	AppVersion  *string                  `json:"app_version,omitempty"`
 	Environment StandbyDeviceEnvironment `json:"environment"`
-	Id          string                   `json:"id"`
+
+	// FocusFilter The device's Focus filter, as the app's SetFocusFilterIntent reports it. Left out
+	// of a registration, the stored filter stays: the field is the one exception to
+	// "every field is replaced". active false clears it. While a filter is set, the
+	// server lowers this device's pushes above it to active, so the system Focus
+	// silences them; critical is never lowered. Servers before 0.7 refuse the field
+	// with 400.
+	FocusFilter *FocusFilter `json:"focus_filter,omitempty"`
+	Id          string       `json:"id"`
 
 	// LiveActivityToken The push-to-start token, when the app reported one.
 	LiveActivityToken *string `json:"live_activity_token,omitempty"`
@@ -2066,6 +2145,11 @@ type StandbyImportResult struct {
 
 // State The latest event per key, by kind. A stand-in until stage 12.
 type State struct {
+	// Badge The badge count by the badge.scope setting, against the inbox cursor: the
+	// number the iOS icon, the Mac Dock and the menu bar show. Left out by servers
+	// before 0.7.
+	Badge *int `json:"badge,omitempty"`
+
 	// Checkins The last check-in of every known check.
 	Checkins []Event `json:"checkins"`
 

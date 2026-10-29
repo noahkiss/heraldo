@@ -35,28 +35,77 @@ type Device struct {
 	// LiveActivityToken is the push-to-start token for Live Activities;
 	// empty when the app has not reported one.
 	LiveActivityToken string
+	// FocusFilter is the Focus filter in force on the device; nil is none.
+	FocusFilter *FocusFilter
+	// SetFocus says a write carries FocusFilter. Without it, RegisterDevice
+	// and UpdateDevice keep the stored filter; with it and a nil
+	// FocusFilter, they clear it.
+	SetFocus bool
+}
+
+// FocusFilter is a device's Focus filter: while it is in force, the pusher
+// sends that device's pushes above it at active.
+type FocusFilter struct {
+	// Name is the Focus's name, when the app knows it.
+	Name string `json:"name,omitempty"`
+	// Projects may break through; empty means every project.
+	Projects []string `json:"projects,omitempty"`
+	// BreakThrough is the lowest level that breaks through:
+	// time-sensitive or critical.
+	BreakThrough string    `json:"break_through"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// focusJSON is f as the focus_filter column keeps it: NULL for none.
+func focusJSON(f *FocusFilter) any {
+	if f == nil {
+		return nil
+	}
+	b, err := json.Marshal(f)
+	if err != nil {
+		return nil
+	}
+	return string(b)
+}
+
+// focusAt is the filter a write stores, stamped at now; nil when the write
+// carries none.
+func (d Device) focusAt(now time.Time) *FocusFilter {
+	if !d.SetFocus || d.FocusFilter == nil {
+		return nil
+	}
+	f := *d.FocusFilter
+	f.UpdatedAt = now.UTC().Truncate(time.Second)
+	return &f
 }
 
 // Active reports whether the device gets pushes.
 func (d Device) Active() bool { return d.RetiredAt.IsZero() }
 
 const deviceCols = `id, token, environment, topic, name, platform, app_version, alerts, time_sensitive,
-	live_activities, registered_at, updated_at, updated_by, retired_at, retired_reason, live_activity_token`
+	live_activities, registered_at, updated_at, updated_by, retired_at, retired_reason, live_activity_token,
+	focus_filter`
 
 type scanner interface{ Scan(...any) error }
 
 func scanDevice(r scanner) (Device, error) {
 	var d Device
-	var name, platform, appVersion, retiredAt, retiredReason, laToken sql.NullString
+	var name, platform, appVersion, retiredAt, retiredReason, laToken, focus sql.NullString
 	var alerts, ts, la sql.NullBool
 	var registered, updated string
 	if err := r.Scan(&d.ID, &d.Token, &d.Environment, &d.Topic, &name, &platform, &appVersion,
-		&alerts, &ts, &la, &registered, &updated, &d.UpdatedBy, &retiredAt, &retiredReason, &laToken); err != nil {
+		&alerts, &ts, &la, &registered, &updated, &d.UpdatedBy, &retiredAt, &retiredReason, &laToken, &focus); err != nil {
 		return Device{}, err
 	}
 	d.Name, d.Platform, d.AppVersion = name.String, platform.String, appVersion.String
 	d.RetiredReason = retiredReason.String
 	d.LiveActivityToken = laToken.String
+	if focus.Valid {
+		var f FocusFilter
+		if json.Unmarshal([]byte(focus.String), &f) == nil {
+			d.FocusFilter = &f
+		}
+	}
 	d.Alerts, d.TimeSensitive, d.LiveActivities = boolPtr(alerts), boolPtr(ts), boolPtr(la)
 	d.RegisteredAt, _ = time.Parse(timeFormat, registered)
 	d.UpdatedAt, _ = time.Parse(timeFormat, updated)
@@ -181,9 +230,10 @@ func (s *Store) UpdateDevice(ctx context.Context, d Device) (Device, Device, err
 func (s *Store) insertDevice(ctx context.Context, tx *sql.Tx, d Device) error {
 	at := s.now().UTC().Format(timeFormat)
 	_, err := tx.ExecContext(ctx, `INSERT INTO devices (`+deviceCols+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
 		d.ID, d.Token, d.Environment, d.Topic, nullStr(d.Name), nullStr(d.Platform), nullStr(d.AppVersion),
-		d.Alerts, d.TimeSensitive, d.LiveActivities, at, at, d.UpdatedBy, nullStr(d.LiveActivityToken))
+		d.Alerts, d.TimeSensitive, d.LiveActivities, at, at, d.UpdatedBy, nullStr(d.LiveActivityToken),
+		focusJSON(d.focusAt(s.now())))
 	return err
 }
 
@@ -191,9 +241,11 @@ func (s *Store) updateDevice(ctx context.Context, tx *sql.Tx, d Device) error {
 	at := s.now().UTC().Format(timeFormat)
 	_, err := tx.ExecContext(ctx, `UPDATE devices SET token = ?, environment = ?, topic = ?, name = ?,
 		platform = ?, app_version = ?, alerts = ?, time_sensitive = ?, live_activities = ?, updated_at = ?,
-		updated_by = ?, retired_at = NULL, retired_reason = NULL, live_activity_token = ? WHERE id = ?`,
+		updated_by = ?, retired_at = NULL, retired_reason = NULL, live_activity_token = ?,
+		focus_filter = CASE WHEN ? THEN ? ELSE focus_filter END WHERE id = ?`,
 		d.Token, d.Environment, d.Topic, nullStr(d.Name), nullStr(d.Platform), nullStr(d.AppVersion),
-		d.Alerts, d.TimeSensitive, d.LiveActivities, at, d.UpdatedBy, nullStr(d.LiveActivityToken), d.ID)
+		d.Alerts, d.TimeSensitive, d.LiveActivities, at, d.UpdatedBy, nullStr(d.LiveActivityToken),
+		d.SetFocus, focusJSON(d.focusAt(s.now())), d.ID)
 	return err
 }
 

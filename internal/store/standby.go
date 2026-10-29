@@ -45,11 +45,11 @@ func (s *Store) MirrorDevices(ctx context.Context, ds []Device) error {
 			retired = d.RetiredAt.UTC().Format(timeFormat)
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO devices (`+deviceCols+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			d.ID, d.Token, d.Environment, d.Topic, nullStr(d.Name), nullStr(d.Platform), nullStr(d.AppVersion),
 			d.Alerts, d.TimeSensitive, d.LiveActivities, d.RegisteredAt.UTC().Format(timeFormat),
 			d.UpdatedAt.UTC().Format(timeFormat), d.UpdatedBy, retired, nullStr(d.RetiredReason),
-			nullStr(d.LiveActivityToken)); err != nil {
+			nullStr(d.LiveActivityToken), focusJSON(d.FocusFilter)); err != nil {
 			return err
 		}
 	}

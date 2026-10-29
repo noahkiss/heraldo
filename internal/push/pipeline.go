@@ -35,6 +35,8 @@ var stages = []stage{
 	{"mute", (*Pusher).muteStage},
 	{"inhibit", (*Pusher).inhibitStage},
 	{"bundle", (*Pusher).bundleStage},
+	{"quiet", (*Pusher).quietStage},
+	{"focus", (*Pusher).focusStage},
 	{"deliver", (*Pusher).deliverStage},
 }
 
@@ -116,7 +118,12 @@ type Run struct {
 	OpenFor time.Duration
 	// Devices are the active devices; the devices stage sets them.
 	Devices []store.Device
-	Log     *slog.Logger
+	// DeviceLevel lowers the push for one device, by device id, below
+	// Decision.Level; DeviceWhy says why, for its delivery row. The focus
+	// stage sets them.
+	DeviceLevel map[string]api.Level
+	DeviceWhy   map[string]string
+	Log         *slog.Logger
 	// CollapseID replaces the push's apns-collapse-id when set; the bundle
 	// stage sets it.
 	CollapseID string

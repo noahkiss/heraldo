@@ -26,7 +26,7 @@ func TestMigrateFromEmpty(t *testing.T) {
 	s := open(t, path)
 	// schemaVersion is the newest migration's number. Bump it with each new
 	// migration, so a merge that drops or renumbers one fails here.
-	const schemaVersion = 17
+	const schemaVersion = 18
 	if newest := embeddedVersion(t); newest != schemaVersion {
 		t.Fatalf("newest migration is %d, want %d", newest, schemaVersion)
 	}

@@ -90,6 +90,9 @@ func flagName(name string) string {
 
 var levels = []string{"passive", "active", "time-sensitive", "critical"}
 
+// BadgeScopes are the values of badge.scope.
+var BadgeScopes = []string{"attention", "pushed", "none"}
+
 // DefaultRedact catches bearer-shaped strings, op:// references and long
 // hex before text leaves the server.
 var DefaultRedact = []string{
@@ -128,6 +131,11 @@ var registry = []Key{
 	{Name: "quiet.tz", Type: TZ, Default: "UTC", Desc: "The time zone of quiet.start and quiet.end."},
 	{Name: "quiet.floor", Type: Enum, Default: "time-sensitive", Enum: levels,
 		Desc: "The lowest level that still interrupts during quiet hours."},
+
+	// The badge on the iOS icon, the Mac Dock and the menu bar.
+	{Name: "badge.scope", Type: Enum, Default: "attention", Enum: BadgeScopes,
+		Desc: "What the badge counts: attention (open incidents, down checks, unread time-sensitive and up), pushed (unread that pushed), or none."},
+	{Name: "badge.projects", Type: List, Default: []string{}, Desc: "Projects the badge counts; empty counts every project."},
 
 	// The morning digest.
 	{Name: "digest.enabled", Type: Bool, Default: false, Desc: "Send a daily digest."},
