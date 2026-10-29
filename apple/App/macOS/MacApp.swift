@@ -33,6 +33,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationC
         // The stream, the safety net, sleep and wake, window visibility.
         MacSync.start()
         DockPolicy.start()
+        LoginItem.start()
     }
 
     /// The menu bar item stays when the window closes. DockPolicy hides the Dock icon.

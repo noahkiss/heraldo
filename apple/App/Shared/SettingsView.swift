@@ -54,6 +54,8 @@ struct SettingsView: View {
                 MutesSection()
 
                 #if os(macOS)
+                LoginItemSection()
+
                 Section("Dock") {
                     Toggle("Show in Dock only while a window is open", isOn: $dockOnlyWithWindow)
                 }

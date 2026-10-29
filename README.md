@@ -600,6 +600,9 @@ brew install --cask noahkiss/tap/heraldo-app
   relative times stop updating.
 - Closing the window keeps the app running in the menu bar. Quit is in the
   menu bar item's menu.
+- **Login**: "Open at login" (Settings) starts the app when you log in. The
+  first launch turns it on; turn it off in Settings or in System Settings >
+  General > Login Items.
 - **Dock**: with "Show in Dock only while a window is open" on (Settings, on by
   default), the Dock icon and the Command-Tab entry go away when the last
   window closes, the Settings window included. Opening a window from the menu
