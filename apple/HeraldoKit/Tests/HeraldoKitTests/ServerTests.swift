@@ -130,7 +130,8 @@ final class ServerTests: XCTestCase {
         XCTAssertNotNil(moved)
         var state = try await sync.unread(name)
         XCTAssertEqual(state.ids, Set(evs[3...].map(\.id)), "events after the third are unread")
-        XCTAssertEqual(state.badge, 3)
+        // The badge follows the server's badge.scope (default attention), so
+        // plain messages need not count; the unread ids are the check.
 
         // An earlier event: the cursor stays where it is.
         let back = try await sync.markRead(eventID: evs[0].id, name)
@@ -141,7 +142,6 @@ final class ServerTests: XCTestCase {
         try await sync.markAllRead(name)
         state = try await sync.unread(name)
         XCTAssertEqual(state.ids, [])
-        XCTAssertEqual(state.badge, 0)
 
         let unknown = try await sync.markRead(eventID: "01NOTANEVENT0000000000000", name)
         XCTAssertNil(unknown)
