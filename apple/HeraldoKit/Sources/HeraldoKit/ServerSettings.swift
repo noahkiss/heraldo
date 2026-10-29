@@ -41,6 +41,8 @@ public struct ServerSetting: Codable, Hashable, Sendable, Identifiable {
     public var lockedBy: String?
     public var `enum`: [String]?
     public var description: String
+    /// For a secret, whose value is never read back: whether it holds one.
+    public var set: Bool?
 
     public var id: String { key }
     public var isLocked: Bool { !(lockedBy ?? "").isEmpty }
@@ -49,10 +51,11 @@ public struct ServerSetting: Codable, Hashable, Sendable, Identifiable {
         case key, type, value, source, description
         case lockedBy = "locked_by"
         case `enum`
+        case set
     }
 
     public init(key: String, type: String, value: SettingValue?, source: String = "default",
-                lockedBy: String? = nil, enum values: [String]? = nil, description: String = "") {
+                lockedBy: String? = nil, enum values: [String]? = nil, description: String = "", set: Bool? = nil) {
         self.key = key
         self.type = type
         self.value = value
@@ -60,6 +63,7 @@ public struct ServerSetting: Codable, Hashable, Sendable, Identifiable {
         self.lockedBy = lockedBy
         self.enum = values
         self.description = description
+        self.set = set
     }
 }
 

@@ -391,10 +391,12 @@ app group.
   notification; it waits in the inbox. The extension fetches the full
   event by id and attaches the image, else the source's icon from the
   server's registry. A digest keeps its one line; a tap opens the full text.
-- **Settings**: the mutes in force, with End. Quiet hours and the badge are
-  server settings, shown here for every device: with an admin token (an
-  optional field beside the read and write tokens) the app changes them;
-  without one they are read-only.
+- **Settings**: the mutes in force, with End. Quiet hours, the badge and
+  emergency escalation are server settings, shown here for every device:
+  with an admin token (an optional field beside the read and write tokens)
+  the app changes them; without one they are read-only. The Pushover app
+  token and user key are write-only fields: the app shows only whether each
+  is set, and the server stores them encrypted (`HERALDO_SECRET_KEY_FILE`).
 - **Focus filter**: Settings > Focus > a Focus > Focus Filters > Heraldo
   picks the projects and the level (Time Sensitive and up, or Critical only)
   that break through that Focus. While the Focus is on, the server sends this

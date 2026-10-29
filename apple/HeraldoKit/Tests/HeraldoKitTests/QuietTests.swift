@@ -34,6 +34,7 @@ final class QuietTests: XCTestCase {
         XCTAssertEqual(list.settings[1].enum ?? [], ["attention", "pushed", "none"])
         XCTAssertEqual(list.settings[2].value?.list, ["home"])
         XCTAssertNil(list.settings[3].value)
+        XCTAssertEqual(list.settings[3].set, false, "a secret reports only whether it is set")
         let body = try JSONEncoder().encode(SettingInput(value: .string("22:00")))
         XCTAssertEqual(String(decoding: body, as: UTF8.self), #"{"value":"22:00"}"#)
     }

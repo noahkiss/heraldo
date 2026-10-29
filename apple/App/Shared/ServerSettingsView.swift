@@ -1,8 +1,8 @@
 import HeraldoKit
 import SwiftUI
 
-/// Quiet hours and the badge: server settings, so every device and the CLI
-/// see the same values. The admin token changes them; without it they are
+/// Quiet hours, the badge and emergency escalation: server settings, so
+/// every device and the CLI see the same values. The admin token changes them; without it they are
 /// read-only. A key a server flag or env var sets is read-only too.
 struct ServerSettingsSection: View {
     @Environment(AppModel.self) private var model
@@ -11,6 +11,10 @@ struct ServerSettingsSection: View {
     @State private var error: String?
     @State private var tz = ""
     @State private var projects = ""
+    @State private var retry = ""
+    @State private var expire = ""
+    @State private var pushoverToken = ""
+    @State private var pushoverUser = ""
 
     private var canEdit: Bool { !(model.credentials.adminToken ?? "").isEmpty }
 
@@ -66,6 +70,21 @@ struct ServerSettingsSection: View {
             } footer: {
                 Text(canEdit ? "Applies to every device." : "Read-only without an admin token.")
             }
+
+            Section {
+                if loaded {
+                    Toggle("Escalate critical alerts to Pushover", isOn: boolBinding("escalation.enabled"))
+                        .disabled(!editable("escalation.enabled"))
+                    duration("Repeat every", "escalation.retry", text: $retry)
+                    duration("Stop repeating after", "escalation.expire", text: $expire)
+                    secret("Pushover app token", "escalation.pushover.token", text: $pushoverToken)
+                    secret("Pushover user key", "escalation.pushover.user", text: $pushoverUser)
+                }
+            } header: {
+                Text("Emergency escalation")
+            } footer: {
+                Text("Pushover repeats a critical alert until it is acknowledged. Acknowledging it in Heraldo stops it.")
+            }
         }
         .task(id: model.credentials) { await load() }
     }
@@ -78,6 +97,32 @@ struct ServerSettingsSection: View {
             set: { put(key, .string(Self.clock($0))) }
         ), displayedComponents: .hourAndMinute)
         .disabled(!editable(key))
+    }
+
+    /// A Go duration, such as 1m or 2h, sent on submit.
+    private func duration(_ title: String, _ key: String, text: Binding<String>) -> some View {
+        LabeledContent(title) {
+            TextField("1m", text: text)
+                .multilineTextAlignment(.trailing)
+                .autocorrectionDisabled()
+                #if os(iOS)
+                .textInputAutocapitalization(.never)
+                #endif
+                .onSubmit { put(key, .string(text.wrappedValue.trimmingCharacters(in: .whitespaces))) }
+                .disabled(!editable(key))
+        }
+    }
+
+    /// A write-only secret: the field never shows the stored value, and
+    /// empties after a save.
+    private func secret(_ title: String, _ key: String, text: Binding<String>) -> some View {
+        SecureField(title, text: text, prompt: Text(settings[key]?.set == true ? "Set" : "Not set"))
+            .onSubmit {
+                let v = text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                text.wrappedValue = ""
+                if !v.isEmpty { putSecret(key, v) }
+            }
+            .disabled(!editable(key))
     }
 
     private func picker(_ title: String, _ key: String, labels: [String: String]) -> some View {
@@ -116,8 +161,11 @@ struct ServerSettingsSection: View {
                 error = "This server has no settings."
                 return
             }
-            settings = Dictionary(uniqueKeysWithValues: all.filter { $0.key.hasPrefix("quiet.") || $0.key.hasPrefix("badge.") }
-                .map { ($0.key, $0) })
+            settings = Dictionary(uniqueKeysWithValues: all.filter {
+                $0.key.hasPrefix("quiet.") || $0.key.hasPrefix("badge.") || $0.key.hasPrefix("escalation.")
+            }.map { ($0.key, $0) })
+            retry = settings["escalation.retry"]?.value?.string ?? ""
+            expire = settings["escalation.expire"]?.value?.string ?? ""
             tz = settings["quiet.tz"]?.value?.string ?? ""
             projects = (settings["badge.projects"]?.value?.list ?? []).joined(separator: ", ")
             loaded = true
@@ -134,6 +182,20 @@ struct ServerSettingsSection: View {
                 settings[key] = try await model.client().putSetting(key, value)
                 error = nil
                 if key.hasPrefix("badge.") { await model.refresh() }
+            } catch {
+                self.error = error.localizedDescription
+                await load()
+            }
+        }
+    }
+
+    /// A secret's value is never read back, so it always writes.
+    private func putSecret(_ key: String, _ value: String) {
+        guard editable(key) else { return }
+        Task {
+            do {
+                settings[key] = try await model.client().putSetting(key, .string(value))
+                error = nil
             } catch {
                 self.error = error.localizedDescription
                 await load()
