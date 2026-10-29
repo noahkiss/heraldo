@@ -358,6 +358,14 @@ func Build(ev *api.Event, d Decision, x Extra) ([]byte, Headers, error) {
 	case ev.Body != nil:
 		text = *ev.Body
 	}
+	// A Mac gets the body in the push itself: macOS kills the notification
+	// service extension before it can fetch it (it never gets past startup),
+	// so the push carries what fits of the 4 KB.
+	if x.ContentAvailable && ev.Kind != api.KindDigest && ev.Body != nil && strings.TrimSpace(*ev.Body) != "" &&
+		ev.Summary != nil && *ev.Summary != "" {
+		text = *ev.Summary + "\n\n" + strings.TrimSpace(*ev.Body)
+		p.Heraldo.Truncated = false
+	}
 	switch {
 	case ev.Kind == api.KindIncident && ev.Action != nil && *ev.Action == api.EventActionResolve:
 		text = ResolvedText(ev)

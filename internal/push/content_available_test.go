@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/store"
 )
 
@@ -54,5 +55,32 @@ func TestContentAvailableFor(t *testing.T) {
 		if got := ContentAvailableFor(store.Device{Platform: platform}); got != want {
 			t.Errorf("%q: %v; want %v", platform, got, want)
 		}
+	}
+}
+
+func TestMacPushCarriesBody(t *testing.T) {
+	sum, body := "short", "line one\nline two"
+	ev := &api.Event{Id: "01J0000000000000000000000A", Kind: api.KindMessage, Source: "s", Summary: &sum, Body: &body}
+	d := Decision{Level: api.LevelActive}
+	mac, _, err := Build(ev, d, Extra{ContentAvailable: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ios, _, err := Build(ev, d, Extra{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pm, pi Payload
+	if err := json.Unmarshal(mac, &pm); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(ios, &pi); err != nil {
+		t.Fatal(err)
+	}
+	if pm.APS.Alert.Body != "short\n\nline one\nline two" || pm.Heraldo.Truncated {
+		t.Errorf("mac body %q truncated %v", pm.APS.Alert.Body, pm.Heraldo.Truncated)
+	}
+	if pi.APS.Alert.Body != "short" || !pi.Heraldo.Truncated {
+		t.Errorf("ios body %q truncated %v", pi.APS.Alert.Body, pi.Heraldo.Truncated)
 	}
 }
