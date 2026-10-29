@@ -9,9 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -66,43 +64,6 @@ func (s *Store) Close() error { return s.db.Close() }
 
 // SetClock replaces the clock used for the dedup window. Tests use it.
 func (s *Store) SetClock(now func() time.Time) { s.now = now }
-
-func (s *Store) migrate(ctx context.Context) error {
-	names, err := fs.Glob(migrations, "migrations/*.sql")
-	if err != nil {
-		return err
-	}
-	sort.Strings(names)
-	var have int
-	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&have); err != nil {
-		return fmt.Errorf("read schema version: %w", err)
-	}
-	if have > len(names) {
-		return fmt.Errorf("database schema version %d is newer than this binary (%d)", have, len(names))
-	}
-	for i := have; i < len(names); i++ {
-		body, err := migrations.ReadFile(names[i])
-		if err != nil {
-			return err
-		}
-		tx, err := s.db.BeginTx(ctx, nil)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, string(body)); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("migration %s: %w", names[i], err)
-		}
-		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", i+1)); err != nil {
-			tx.Rollback()
-			return err
-		}
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("migration %s: %w", names[i], err)
-		}
-	}
-	return nil
-}
 
 // Version returns the applied schema version.
 func (s *Store) Version(ctx context.Context) (int, error) {

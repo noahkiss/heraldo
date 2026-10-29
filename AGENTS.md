@@ -46,6 +46,13 @@ The plan and its stages live in bm (project `heraldo`).
 - Names and bundle IDs live in `apple/Config/Names.xcconfig`. Signing lives in the
   untracked `apple/Config/Local.xcconfig`.
 - Never edit an applied database migration. Add a new numbered migration instead.
+  - Name it `NNNN_description.sql`, numbered one above the newest. The number is
+    the schema version it brings the database to.
+  - The server refuses to start on a gap, a duplicate number, or a name without a
+    number. It also refuses a database whose version is above the newest file.
+  - Two branches that each add a migration must not share a number. Renumber the
+    later merge before it lands.
+  - Bump `schemaVersion` in `TestMigrateFromEmpty` (`internal/store/store_test.go`).
 
 ## Hygiene: the repo stays publishable
 
