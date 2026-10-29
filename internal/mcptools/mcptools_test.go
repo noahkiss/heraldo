@@ -35,6 +35,7 @@ const (
 type fixture struct {
 	t   *testing.T
 	url string
+	st  *store.Store
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -59,7 +60,7 @@ func newFixture(t *testing.T) *fixture {
 		Logger: slog.New(slog.DiscardHandler),
 	}))
 	t.Cleanup(func() { close(done); srv.Close() })
-	return &fixture{t: t, url: srv.URL}
+	return &fixture{t: t, url: srv.URL, st: st}
 }
 
 // do sends one API request and returns the decoded answer.

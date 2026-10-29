@@ -235,6 +235,14 @@ func (c *Client) Get(ctx context.Context, id string) (Event, error) {
 	return e, err
 }
 
+// Why returns the push trace of the event with id. A server before 0.7
+// answers 404 for every id.
+func (c *Client) Why(ctx context.Context, id string) (api.PushTrace, error) {
+	var t api.PushTrace
+	err := c.do(ctx, http.MethodGet, "/v1/events/"+url.PathEscape(id)+"/why", nil, c.Token, nil, &t)
+	return t, err
+}
+
 // State returns the derived state.
 func (c *Client) State(ctx context.Context) (State, error) {
 	var s State

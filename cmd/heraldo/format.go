@@ -118,6 +118,7 @@ func detail(w io.Writer, e client.Event) {
 	}
 	row("key", str(e.Key))
 	row("level", level(e))
+	row("why", str(e.Why))
 	if e.Tags != nil {
 		row("tags", strings.Join(*e.Tags, ", "))
 	}

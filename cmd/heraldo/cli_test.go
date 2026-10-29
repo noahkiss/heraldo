@@ -44,6 +44,7 @@ func (s *syncBuf) String() string              { s.mu.Lock(); defer s.mu.Unlock(
 type fixture struct {
 	t   *testing.T
 	srv *httptest.Server
+	st  *store.Store
 	env map[string]string
 }
 
@@ -71,7 +72,7 @@ func newFixture(t *testing.T) *fixture {
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}))
 	t.Cleanup(func() { close(done); srv.Close() })
-	return &fixture{t: t, srv: srv, env: map[string]string{
+	return &fixture{t: t, srv: srv, st: st, env: map[string]string{
 		"HERALDO_URL": srv.URL, "HERALDO_TOKEN": readTok,
 		"XDG_CONFIG_HOME": t.TempDir(), "HOME": t.TempDir(),
 	}}

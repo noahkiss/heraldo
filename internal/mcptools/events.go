@@ -262,7 +262,7 @@ type readIn struct {
 	BodyOffset int    `json:"body_offset,omitempty" jsonschema:"Byte offset into the body, from body_page.next_offset."`
 }
 
-const readDesc = `Read one heraldo event in full: body, details, delivery outcome per device.
+const readDesc = `Read one heraldo event in full: body, details, delivery outcome per device, and why it did or did not push.
 
 Best for: an id from events_search or overview.
 Returns: the stored event. Bodies over 16 KiB come back in pages; pass body_page.next_offset as body_offset to read on. details over 4 KiB is left out with its size.
@@ -279,8 +279,10 @@ func (t *tools) addEventRead(s *mcp.Server) {
 			"body_page": obj("Set when the body was cut.", map[string]*jsonschema.Schema{
 				"offset": integer(""), "next_offset": integer("Absent on the last page."), "total_bytes": integer(""),
 			}),
-			"details":  anyObj("The event's details, or {_omitted_bytes: n} over 4 KiB."),
-			"delivery": obj("Push outcome per device.", map[string]*jsonschema.Schema{"sent": integer(""), "skipped": integer(""), "failed": integer(""), "items": arr("At most 10.", anyObj(""))}),
+			"details":   anyObj("The event's details, or {_omitted_bytes: n} over 4 KiB."),
+			"delivery":  obj("Push outcome per device.", map[string]*jsonschema.Schema{"sent": integer(""), "skipped": integer(""), "failed": integer(""), "items": arr("At most 10.", anyObj(""))}),
+			"why":       str("One line on the push decision, such as \"muted by mute_... (project)\". Absent when the server has not decided the event."),
+			"decisions": arr("The push pipeline's stages in order, the last one ended it: stage, outcome (pass, downgrade, delay, merge, drop), reason, detail.", anyObj("")),
 		},
 		t.eventRead)
 }
@@ -344,12 +346,30 @@ func (t *tools) eventRead(ctx context.Context, _ *mcp.CallToolRequest, in readIn
 		dl["items"] = items
 		m["delivery"] = dl
 	}
+	if e.Why != nil {
+		// The summary is on the event; the stages are one call more. A
+		// failed call leaves them out.
+		if tr, err := t.API.Why(ctx, e.Id); err == nil {
+			ds := make([]map[string]any, 0, len(tr.Decisions))
+			for _, d := range tr.Decisions {
+				r := map[string]any{"stage": d.Stage, "outcome": d.Outcome, "reason": d.Reason}
+				if d.Detail != nil {
+					r["detail"] = *d.Detail
+				}
+				ds = append(ds, r)
+			}
+			m["decisions"] = ds
+		}
+	}
 	if len(notes) > 0 {
 		m["notes"] = notes
 	}
 	s := summarize(e)
 	var b strings.Builder
 	b.WriteString(s.line() + "\n")
+	if e.Why != nil {
+		b.WriteString("why: " + *e.Why + "\n")
+	}
 	if body != "" {
 		b.WriteString("\n" + m["body"].(string) + "\n")
 	}

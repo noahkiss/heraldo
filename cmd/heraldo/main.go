@@ -25,6 +25,7 @@ const usage = `usage: heraldo <command> [flags]
 reading (HERALDO_URL, HERALDO_TOKEN):
   peek             events since this client's read cursor; --mark moves it
   show <id>        one event with its full body
+  why <id>         why an event did or did not push, stage by stage
   ls               the newest events, without routine ones; --kind --source --host
                    --key --tag --project -q --open --routine
   held             events held for triage
@@ -115,7 +116,7 @@ func (a *app) run(ctx context.Context, args []string) int {
 	cmds := map[string]func(context.Context, []string) error{
 		"peek": a.peek, "show": a.show, "ls": a.ls, "held": a.held, "checkins": a.checkins,
 		"tail": a.tail, "ack": a.ack, "resolve": a.resolve, "send": a.send,
-		"mcp": a.mcp, "settings": a.settings,
+		"mcp": a.mcp, "settings": a.settings, "why": a.why,
 	}
 	name := args[0]
 	switch name {

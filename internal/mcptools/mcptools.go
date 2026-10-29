@@ -19,6 +19,7 @@ type API interface {
 	Health(ctx context.Context) (api.Health, error)
 	List(ctx context.Context, q client.Query) (client.Page, error)
 	Get(ctx context.Context, id string) (client.Event, error)
+	Why(ctx context.Context, id string) (api.PushTrace, error)
 	StateIn(ctx context.Context, projects []string) (client.State, error)
 	CursorUnread(ctx context.Context, name string) (client.CursorState, bool, error)
 	ChecksIn(ctx context.Context, projects []string) ([]client.CheckEntry, error)
