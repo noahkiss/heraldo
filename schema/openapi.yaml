@@ -2222,7 +2222,7 @@ components:
           enum: [dismissed, ended]
     MuteInput:
       type: object
-      description: A new mute. Give source, key or both, and until or for.
+      description: A new mute. Give source, key, project, or a mix; an event must match every field given. Give until or for.
       additionalProperties: false
       properties:
         source:
@@ -2233,6 +2233,10 @@ components:
           type: string
           maxLength: 255
           description: Mute events with this key, such as one incident.
+        project:
+          type: string
+          maxLength: 64
+          description: Mute every event filed under this project, or under a name the aliases map to it. Folded to lower case. A server before project mutes refuses the field with 400.
         until:
           type: string
           format: date-time
@@ -2251,6 +2255,9 @@ components:
           type: string
         key:
           type: string
+        project:
+          type: string
+          description: The project the mute matches, after aliases.
         until:
           type: string
           format: date-time

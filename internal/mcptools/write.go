@@ -145,15 +145,16 @@ type muteIn struct {
 	Operation string `json:"operation"`
 	Source    string `json:"source,omitempty" jsonschema:"create: mute events from this source."`
 	Key       string `json:"key,omitempty" jsonschema:"create: mute events with this key. checkin:<slug> mutes one check both ways."`
+	Project   string `json:"project,omitempty" jsonschema:"create: mute every event filed under this project."`
 	For       string `json:"for,omitempty" jsonschema:"create: Go duration, 1m to 8784h. Default 1h."`
 	MuteID    string `json:"mute_id,omitempty" jsonschema:"end: the id from overview."`
 }
 
-const muteDesc = `Mute a heraldo source or key for a while, or end a mute early.
+const muteDesc = `Mute a heraldo source, key or project for a while, or end a mute early.
 
-Best for: the owner asks to silence a noisy source, one incident, or one check for a time.
+Best for: the owner asks to silence a noisy source, one incident, one check, or one project for a time.
 A mute holds back pushes and re-alerts only. Events are still stored and listed.
-create needs source, key or both (both: an event must match both). To mute one check both ways, use key checkin:<slug>.
+create needs source, key, project, or a mix (a mix: an event must match every one). To mute one check both ways, use key checkin:<slug>.
 Returns: the mute, and created=false when a mute in force already covered it. overview lists the mutes in force.`
 
 func (t *tools) addMute(s *mcp.Server) {
@@ -163,6 +164,7 @@ func (t *tools) addMute(s *mcp.Server) {
 			enum(is.Properties["operation"], "create", "end")
 			maxLen(is.Properties["source"], 128)
 			maxLen(is.Properties["key"], 255)
+			maxLen(is.Properties["project"], 64)
 			maxLen(is.Properties["for"], 32)
 			def(is.Properties["for"], "1h")
 			maxLen(is.Properties["mute_id"], 64)
@@ -184,6 +186,9 @@ func muteOut(m api.Mute) map[string]any {
 	if m.Key != nil {
 		o["key"] = *m.Key
 	}
+	if m.Project != nil {
+		o["project"] = *m.Project
+	}
 	if m.EndedAt != nil {
 		o["ended_at"] = rfc(*m.EndedAt)
 	}
@@ -197,6 +202,9 @@ func muteText(verb string, m api.Mute) string {
 	}
 	if m.Key != nil {
 		s += " key=" + *m.Key
+	}
+	if m.Project != nil {
+		s += " project=" + *m.Project
 	}
 	return s + " until " + rfc(m.Until)
 }
@@ -217,8 +225,8 @@ func (t *tools) mute(ctx context.Context, _ *mcp.CallToolRequest, in muteIn) (re
 	default:
 		return result{}, toolErr("invalid", "operation must be create or end", "")
 	}
-	if in.Source == "" && in.Key == "" {
-		return result{}, toolErr("invalid", "create needs source, key or both", "")
+	if in.Source == "" && in.Key == "" && in.Project == "" {
+		return result{}, toolErr("invalid", "create needs source, key, project, or a mix", "")
 	}
 	f := in.For
 	if f == "" {
@@ -228,15 +236,16 @@ func (t *tools) mute(ctx context.Context, _ *mcp.CallToolRequest, in muteIn) (re
 	if err != nil || d < time.Minute || d > 8784*time.Hour {
 		return result{}, toolErr("invalid", fmt.Sprintf("for: %q is not a Go duration from 1m to 8784h", f), "use a form such as 30m, 2h or 72h")
 	}
-	// A retry must not stack mutes: a mute in force on the same source and
-	// key that lasts at least as long answers instead.
+	// A retry must not stack mutes: a mute in force on the same source,
+	// key and project that lasts at least as long answers instead.
 	mutes, err := t.API.Mutes(ctx)
 	if err != nil {
 		return result{}, t.apiErr(err, w)
 	}
 	end := time.Now().Add(d)
 	for _, m := range mutes {
-		if m.Active && deref(m.Source) == in.Source && deref(m.Key) == in.Key && !m.Until.Before(end.Add(-time.Minute)) {
+		if m.Active && deref(m.Source) == in.Source && deref(m.Key) == in.Key &&
+			deref(m.Project) == strings.ToLower(in.Project) && !m.Until.Before(end.Add(-time.Minute)) {
 			return result{out: map[string]any{"created": false, "mute": muteOut(m)}, text: muteText("already muted:", m)}, nil
 		}
 	}
@@ -247,8 +256,17 @@ func (t *tools) mute(ctx context.Context, _ *mcp.CallToolRequest, in muteIn) (re
 	if in.Key != "" {
 		mi.Key = &in.Key
 	}
+	if in.Project != "" {
+		mi.Project = &in.Project
+	}
 	m, err := t.API.Mute(ctx, mi)
 	if err != nil {
+		var ce *client.Error
+		// A server before project mutes refuses the field as unknown.
+		if in.Project != "" && asStatus(err, &ce, http.StatusBadRequest) && strings.Contains(ce.Message, `unknown field "project"`) {
+			return result{}, toolErr("unsupported_filter", "this heraldo server has no project mutes yet: it refused project",
+				"mute by source or key, or upgrade the server")
+		}
 		return result{}, t.apiErr(err, w)
 	}
 	return result{out: map[string]any{"created": true, "mute": muteOut(m)}, text: muteText("muted", m)}, nil

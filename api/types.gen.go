@@ -1410,19 +1410,25 @@ type Mute struct {
 	EndedAt *time.Time `json:"ended_at,omitempty"`
 
 	// Id mute_ plus a ULID.
-	Id     string    `json:"id"`
-	Key    *string   `json:"key,omitempty"`
-	Source *string   `json:"source,omitempty"`
-	Until  time.Time `json:"until"`
+	Id  string  `json:"id"`
+	Key *string `json:"key,omitempty"`
+
+	// Project The project the mute matches, after aliases.
+	Project *string   `json:"project,omitempty"`
+	Source  *string   `json:"source,omitempty"`
+	Until   time.Time `json:"until"`
 }
 
-// MuteInput A new mute. Give source, key or both, and until or for.
+// MuteInput A new mute. Give source, key, project, or a mix; an event must match every field given. Give until or for.
 type MuteInput struct {
 	// For How long the mute lasts, a Go duration such as 1h or 90m, instead of until.
 	For *string `json:"for,omitempty"`
 
 	// Key Mute events with this key, such as one incident.
 	Key *string `json:"key,omitempty"`
+
+	// Project Mute every event filed under this project, or under a name the aliases map to it. Folded to lower case. A server before project mutes refuses the field with 400.
+	Project *string `json:"project,omitempty"`
 
 	// Source Mute events from this source.
 	Source *string `json:"source,omitempty"`

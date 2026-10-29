@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/ids"
 	"github.com/noahkiss/heraldo/internal/store"
+	"github.com/noahkiss/heraldo/internal/validate"
 )
 
 // MaxMute is the longest a mute may last.
@@ -23,6 +25,9 @@ func (s *server) muteJSON(m store.Mute) api.Mute {
 	}
 	if m.Key != "" {
 		out.Key = &m.Key
+	}
+	if m.Project != "" {
+		out.Project = &m.Project
 	}
 	if !m.EndedAt.IsZero() {
 		t := m.EndedAt
@@ -63,8 +68,18 @@ func (s *server) createMute(w http.ResponseWriter, r *http.Request) {
 	if in.Key != nil {
 		m.Key = *in.Key
 	}
-	if m.Source == "" && m.Key == "" {
-		problems = append(problems, "give source, key or both")
+	if in.Project != nil {
+		switch p := validate.FoldProject(*in.Project); {
+		case p == "":
+		case validate.ValidProject(p):
+			// Events filed under an alias of the name match too.
+			m.Project = s.Rules.Rules().Alias(p)
+		default:
+			problems = append(problems, fmt.Sprintf("project: %q is not a project name", p))
+		}
+	}
+	if m.Source == "" && m.Key == "" && m.Project == "" {
+		problems = append(problems, "give source, key, project, or a mix")
 	}
 	if len(m.Source) > 128 || len(m.Key) > 255 {
 		problems = append(problems, "source is at most 128 bytes and key at most 255")
@@ -96,7 +111,7 @@ func (s *server) createMute(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	s.Logger.Info("mute", "id", m.ID, "source", m.Source, "key", m.Key, "until", m.Until, "token", m.CreatedBy)
+	s.Logger.Info("mute", "id", m.ID, "source", m.Source, "key", m.Key, "project", m.Project, "until", m.Until, "token", m.CreatedBy)
 	writeJSON(w, http.StatusCreated, s.muteJSON(m))
 }
 

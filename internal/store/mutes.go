@@ -8,11 +8,12 @@ import (
 )
 
 // Mute holds back the pushes of the events it matches until Until. An
-// empty Source or Key matches any.
+// empty Source, Key or Project matches any.
 type Mute struct {
 	ID        string
 	Source    string
 	Key       string
+	Project   string
 	Until     time.Time
 	CreatedAt time.Time
 	CreatedBy string
@@ -24,21 +25,23 @@ type Mute struct {
 // Active reports whether the mute holds back pushes at now.
 func (m Mute) Active(now time.Time) bool { return m.EndedAt.IsZero() && m.Until.After(now) }
 
-// Matches reports whether the mute covers an event with source and key.
-func (m Mute) Matches(source, key string) bool {
-	return (m.Source == "" || m.Source == source) && (m.Key == "" || m.Key == key)
+// Matches reports whether the mute covers an event with source, key and
+// project.
+func (m Mute) Matches(source, key, project string) bool {
+	return (m.Source == "" || m.Source == source) && (m.Key == "" || m.Key == key) &&
+		(m.Project == "" || m.Project == project)
 }
 
-const muteCols = `id, source, key, until, created_at, created_by, ended_at, ended_by`
+const muteCols = `id, source, key, project, until, created_at, created_by, ended_at, ended_by`
 
 func scanMute(r scanner) (Mute, error) {
 	var m Mute
-	var source, key, endedBy sql.NullString
+	var source, key, project, endedBy sql.NullString
 	var until, created, ended sql.NullString
-	if err := r.Scan(&m.ID, &source, &key, &until, &created, &m.CreatedBy, &ended, &endedBy); err != nil {
+	if err := r.Scan(&m.ID, &source, &key, &project, &until, &created, &m.CreatedBy, &ended, &endedBy); err != nil {
 		return Mute{}, err
 	}
-	m.Source, m.Key, m.EndedBy = source.String, key.String, endedBy.String
+	m.Source, m.Key, m.Project, m.EndedBy = source.String, key.String, project.String, endedBy.String
 	m.Until, m.CreatedAt, m.EndedAt = parseNullTime(until), parseNullTime(created), parseNullTime(ended)
 	return m, nil
 }
@@ -47,8 +50,8 @@ func scanMute(r scanner) (Mute, error) {
 func (s *Store) AddMute(ctx context.Context, m Mute) error {
 	s.wmu.Lock()
 	defer s.wmu.Unlock()
-	_, err := s.db.ExecContext(ctx, `INSERT INTO mutes (id, source, key, until, created_at, created_by)
-		VALUES (?, ?, ?, ?, ?, ?)`, m.ID, nullStr(m.Source), nullStr(m.Key), fmtTime(m.Until),
+	_, err := s.db.ExecContext(ctx, `INSERT INTO mutes (id, source, key, project, until, created_at, created_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, m.ID, nullStr(m.Source), nullStr(m.Key), nullStr(m.Project), fmtTime(m.Until),
 		fmtTime(m.CreatedAt), m.CreatedBy)
 	return err
 }
@@ -81,13 +84,14 @@ func (s *Store) Mutes(ctx context.Context, now time.Time) ([]Mute, error) {
 	return out, rows.Err()
 }
 
-// MatchMute returns the active mute at now that covers an event with source
-// and key, the one that lasts longest.
-func (s *Store) MatchMute(ctx context.Context, source, key string, now time.Time) (Mute, bool, error) {
+// MatchMute returns the active mute at now that covers an event with
+// source, key and project, the one that lasts longest. An empty project
+// matches no project mute.
+func (s *Store) MatchMute(ctx context.Context, source, key, project string, now time.Time) (Mute, bool, error) {
 	m, err := scanMute(s.db.QueryRowContext(ctx, `SELECT `+muteCols+` FROM mutes
 		WHERE ended_at IS NULL AND until > ?
-		AND (source IS NULL OR source = ?) AND (key IS NULL OR key = ?)
-		ORDER BY until DESC LIMIT 1`, now.UTC().Format(timeFormat), source, key))
+		AND (source IS NULL OR source = ?) AND (key IS NULL OR key = ?) AND (project IS NULL OR project = ?)
+		ORDER BY until DESC LIMIT 1`, now.UTC().Format(timeFormat), source, key, project))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Mute{}, false, nil
 	}

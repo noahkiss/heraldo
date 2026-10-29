@@ -48,7 +48,7 @@ heraldo mcp [--read-only]
 | `activity_read` | One Live Activity: content, device instances, timeline | read |
 | `incident_act` | Ack or resolve an open incident | write |
 | `checkin_update` | Pause, resume, or replace a check's schedule | write |
-| `mute` | Mute a source or key for a while, or end a mute | write |
+| `mute` | Mute a source, key or project for a while, or end a mute | write |
 | `send` | Post a plain message to the owner | write |
 
 Left out on purpose:
@@ -96,7 +96,7 @@ to do>.`, and `structuredContent.error` with `code`, `status`, `message` and
 | `no_open_incident` | `incident_act` on a key with no open incident |
 | `unreachable` | No answer from `HERALDO_URL` |
 | `server_too_old` | The server cannot list newest first; pass `order: oldest` |
-| `unsupported_filter` | The server has no `project` field yet |
+| `unsupported_filter` | The server has no `project` field yet, or no project mutes |
 
 ## Routine events
 
@@ -115,7 +115,9 @@ only when set. The read tools take a list and send one `project` parameter per
 name; `-` means events with no project. A server without the field ignores the
 filter on reads and refuses it on `send`; both give `unsupported_filter`
 rather than wrong results. `overview` does not filter the unread count,
-activities or mutes by project.
+activities or mutes by project. `mute` takes one `project` and mutes every
+event filed under it; a server before project mutes refuses it, and the
+tool answers `unsupported_filter`.
 
 ## Register it
 

@@ -180,6 +180,7 @@ func TestMutes(t *testing.T) {
 		{ID: "mute_2", Key: "unit:a:nginx", Until: now.Add(2 * time.Hour)},
 		{ID: "mute_3", Source: "uptime", Key: "web", Until: now.Add(30 * time.Minute)},
 		{ID: "mute_4", Source: "old", Until: now.Add(-time.Minute)},
+		{ID: "mute_5", Project: "web", Until: now.Add(45 * time.Minute)},
 	} {
 		m.CreatedAt, m.CreatedBy = now, "phone-write"
 		if err := s.AddMute(ctx, m); err != nil {
@@ -187,30 +188,37 @@ func TestMutes(t *testing.T) {
 		}
 	}
 	for _, c := range []struct {
-		source, key, want string
+		source, key, project, want string
 	}{
-		{"backup", "", "mute_1"},
-		{"backup", "x", "mute_1"},
-		{"other", "unit:a:nginx", "mute_2"},
-		{"uptime", "web", "mute_3"},
-		{"uptime", "db", ""},
-		{"other", "web", ""},
-		{"old", "", ""},
+		{"backup", "", "", "mute_1"},
+		{"backup", "x", "", "mute_1"},
+		{"other", "unit:a:nginx", "", "mute_2"},
+		{"uptime", "web", "", "mute_3"},
+		{"uptime", "db", "", ""},
+		{"other", "web", "", ""},
+		{"old", "", "", ""},
+		{"other", "x", "web", "mute_5"},
+		{"other", "x", "fleet", ""},
+		// The longest mute wins.
+		{"backup", "", "web", "mute_1"},
 	} {
-		m, ok, err := s.MatchMute(ctx, c.source, c.key, now)
+		m, ok, err := s.MatchMute(ctx, c.source, c.key, c.project, now)
 		if err != nil || (ok && m.ID != c.want) || (!ok && c.want != "") {
-			t.Errorf("%s/%s: %q %v %v; want %q", c.source, c.key, m.ID, ok, err, c.want)
+			t.Errorf("%s/%s/%s: %q %v %v; want %q", c.source, c.key, c.project, m.ID, ok, err, c.want)
 		}
 	}
+	if m, _ := s.GetMute(ctx, "mute_5"); m.Project != "web" {
+		t.Fatalf("project mute %+v", m)
+	}
 	ms, err := s.Mutes(ctx, now)
-	if err != nil || len(ms) != 3 || ms[0].ID != "mute_3" {
+	if err != nil || len(ms) != 4 || ms[0].ID != "mute_3" {
 		t.Fatalf("mutes %+v %v", ms, err)
 	}
 	m, err := s.EndMute(ctx, "mute_1", "phone-write", now)
 	if err != nil || m.EndedAt.IsZero() || m.Active(now) {
 		t.Fatalf("ended %+v %v", m, err)
 	}
-	if _, ok, _ := s.MatchMute(ctx, "backup", "", now); ok {
+	if _, ok, _ := s.MatchMute(ctx, "backup", "", "", now); ok {
 		t.Fatal("ended mute still matches")
 	}
 	if _, err := s.GetMute(ctx, "mute_x"); err != ErrNotFound {

@@ -57,7 +57,7 @@ func (t *tools) addOverview(s *mcp.Server) {
 			"activities": obj("", map[string]*jsonschema.Schema{
 				"running": integer(""), "items": arr("", anyObj("key, title, status, progress, updated_at, devices")),
 			}),
-			"mutes":    obj("", map[string]*jsonschema.Schema{"items": arr("", anyObj("id, source, key, until"))}),
+			"mutes":    obj("", map[string]*jsonschema.Schema{"items": arr("", anyObj("id, source, key, project, until"))}),
 			"statuses": obj("", map[string]*jsonschema.Schema{"total": integer(""), "items": arr("", eventSummarySchema)}),
 			"notes":    arr("", str("")),
 		},
@@ -96,10 +96,11 @@ type activityItem struct {
 }
 
 type muteItem struct {
-	ID     string `json:"id"`
-	Source string `json:"source,omitempty"`
-	Key    string `json:"key,omitempty"`
-	Until  string `json:"until"`
+	ID      string `json:"id"`
+	Source  string `json:"source,omitempty"`
+	Key     string `json:"key,omitempty"`
+	Project string `json:"project,omitempty"`
+	Until   string `json:"until"`
 }
 
 func rfc(t time.Time) string { return t.UTC().Format(time.RFC3339) }
@@ -326,13 +327,17 @@ func (t *tools) overview(ctx context.Context, req *mcp.CallToolRequest, in overv
 		} else if section("mutes", merr) {
 			var items []muteItem
 			for _, m := range mutes {
-				items = append(items, muteItem{ID: m.Id, Source: deref(m.Source), Key: deref(m.Key), Until: rfc(m.Until)})
+				items = append(items, muteItem{ID: m.Id, Source: deref(m.Source), Key: deref(m.Key), Project: deref(m.Project), Until: rfc(m.Until)})
 			}
 			items = items[:min(len(items), sectionCap)]
 			out["mutes"] = map[string]any{"items": nonNil(items)}
 			lines = append(lines, fmt.Sprintf("mutes: %d in force", len(mutes)))
 			for _, m := range items {
-				lines = append(lines, fmt.Sprintf("  %s source=%s key=%s until %s", m.ID, m.Source, m.Key, m.Until))
+				line := fmt.Sprintf("  %s source=%s key=%s", m.ID, m.Source, m.Key)
+				if m.Project != "" {
+					line += " project=" + m.Project
+				}
+				lines = append(lines, line+" until "+m.Until)
 			}
 		}
 	}

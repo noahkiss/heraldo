@@ -36,7 +36,7 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `GET /v1/activities/{key}` | One activity, with its instances on each device and its timeline. The key may hold slashes. | served |
 | `PUT /v1/activity-instances/{id}` | The app reports an activity's update token, or that it was dismissed or ended. | served |
 | `POST`, `DELETE`, `GET /live-activity/{id}`, `GET /link`, `POST /notify-json/{id}` | Notify! compatibility, for senders written for Notify!. Write token as `?token=`. | served |
-| `GET /v1/mutes`, `POST /v1/mutes`, `DELETE /v1/mutes/{id}` | Mutes in force; mute a source or key for a while; end a mute. | served |
+| `GET /v1/mutes`, `POST /v1/mutes`, `DELETE /v1/mutes/{id}` | Mutes in force; mute a source, key or project for a while; end a mute. | served |
 | `GET /v1/icons`, `GET`, `PUT`, `DELETE /v1/icons/{name}` | The icon registry: list, fetch an image, store one, remove one. | served |
 | `GET /v1/standby/devices` | Every device with its full push tokens, for a standby. Admin, or a `read` token with the `standby` capability. See "Standby". | served |
 | `POST /v1/standby/import` | Stores the events a standby stored, by their ids, and pushes none of them. Same token as above. | served |
@@ -736,7 +736,8 @@ Re-alerts:
 ## Mutes
 
 A mute holds back pushes for a while. Matching events are stored, listed and
-synced as usual; only the push is skipped. The app's Mute 1 h action makes one.
+synced as usual; only the push is skipped. The app's Mute 1 h action makes one,
+and so does its Mute project for 1 h menu action.
 
 `POST /v1/mutes` takes a write token and a `MuteInput`:
 
@@ -744,14 +745,17 @@ synced as usual; only the push is skipped. The app's Mute 1 h action makes one.
 |---|---|
 | `source` | Mute events from this source. 128 bytes. |
 | `key` | Mute events with this key, such as one incident. 255 bytes. |
+| `project` | Mute every event filed under this project (see "Projects"). Folded to lower case; a name the aliases map to another is stored as that other, so events under either name match. |
 | `until` | When the mute ends, RFC 3339. |
 | `for` | How long the mute lasts, a Go duration such as `1h` or `90m`, instead of `until`. |
 
-- Give `source`, `key` or both. With both, an event must match both.
+- Give `source`, `key`, `project`, or a mix. With more than one, an event
+  must match every one. A server before project mutes (0.5.0 and older)
+  refuses `project` with 400.
 - Give `until` or `for`, not both. The end is in the future, at most 366 days
   ahead. Otherwise 400.
 - The answer, 201, is a `Mute`: `id` (`mute_` plus a ULID), `source`, `key`,
-  `until`, `created_at`, `ended_at` and `active`.
+  `project`, `until`, `created_at`, `ended_at` and `active`.
 - `GET /v1/mutes` takes a write token and lists the mutes in force, soonest
   to end first.
 - `DELETE /v1/mutes/{id}` takes a write token and ends the mute now. A mute
@@ -760,6 +764,8 @@ synced as usual; only the push is skipped. The app's Mute 1 h action makes one.
   check-in events (kind `checkin`, key `<slug>`). So Mute 1 h on a failed run
   or on the check's down incident silences that one check, both ways, and no
   other.
+- A project mute's skip reason in `delivery` ends in `(project)`, such as
+  `muted by mute_01J... (project)`.
 - Mutes hold back pushes and re-alerts, not storage, the event stream, or the
   read cursors.
 

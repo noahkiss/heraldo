@@ -2,6 +2,25 @@ package mcptools
 
 import "testing"
 
+func TestMuteProject(t *testing.T) {
+	f := newFixture(t)
+	s := f.connect(true)
+	out, text := s.ok("mute", map[string]any{"operation": "create", "project": "web"})
+	m := out["mute"].(map[string]any)
+	if out["created"] != true || m["project"] != "web" || m["source"] != nil {
+		t.Fatalf("create: %v %s", out, text)
+	}
+	out, _ = s.ok("mute", map[string]any{"operation": "create", "project": "Web"})
+	if out["created"] != false {
+		t.Fatalf("retry stacked a mute: %v", out)
+	}
+	ov, _ := s.ok("overview", map[string]any{"sections": []string{"mutes"}})
+	items := ov["mutes"].(map[string]any)["items"].([]any)
+	if len(items) != 1 || items[0].(map[string]any)["project"] != "web" {
+		t.Fatalf("overview mutes: %v", ov)
+	}
+}
+
 func TestSearchRoutine(t *testing.T) {
 	f := newFixture(t)
 	f.post(`{"source":"s","kind":"message","title":"hello"}`)
