@@ -114,6 +114,8 @@ type server struct {
 	// decide is the LLM's decisions role: hold triage, bundle titles and
 	// the digest's paragraph.
 	decide *decide.Decider
+	// hl is the hold's LLM state (hold_llm.go).
+	hl holdLLM
 }
 
 // Server is the HTTP handler and the check-in scheduler.

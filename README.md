@@ -251,7 +251,7 @@ The decisions role uses `llm.decisions_model`:
 
 | Where | What it does in `enforce` |
 |---|---|
-| The hold, at the deadline | Groups the alerts triage did not reach into one push, with the model's title and summary. With `llm.hold_may_suppress`, a BLIP or FALSE group below time-sensitive becomes one passive summary. |
+| The hold, at the deadline | The forward goes out at once. The answer then replaces it with the group's title and summary, and the group's later forwards fold into that one notification. With `llm.hold_may_suppress`, the not-yet-pushed members of a BLIP or FALSE group below time-sensitive become one passive summary. |
 | A view's bundle | Replaces "N new in <view>: <latest title>" with the model's title and summary, through the same collapse id, if it answers while the window is open. |
 | The digest | With `digest.prose` on, leads the digest with one paragraph. |
 

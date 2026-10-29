@@ -11,10 +11,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/noahkiss/heraldo/internal/auth"
+	"github.com/noahkiss/heraldo/internal/decide"
 	"github.com/noahkiss/heraldo/internal/hold"
 	"github.com/noahkiss/heraldo/internal/llm"
 	"github.com/noahkiss/heraldo/internal/rules"
@@ -133,103 +135,242 @@ func (e *holdEnv) split() (held, rest []map[string]any) {
 
 var burst = []string{"backup nas failed", "backup vm failed", "backup pi failed"}
 
-func TestHoldLLMEnforceGroups(t *testing.T) {
-	f := &llm.Fake{Replies: []llm.Response{groupReply("a1,a2,a3", "REAL", "time-sensitive", 0.9)}}
-	e := newHoldLLM(t, f, decisionsOn("enforce", nil), "")
-	e.heldBurst(burst...)
+// tickSettle runs the hold's tick and waits for its LLM call.
+func (e *holdEnv) tickSettle() {
 	e.tick()
+	e.srv.WaitHold()
+}
 
-	held, rest := e.split()
-	if len(rest) != 1 {
-		t.Fatalf("want one release event, got %d: %v", len(rest), rest)
+// staggered sends first, then later ten minutes on, and moves just past
+// first's deadline: first is due, the others are still held.
+func (e *holdEnv) staggered(first string, later ...string) {
+	e.t.Helper()
+	sentOK(e.t, e.send(`{"title":"`+first+`","body":"exit 1","tag":"alert"}`))
+	e.clock.add(10 * time.Minute)
+	for _, title := range later {
+		sentOK(e.t, e.send(`{"title":"`+title+`","body":"exit 1","tag":"alert"}`))
 	}
-	rel := rest[0]
-	if rel["title"] != "Backups failing on nas" || rel["level"] != "time-sensitive" || rel["source"] != holdSource ||
-		rel["summary"] != "Three backup jobs failed on nas." || !strings.Contains(rel["body"].(string), "- backup vm failed") {
-		t.Fatalf("release %v", rel)
-	}
-	if h := holdOf(rel); h["reason"] != "llm" || h["verdict"] != "REAL" || len(h["ids"].([]any)) != 3 {
-		t.Fatalf("release hold %v", h)
-	}
-	for _, r := range e.rows("") {
-		if r["status"] != store.HoldReleased || r["verdict"] != "REAL" || r["reason"] != "llm" {
-			t.Fatalf("entry %v", r)
+	e.clock.add(21 * time.Minute)
+}
+
+// fakePusher takes every event and records each replace.
+type fakePusher struct {
+	mu       sync.Mutex
+	replaces [][3]string
+}
+
+func (f *fakePusher) Enqueue(store.Record) bool { return true }
+
+func (f *fakePusher) Replace(_ context.Context, id, title, summary string) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.replaces = append(f.replaces, [3]string{id, title, summary})
+	return 1, nil
+}
+
+func (f *fakePusher) calls() [][3]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([][3]string{}, f.replaces...)
+}
+
+func (e *holdEnv) withPusher(p Pusher) {
+	old := e.srv.s.Options
+	old.Pusher = p
+	e.srv = NewServer(old)
+}
+
+// byTitle finds the one stored event whose title has prefix.
+func byTitle(t *testing.T, evs []map[string]any, title string) map[string]any {
+	t.Helper()
+	var out map[string]any
+	for _, ev := range evs {
+		if s, _ := ev["title"].(string); strings.Contains(s, title) {
+			if out != nil {
+				t.Fatalf("two events titled %q", title)
+			}
+			out = ev
 		}
 	}
-	for _, ev := range append(held, rel) {
-		rows := e.llmRows(ev["id"].(string))
-		if len(rows) != 1 || rows[0].Outcome != "merge" ||
-			!strings.Contains(rows[0].Reason, "grouped 3 alerts: REAL → released as 1 time-sensitive push") {
-			t.Fatalf("trace of %v: %+v", ev["title"], rows)
-		}
-		var det map[string]any
-		_ = json.Unmarshal(rows[0].Detail, &det)
-		if det["call_id"] == nil || det["applied"] != true || det["verdict"] != "REAL" {
-			t.Fatalf("detail %v", det)
-		}
+	if out == nil {
+		t.Fatalf("no event titled %q in %v", title, evs)
 	}
-	// The why summary carries the LLM's line.
-	rec, _ := e.st.Get(context.Background(), held[0]["id"].(string))
-	recs := []store.Record{rec}
-	if err := e.st.WithWhy(context.Background(), recs); err != nil {
-		t.Fatal(err)
+	return out
+}
+
+func (e *holdEnv) reasonOf(id string) string {
+	e.t.Helper()
+	rows := e.llmRows(id)
+	if len(rows) != 1 {
+		e.t.Fatalf("want one llm row on %s, got %+v", id, rows)
 	}
-	if !strings.Contains(string(recs[0].Event), "LLM (dm, ") {
-		t.Fatalf("why %s", recs[0].Event)
-	}
-	// One call, temperature 0, with a schema; the model sees refs, not
-	// hold ids.
-	reqs := f.Requests()
-	if len(reqs) != 1 || reqs[0].Temperature == nil || *reqs[0].Temperature != 0 || reqs[0].Schema == nil {
-		t.Fatalf("requests %+v", reqs)
-	}
-	if user := reqs[0].Messages[1].Content; !strings.Contains(user, `"id":"a1"`) || strings.Contains(user, "h-2026") ||
-		strings.Contains(user, "exit 1") {
-		t.Fatalf("user message %s", user)
-	}
-	// A second tick does nothing more.
-	e.tick()
-	if _, rest := e.split(); len(rest) != 1 {
-		t.Fatalf("second tick stored %d", len(rest))
+	return rows[0].Reason
+}
+
+// slowProvider answers after wait, or fails when ctx ends first, as a
+// real endpoint does.
+type slowProvider struct{ wait time.Duration }
+
+func (p slowProvider) Complete(ctx context.Context, _ llm.Request) (llm.Response, error) {
+	select {
+	case <-time.After(p.wait):
+		return groupReply("a1,a2,a3", "REAL", "time-sensitive", 0.9), nil
+	case <-ctx.Done():
+		return llm.Response{}, ctx.Err()
 	}
 }
 
-func TestHoldLLMFloors(t *testing.T) {
+func TestHoldLLMNeverDelaysTheForward(t *testing.T) {
+	e := newHoldLLM(t, &llm.Fake{}, decisionsOn("enforce", map[string]string{"HERALDO_LLM_DECISIONS_TIMEOUT": "300ms"}), "")
+	old := e.srv.s.Options
+	old.LLMProvider = func(string, string, string) llm.Provider { return slowProvider{wait: 5 * time.Second} }
+	e.srv = NewServer(old)
+	e.heldBurst(burst...)
+	start := time.Now()
+	e.tick()
+	if d := time.Since(start); d > 200*time.Millisecond {
+		t.Fatalf("the tick waited %s for the LLM", d)
+	}
+	// The forwards are stored before the LLM answers.
+	_, rest := e.split()
+	if len(rest) != 3 {
+		t.Fatalf("want the 3 forwards at once, got %d", len(rest))
+	}
+	for _, ev := range rest {
+		if !strings.HasPrefix(ev["title"].(string), "[not triaged in 30 min] ") || ev["level"] != "time-sensitive" {
+			t.Fatalf("forward %v", ev)
+		}
+	}
+	e.srv.WaitHold()
+	for _, ev := range rest {
+		if r := e.reasonOf(ev["id"].(string)); r != "llm: timeout; forwarded as usual" {
+			t.Fatalf("trace %q", r)
+		}
+	}
+}
+
+func TestHoldLLMEnforceReplacesAndFolds(t *testing.T) {
+	f := &llm.Fake{Replies: []llm.Response{groupReply("a1,a2,a3", "REAL", "time-sensitive", 0.9)}}
+	e := newHoldLLM(t, f, decisionsOn("enforce", nil), "")
+	fp := &fakePusher{}
+	e.withPusher(fp)
+	e.staggered("backup nas failed", "backup vm failed", "backup pi failed")
+	e.tickSettle()
+
+	held, rest := e.split()
+	if len(rest) != 1 {
+		t.Fatalf("want the one due forward, got %v", rest)
+	}
+	first := rest[0]
+	nasHold := holdOf(first)["ids"].([]any)[0].(string)
+	if holdOf(first)["collapse"] != "hold:"+nasHold {
+		t.Fatalf("forward hold %v", holdOf(first))
+	}
+	// The forwarded notification is replaced with the group's text.
+	calls := fp.calls()
+	if len(calls) != 1 || calls[0] != [3]string{first["id"].(string), "Backups failing on nas", "Three backup jobs failed on nas. (3 alerts)"} {
+		t.Fatalf("replaces %v", calls)
+	}
+	if r := e.reasonOf(first["id"].(string)); !strings.Contains(r, "grouped 3 alerts: REAL → replaced its notification with the group's") {
+		t.Fatalf("first trace %q", r)
+	}
+	vm := byTitle(t, held, "backup vm failed")
+	if r := e.reasonOf(vm["id"].(string)); !strings.Contains(r, "→ folds into the group's notification at its deadline") {
+		t.Fatalf("held trace %q", r)
+	}
+	// The model saw the held members, without their bodies.
+	if user := f.Requests()[0].Messages[1].Content; !strings.Contains(user, "backup pi failed") || strings.Contains(user, "exit 1") {
+		t.Fatalf("user message %s", user)
+	}
+
+	// At their own deadline the later members fold into that notification.
+	e.clock.add(10 * time.Minute)
+	e.tickSettle()
+	_, rest = e.split()
+	if len(rest) != 3 {
+		t.Fatalf("events %d", len(rest))
+	}
+	for _, ev := range rest[1:] {
+		h := holdOf(ev)
+		if ev["title"] != "Backups failing on nas" || ev["summary"] != "Three backup jobs failed on nas. (3 alerts)" ||
+			ev["level"] != "time-sensitive" || h["collapse"] != "hold:"+nasHold || h["fold"] != true {
+			t.Fatalf("fold %v", ev)
+		}
+		if r := e.reasonOf(ev["id"].(string)); !strings.Contains(r, "→ folded into the group's notification") {
+			t.Fatalf("fold trace %q", r)
+		}
+	}
+	if n := len(f.Requests()); n != 1 {
+		t.Fatalf("calls %d: the planned members asked again", n)
+	}
+}
+
+func TestHoldLLMSuppression(t *testing.T) {
 	quietRules := `rules:
   - name: blips
     match: {title: '^blip '}
     set: {kind: message, level: active}
 `
 	cases := []struct {
-		name, rules, verdict, level string
-		suppress                    bool
-		titles                      []string
-		wantLevel, wantReason       string
+		name, rules, verdict string
+		suppress             bool
+		titles               []string
+		later                string // the later members' outcome
+		reason               string
 	}{
-		{"time-sensitive is never lowered", "", "BLIP", "passive", true, burst, "time-sensitive",
-			"LLM suggested passive; refused: time-sensitive floor"},
-		{"blip becomes one passive summary", quietRules, "BLIP", "passive", true,
-			[]string{"blip a", "blip b"}, "passive", "BLIP → released as 1 passive summary"},
-		{"suppression needs the setting", quietRules, "BLIP", "passive", false,
-			[]string{"blip a", "blip b"}, "active", "refused: suppression needs llm.hold_may_suppress"},
-		{"only blip or false suppress", quietRules, "MAINTENANCE", "passive", true,
-			[]string{"blip a", "blip b"}, "active", "refused: only a BLIP or FALSE verdict may suppress"},
+		{"blip becomes one passive summary", quietRules, "BLIP", true, []string{"blip a", "blip b", "blip c"}, "summary",
+			"BLIP → released as 1 passive summary"},
+		{"suppression needs the setting", quietRules, "BLIP", false, []string{"blip a", "blip b", "blip c"}, "fold",
+			"refused: suppression needs llm.hold_may_suppress"},
+		{"only blip or false suppress", quietRules, "MAINTENANCE", true, []string{"blip a", "blip b", "blip c"}, "fold",
+			"refused: only a BLIP or FALSE verdict may suppress"},
+		{"time-sensitive is never lowered", "", "BLIP", true, burst, "fold", "refused: time-sensitive floor"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			ids := "a1,a2,a3"[:len(c.titles)*3-1]
-			f := &llm.Fake{Replies: []llm.Response{groupReply(ids, c.verdict, c.level, 0.95)}}
+			f := &llm.Fake{Replies: []llm.Response{groupReply("a1,a2,a3", c.verdict, "passive", 0.95)}}
 			extra := map[string]string{"HERALDO_LLM_HOLD_MAY_SUPPRESS": fmt.Sprint(c.suppress)}
 			e := newHoldLLM(t, f, decisionsOn("enforce", extra), c.rules)
-			e.heldBurst(c.titles...)
-			e.tick()
-			held, rest := e.split()
-			if len(rest) != 1 || rest[0]["level"] != c.wantLevel {
-				t.Fatalf("events %v", rest)
+			e.staggered(c.titles[0], c.titles[1:]...)
+			e.tickSettle()
+			_, rest := e.split()
+			first := rest[0]
+			r := e.reasonOf(first["id"].(string))
+			if c.later == "summary" && !strings.Contains(r, "already pushed: suppression recorded, not applied") {
+				t.Fatalf("pushed member %q", r)
 			}
-			rows := e.llmRows(held[0]["id"].(string))
-			if len(rows) != 1 || !strings.Contains(rows[0].Reason, c.wantReason) {
-				t.Fatalf("trace %+v", rows)
+			e.clock.add(10 * time.Minute)
+			e.tickSettle()
+			_, rest = e.split()
+			switch c.later {
+			case "summary":
+				if len(rest) != 2 {
+					t.Fatalf("want the first forward and one summary, got %v", rest)
+				}
+				sum := rest[1]
+				if sum["level"] != "passive" || sum["source"] != holdSource || !strings.Contains(sum["body"].(string), "- blip c") {
+					t.Fatalf("summary %v", sum)
+				}
+				if r := e.reasonOf(sum["id"].(string)); !strings.Contains(r, c.reason) {
+					t.Fatalf("summary trace %q", r)
+				}
+				for _, row := range e.rows("") {
+					if row["title"] != c.titles[0] && (row["status"] != store.HoldReleased || row["verdict"] != "BLIP" || row["reason"] != "llm") {
+						t.Fatalf("entry %v", row)
+					}
+				}
+			case "fold":
+				if len(rest) != 3 {
+					t.Fatalf("want 3 forwards, got %v", rest)
+				}
+				for _, ev := range rest[1:] {
+					if ev["level"] != first["level"] || holdOf(ev)["fold"] != true {
+						t.Fatalf("fold %v", ev)
+					}
+					if r := e.reasonOf(ev["id"].(string)); !strings.Contains(r, c.reason) {
+						t.Fatalf("fold trace %q", r)
+					}
+				}
 			}
 		})
 	}
@@ -237,43 +378,94 @@ func TestHoldLLMFloors(t *testing.T) {
 
 func TestHoldLLMModes(t *testing.T) {
 	cases := []struct {
-		mode    string
-		conf    float64
-		summary string
-		reason  string
+		mode     string
+		conf     float64
+		replaces int
+		reason   string
 	}{
-		{"shadow", 0.9, "", "would be released as 1 time-sensitive push; nothing changed (shadow)"},
-		{"advise", 0.9, "Three backup jobs failed on nas.", "added its summary; level and grouping unchanged (advise)"},
-		{"enforce", 0.4, "Three backup jobs failed on nas.", "at confidence 0.40 (below 0.6): text only"},
+		{"shadow", 0.9, 0, "would fold into 1 notification; nothing changed (shadow)"},
+		{"advise", 0.9, 3, "; added its summary to the notification"},
+		{"enforce", 0.4, 3, "at confidence 0.40 (below 0.6): text only; added its summary to the notification"},
 	}
 	for _, c := range cases {
 		t.Run(c.mode, func(t *testing.T) {
 			f := &llm.Fake{Replies: []llm.Response{groupReply("a1,a2,a3", "REAL", "time-sensitive", c.conf)}}
 			e := newHoldLLM(t, f, decisionsOn(c.mode, nil), "")
+			fp := &fakePusher{}
+			e.withPusher(fp)
 			e.heldBurst(burst...)
-			e.tick()
+			e.tickSettle()
 			_, rest := e.split()
 			if len(rest) != 3 {
 				t.Fatalf("want the 3 usual forwards, got %d", len(rest))
 			}
 			for _, ev := range rest {
-				if !strings.HasPrefix(ev["title"].(string), "[not triaged in 30 min] ") || ev["level"] != "time-sensitive" {
+				if !strings.HasPrefix(ev["title"].(string), "[not triaged in 30 min] ") || ev["summary"] != nil {
 					t.Fatalf("forward %v", ev)
 				}
-				if got, _ := ev["summary"].(string); got != c.summary {
-					t.Fatalf("summary %q, want %q", got, c.summary)
-				}
-				rows := e.llmRows(ev["id"].(string))
-				if len(rows) != 1 || !strings.Contains(rows[0].Reason, c.reason) {
-					t.Fatalf("trace %+v", rows)
+				if r := e.reasonOf(ev["id"].(string)); !strings.Contains(r, c.reason) {
+					t.Fatalf("trace %q", r)
 				}
 			}
-			for _, r := range e.rows("") {
-				if r["status"] != store.HoldExpired {
-					t.Fatalf("entry %v", r)
+			calls := fp.calls()
+			if len(calls) != c.replaces {
+				t.Fatalf("replaces %v", calls)
+			}
+			for _, call := range calls {
+				if call[1] != "" || call[2] != "Three backup jobs failed on nas." {
+					t.Fatalf("replace %v: advise changes only the summary", call)
 				}
 			}
 		})
+	}
+}
+
+func TestHoldLLMAdviseLaterForward(t *testing.T) {
+	f := &llm.Fake{Replies: []llm.Response{groupReply("a1,a2", "REAL", "time-sensitive", 0.9)}}
+	e := newHoldLLM(t, f, decisionsOn("advise", nil), "")
+	e.staggered("backup nas failed", "backup vm failed")
+	e.tickSettle()
+	_, rest := e.split()
+	// No pusher: the replace is recorded as not sent.
+	if r := e.reasonOf(rest[0]["id"].(string)); !strings.HasSuffix(r, "added its summary to the notification; not sent: push is off") {
+		t.Fatalf("first trace %q", r)
+	}
+	e.clock.add(10 * time.Minute)
+	e.tickSettle()
+	_, rest = e.split()
+	later := rest[1]
+	if later["title"] != "[not triaged in 30 min] backup vm failed" || later["summary"] != "Three backup jobs failed on nas." ||
+		holdOf(later)["fold"] != nil {
+		t.Fatalf("advised forward %v", later)
+	}
+}
+
+func TestHoldLLMTriageClosesFirst(t *testing.T) {
+	gate := make(chan struct{})
+	f := &llm.Fake{Reply: func(llm.Request) (llm.Response, error) {
+		<-gate
+		return groupReply("a1,a2", "REAL", "time-sensitive", 0.9), nil
+	}}
+	e := newHoldLLM(t, f, decisionsOn("enforce", nil), "")
+	e.staggered("backup nas failed", "backup vm failed")
+	e.tick()
+	id := e.rows("?state=pending")[0]["id"].(string)
+	rec := e.req("POST", "/held/release", writeTok, "", "application/json",
+		[]byte(`{"ids":["`+id+`"],"verdict":"REAL","title":"vm","body":"b","tag":"general"}`))
+	if rec.Code != 200 {
+		t.Fatalf("release %d %s", rec.Code, rec.Body)
+	}
+	close(gate)
+	e.srv.WaitHold()
+	held, _ := e.split()
+	vm := byTitle(t, held, "backup vm failed")
+	if r := e.reasonOf(vm["id"].(string)); !strings.HasSuffix(r, "; triage closed it first") {
+		t.Fatalf("trace %q", r)
+	}
+	e.clock.add(10 * time.Minute)
+	e.tickSettle()
+	if _, rest := e.split(); len(rest) != 2 { // the first forward and triage's release
+		t.Fatalf("events %v", rest)
 	}
 }
 
@@ -307,7 +499,7 @@ func TestHoldLLMFallback(t *testing.T) {
 			}
 			e := newHoldLLM(t, c.fake, vars, "")
 			e.heldBurst(burst...)
-			e.tick()
+			e.tickSettle()
 			_, rest := e.split()
 			var forwards []map[string]any
 			for _, ev := range rest {
@@ -322,48 +514,11 @@ func TestHoldLLMFallback(t *testing.T) {
 				if !strings.HasPrefix(ev["title"].(string), "[not triaged in 30 min] ") || ev["summary"] != nil {
 					t.Fatalf("forward %v", ev)
 				}
-				rows := e.llmRows(ev["id"].(string))
-				if len(rows) != 1 || !strings.Contains(rows[0].Reason, c.reason) {
-					t.Fatalf("trace %+v", rows)
+				if r := e.reasonOf(ev["id"].(string)); !strings.Contains(r, c.reason) {
+					t.Fatalf("trace %q", r)
 				}
 			}
 		})
-	}
-}
-
-// slowProvider answers after wait, or fails when ctx ends first, as a
-// real endpoint does.
-type slowProvider struct{ wait time.Duration }
-
-func (p slowProvider) Complete(ctx context.Context, _ llm.Request) (llm.Response, error) {
-	select {
-	case <-time.After(p.wait):
-		return groupReply("a1,a2,a3", "REAL", "time-sensitive", 0.9), nil
-	case <-ctx.Done():
-		return llm.Response{}, ctx.Err()
-	}
-}
-
-func TestHoldLLMTimeout(t *testing.T) {
-	e := newHoldLLM(t, &llm.Fake{}, decisionsOn("enforce", map[string]string{"HERALDO_LLM_DECISIONS_TIMEOUT": "50ms"}), "")
-	old := e.srv.s.Options
-	old.LLMProvider = func(string, string, string) llm.Provider { return slowProvider{wait: 5 * time.Second} }
-	e.srv = NewServer(old)
-	e.heldBurst(burst...)
-	start := time.Now()
-	e.tick()
-	if d := time.Since(start); d > 2*time.Second {
-		t.Fatalf("the tick waited %s", d)
-	}
-	_, rest := e.split()
-	if len(rest) != 3 {
-		t.Fatalf("want the 3 usual forwards, got %d", len(rest))
-	}
-	for _, ev := range rest {
-		rows := e.llmRows(ev["id"].(string))
-		if len(rows) != 1 || rows[0].Reason != "llm: timeout; forwarded as usual" {
-			t.Fatalf("trace %+v", rows)
-		}
 	}
 }
 
@@ -379,7 +534,7 @@ func TestHoldLLMFloorsKeepEventsOut(t *testing.T) {
 	f := &llm.Fake{Replies: []llm.Response{groupReply("a1", "BLIP", "time-sensitive", 0.9)}}
 	e := newHoldLLM(t, f, decisionsOn("enforce", map[string]string{"HERALDO_LLM_HOLD_MAY_SUPPRESS": "true"}), r)
 	e.heldBurst("web is down", "job sync failed", "backup nas failed")
-	e.tick()
+	e.tickSettle()
 	user := f.Requests()[0].Messages[1].Content
 	if strings.Contains(user, "web is down") || strings.Contains(user, "job sync") || !strings.Contains(user, "backup nas") {
 		t.Fatalf("the model saw %s", user)
@@ -391,9 +546,8 @@ func TestHoldLLMFloorsKeepEventsOut(t *testing.T) {
 		if !ok {
 			continue
 		}
-		rows := e.llmRows(ev["id"].(string))
-		if len(rows) != 1 || rows[0].Reason != "llm: not consulted: "+w+"; forwarded as usual" {
-			t.Fatalf("%v: %+v", ev["title"], rows)
+		if r := e.reasonOf(ev["id"].(string)); r != "llm: not consulted: "+w+"; forwarded as usual" {
+			t.Fatalf("%v: %q", ev["title"], r)
 		}
 	}
 }
@@ -403,7 +557,7 @@ func TestHoldLLMDecidesAtDeadlineOnly(t *testing.T) {
 	e := newHoldLLM(t, f, decisionsOn("enforce", nil), "")
 	sentOK(t, e.send(`{"title":"backup nas failed","body":"b","tag":"alert"}`))
 	e.clock.add(5 * time.Minute)
-	e.tick()
+	e.tickSettle()
 	id := e.rows("?state=pending")[0]["id"].(string)
 	rec := e.req("POST", "/held/release", writeTok, "", "application/json",
 		[]byte(`{"ids":["`+id+`"],"verdict":"BLIP","title":"t","body":"b","tag":"general"}`))
@@ -411,7 +565,7 @@ func TestHoldLLMDecidesAtDeadlineOnly(t *testing.T) {
 		t.Fatalf("release %d %s", rec.Code, rec.Body)
 	}
 	e.clock.add(40 * time.Minute)
-	e.tick()
+	e.tickSettle()
 	if n := len(f.Requests()); n != 0 {
 		t.Fatalf("the LLM was asked %d times; triage had released before the deadline", n)
 	}
@@ -421,7 +575,7 @@ func TestHoldLLMOffAsks(t *testing.T) {
 	f := &llm.Fake{Replies: []llm.Response{groupReply("a1", "REAL", "time-sensitive", 0.9)}}
 	e := newHoldLLM(t, f, decisionsOn("off", nil), "")
 	e.heldBurst(burst...)
-	e.tick()
+	e.tickSettle()
 	if len(f.Requests()) != 0 {
 		t.Fatal("mode off asked the LLM")
 	}
@@ -440,7 +594,7 @@ func TestHoldLLMGuidance(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.heldBurst(burst...)
-	e.tick()
+	e.tickSettle()
 	if sys := f.Requests()[0].Messages[0].Content; !strings.Contains(sys, "[global] Group backups by host.") {
 		t.Fatalf("system %s", sys)
 	}
@@ -449,5 +603,22 @@ func TestHoldLLMGuidance(t *testing.T) {
 	_ = json.Unmarshal(e.llmRows(held[0]["id"].(string))[0].Detail, &det)
 	if gs, _ := det["guidance"].([]any); len(gs) != 1 || gs[0] != g.ID+":1" {
 		t.Fatalf("guidance %v", det)
+	}
+}
+
+func TestLLMTraceOncePerEventAndCall(t *testing.T) {
+	e := newHoldLLM(t, &llm.Fake{}, decisionsOn("enforce", nil), "")
+	sentOK(t, e.send(`{"title":"x","body":"b","tag":"general"}`))
+	id := e.events()[0]["id"].(string)
+	tr := decide.Trace{Reason: "LLM (dm, 1.0 s) grouped 1 alert: REAL", Detail: map[string]any{"call_id": "llm_1"}}
+	e.srv.s.appendTrace(context.Background(), id, tr)
+	e.srv.s.appendTrace(context.Background(), id, tr)
+	if n := len(e.llmRows(id)); n != 1 {
+		t.Fatalf("rows %d after a retry", n)
+	}
+	tr.Detail = map[string]any{"call_id": "llm_2"}
+	e.srv.s.appendTrace(context.Background(), id, tr)
+	if n := len(e.llmRows(id)); n != 2 {
+		t.Fatalf("rows %d after a second call", n)
 	}
 }

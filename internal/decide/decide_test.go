@@ -119,14 +119,14 @@ func TestHoldCircuit(t *testing.T) {
 	f := &llm.Fake{Err: errors.New("down")}
 	d := newDecider(t, f, map[string]string{"HERALDO_LLM_MODE": "enforce"})
 	ms := []Member{{EventID: "e1", Source: "backup", Title: "nas failed", Kind: api.KindMessage, Level: api.LevelActive}}
-	var last []HoldPlan
+	var last HoldResult
 	for range llm.CircuitFailures + 1 {
 		last = d.Hold(context.Background(), ms)
 	}
 	if len(f.Requests()) != llm.CircuitFailures {
 		t.Fatalf("calls %d", len(f.Requests()))
 	}
-	if len(last) != 1 || last[0].Action != ActForward || last[0].Trace.Reason != "llm: circuit open; forwarded as usual" {
+	if len(last.Alone) != 1 || len(last.Groups) != 0 || last.Alone[0].Trace.Reason != "llm: circuit open; forwarded as usual" {
 		t.Fatalf("plan %+v", last)
 	}
 	if d.Mode() != llm.ModeShadow {
@@ -145,7 +145,8 @@ func TestHoldExcludedProject(t *testing.T) {
 	if u := f.Requests()[0].Messages[1].Content; strings.Contains(u, "private thing") {
 		t.Fatalf("an excluded project went: %s", u)
 	}
-	if plans[0].Members[0].EventID != "e1" || !strings.Contains(plans[0].Trace.Reason, "project excluded") {
+	if plans.Alone[0].Member.EventID != "e1" || !strings.Contains(plans.Alone[0].Trace.Reason, "project excluded") ||
+		len(plans.Groups) != 1 || plans.Groups[0].Members[0].EventID != "e2" || plans.Groups[0].Apply != ApplyGroup {
 		t.Fatalf("plans %+v", plans)
 	}
 }
@@ -154,7 +155,7 @@ func TestNoTraceWhenOff(t *testing.T) {
 	f := &llm.Fake{}
 	d := newDecider(t, f, map[string]string{"HERALDO_LLM_MODE": "off"})
 	ms := []Member{{EventID: "e1", Source: "x", Kind: api.KindMessage, Level: api.LevelActive}}
-	if p := d.Hold(context.Background(), ms); len(p) != 1 || p[0].Trace.Reason != "" {
+	if p := d.Hold(context.Background(), ms); len(p.Groups)+len(p.Alone) != 0 {
 		t.Fatalf("plans %+v", p)
 	}
 	if a := d.Bundle(context.Background(), BundleAsk{Members: ms}); a.Apply || a.Trace.Reason != "" {

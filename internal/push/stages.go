@@ -25,6 +25,10 @@ func (p *Pusher) holdStage(_ context.Context, r *Run) Verdict {
 	}
 	h := *r.Event.Hold
 	st, _ := h["state"].(string)
+	if c := HoldCollapse(r.Event); c != "" {
+		// A hold forward the LLM may replace later (hold_replace.go).
+		r.CollapseID = CollapseID(c)
+	}
 	if fwd, _ := h["forwarded"].(bool); fwd {
 		return Pass("forwarded by the hold").With(map[string]any{"state": st})
 	}

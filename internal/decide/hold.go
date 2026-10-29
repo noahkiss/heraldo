@@ -13,22 +13,30 @@ import (
 	"github.com/noahkiss/heraldo/internal/settings"
 )
 
-// Hold triage. The hold asks at the deadline only: entries the owner's
-// triage job did not close in time. A triage release or suppress is never
-// sent to the LLM, so the two never race.
+// Hold triage. The hold asks when an entry reaches its deadline with the
+// owner's triage job still silent; a triage release or suppress never goes
+// to the LLM. The deadline forward never waits: it goes out at once, and
+// the call runs beside it. Hold returns the model's groups after the
+// floors; the server applies them to what was already pushed and to the
+// members whose deadline is still to come (internal/server/hold_llm.go).
 
-// MaxHoldBatch caps the entries one triage call sees; the rest forward as
-// usual.
+// ErrNotDecided is a replacer's answer for an event whose push is not
+// decided yet: the caller may try again.
+var ErrNotDecided = errors.New("the event's push is not decided yet")
+
+// MaxHoldBatch caps the entries one triage call sees; the rest keep their
+// usual forward.
 const MaxHoldBatch = 40
 
-// Hold plan actions.
+// How a group may be applied.
 const (
-	// ActForward forwards the entry as the hold always has. Text, when
-	// set, is the LLM's one-line summary, added as the event's summary.
-	ActForward = "forward"
-	// ActRelease closes the group with one event at Level, Title and
-	// Summary, as a triage release does.
-	ActRelease = "release"
+	// ApplyNone records only: shadow.
+	ApplyNone = "none"
+	// ApplyText adds the text and changes nothing else: advise, or enforce
+	// below MinConfidence.
+	ApplyText = "text"
+	// ApplyGroup makes the group one notification at Level: enforce.
+	ApplyGroup = "group"
 )
 
 // HoldGroup is one group in the model's answer.
@@ -46,20 +54,57 @@ type HoldOutput struct {
 	Groups []HoldGroup `json:"groups"`
 }
 
-// HoldPlan is what to do with some of the due entries.
-type HoldPlan struct {
-	Action  string
+// GroupPlan is one group of the answer after the mode and the floors.
+type GroupPlan struct {
 	Members []Member
-	// Text is the summary a forward carries; "" adds none.
-	Text string
-	// Title, Summary and Level are a release's.
 	Title   string
 	Summary string
-	Level   api.Level
-	Verdict string
-	// Trace is the row each member's event (and a release's event) gets;
-	// an empty Reason writes none.
-	Trace Trace
+	// Text is the one line a notification carries: the summary's first
+	// line, or the title.
+	Text       string
+	Verdict    string
+	Confidence float64
+	// Max is the loudest member's level; Level the level the floors allow
+	// the group (passive only for a suppression).
+	Max   api.Level
+	Level api.Level
+	// Want is the level the model asked for, and Refused the floor that
+	// said no to it; "" when none did.
+	Want    api.Level
+	Refused string
+	Apply   string
+	// Head starts every reason line: "LLM (model, 1.4 s) grouped 3
+	// alerts: BLIP".
+	Head string
+	// Detail is the detail every row of the group shares.
+	Detail map[string]any
+}
+
+// Suppress reports whether the group may become one passive summary: in
+// enforce, with the floors' leave. It acts only on members not pushed yet.
+func (g GroupPlan) Suppress() bool {
+	return g.Apply == ApplyGroup && g.Level == api.LevelPassive && Rank(g.Max) > Rank(api.LevelPassive)
+}
+
+// Note is the refusal, ready to append to a reason: "; LLM suggested
+// passive; refused: time-sensitive floor".
+func (g GroupPlan) Note() string {
+	if g.Refused == "" {
+		return ""
+	}
+	return "; LLM suggested " + string(g.Want) + "; refused: " + g.Refused
+}
+
+// Aside is a member no group took, with the row its events get.
+type Aside struct {
+	Member Member
+	Trace  Trace
+}
+
+// HoldResult is the answer to one triage call.
+type HoldResult struct {
+	Groups []GroupPlan
+	Alone  []Aside
 }
 
 var holdSchema = &llm.Schema{Name: "hold_triage", Schema: json.RawMessage(`{
@@ -167,43 +212,38 @@ func HoldFloors(m, suggested api.Level, verdict string, maySuppress bool) (api.L
 	return want, ""
 }
 
-// Hold asks the decisions model to group the due entries ms and returns a
-// plan for every one of them. With the mode off it returns plain forwards
-// and no trace.
-func (d *Decider) Hold(ctx context.Context, ms []Member) []HoldPlan {
+// Hold asks the decisions model to group ms: the entries that just reached
+// their deadline and the ones still held beside them. With the mode off it
+// returns nothing.
+func (d *Decider) Hold(ctx context.Context, ms []Member) HoldResult {
+	var out HoldResult
 	mode := d.Mode()
-	forward := func(m Member, t Trace) HoldPlan { return HoldPlan{Action: ActForward, Members: []Member{m}, Trace: t} }
-	var plans []HoldPlan
 	if mode == llm.ModeOff {
-		for _, m := range ms {
-			plans = append(plans, forward(m, Trace{}))
-		}
-		return plans
+		return out
+	}
+	aside := func(m Member, reason string, det map[string]any) {
+		out.Alone = append(out.Alone, Aside{Member: m, Trace: Trace{Reason: reason, Detail: det}})
 	}
 	in, kept := d.visible(ms)
 	for i := range ms {
-		why, ok := kept[i]
-		if !ok {
-			continue
+		if why, ok := kept[i]; ok {
+			aside(ms[i], "llm: not consulted: "+why+"; forwarded as usual", map[string]any{"applied": false, "why_not": why})
 		}
-		plans = append(plans, forward(ms[i], Trace{Reason: "llm: not consulted: " + why + "; forwarded as usual",
-			Detail: map[string]any{"applied": false, "why_not": why}}))
 	}
 	if len(in) > MaxHoldBatch {
 		for _, m := range in[MaxHoldBatch:] {
-			plans = append(plans, forward(m, Trace{Reason: fmt.Sprintf("llm: over %d due at once; forwarded as usual", MaxHoldBatch),
-				Detail: map[string]any{"applied": false}}))
+			aside(m, fmt.Sprintf("llm: over %d at once; forwarded as usual", MaxHoldBatch), map[string]any{"applied": false})
 		}
 		in = in[:MaxHoldBatch]
 	}
 	if len(in) == 0 {
-		return plans
+		return out
 	}
 	inputs := make([]map[string]any, len(in))
 	for i, m := range in {
 		inputs[i] = d.inputOf(m)
 	}
-	var out HoldOutput
+	var answer HoldOutput
 	res, guidance, err := d.call(ctx, "hold", map[string]any{"alerts": inputs}, in, holdSchema, func(r llm.Response) error {
 		var o HoldOutput
 		if err := llm.ParseJSON(r.Content, &o); err != nil {
@@ -212,14 +252,14 @@ func (d *Decider) Hold(ctx context.Context, ms []Member) []HoldPlan {
 		return ValidateHold(o, in)
 	})
 	if err == nil {
-		err = llm.ParseJSON(res.Content, &out)
+		err = llm.ParseJSON(res.Content, &answer)
 	}
 	if err != nil {
 		t := failTrace(res, err, "forwarded as usual")
 		for _, m := range in {
-			plans = append(plans, forward(m, t))
+			aside(m, t.Reason, t.Detail)
 		}
-		return plans
+		return out
 	}
 	maySuppress := settings.From[bool](d.cfg.Settings, "llm.hold_may_suppress")
 	by := map[string]Member{}
@@ -227,22 +267,22 @@ func (d *Decider) Hold(ctx context.Context, ms []Member) []HoldPlan {
 		by[m.Ref] = m
 	}
 	grouped := map[string]bool{}
-	for _, g := range out.Groups {
+	for _, g := range answer.Groups {
 		var members []Member
 		for _, id := range g.IDs {
 			members = append(members, by[id])
 			grouped[id] = true
 		}
-		plans = append(plans, d.planGroup(mode, res, guidance, g, members, maySuppress)...)
+		out.Groups = append(out.Groups, d.planGroup(mode, res, guidance, g, members, maySuppress))
 	}
 	for _, m := range in {
 		if !grouped[m.Ref] {
 			det := d.baseDetail(mode, res, guidance)
 			det["applied"] = false
-			plans = append(plans, forward(m, Trace{Reason: who(mode, res) + " left it out of every group; forwarded as usual", Detail: det}))
+			aside(m, who(mode, res)+" left it out of every group; forwarded as usual", det)
 		}
 	}
-	return plans
+	return out
 }
 
 func plural(n int, noun string) string {
@@ -253,65 +293,40 @@ func plural(n int, noun string) string {
 }
 
 // planGroup applies the mode and the floors to one group.
-func (d *Decider) planGroup(mode string, res llm.Result, guidance []string, g HoldGroup, ms []Member, maySuppress bool) []HoldPlan {
-	m := MaxLevel(ms)
-	sug := api.Level(g.SuggestedLevel)
-	level, refused := HoldFloors(m, sug, g.Verdict, maySuppress)
-	title, summary := cutRunes(strings.TrimSpace(g.Title), 120), strings.TrimSpace(g.Summary)
-	text := oneLine(summary)
-	if text == "" {
-		text = title
+func (d *Decider) planGroup(mode string, res llm.Result, guidance []string, g HoldGroup, ms []Member, maySuppress bool) GroupPlan {
+	p := GroupPlan{Members: ms, Title: cutRunes(strings.TrimSpace(g.Title), 120), Summary: strings.TrimSpace(g.Summary),
+		Verdict: g.Verdict, Confidence: g.Confidence, Max: MaxLevel(ms)}
+	p.Text = oneLine(p.Summary)
+	if p.Text == "" {
+		p.Text = p.Title
 	}
-	n := len(ms)
-	ids := make([]string, n)
+	p.Want = api.Level(g.SuggestedLevel)
+	if maySuppress && (g.Verdict == VerdictBlip || g.Verdict == VerdictFalse) {
+		p.Want = api.LevelPassive
+	}
+	p.Level, p.Refused = HoldFloors(p.Max, api.Level(g.SuggestedLevel), g.Verdict, maySuppress)
+	switch {
+	case mode == llm.ModeShadow:
+		p.Apply = ApplyNone
+	case mode == llm.ModeAdvise || g.Confidence < MinConfidence:
+		p.Apply = ApplyText
+	default:
+		p.Apply = ApplyGroup
+	}
+	p.Head = fmt.Sprintf("%s grouped %s: %s", who(mode, res), plural(len(ms), "alert"), g.Verdict)
+	if p.Apply == ApplyText && mode == llm.ModeEnforce {
+		p.Head += fmt.Sprintf(" at confidence %.2f (below %.1f): text only", g.Confidence, MinConfidence)
+	}
+	ids := make([]string, len(ms))
 	for i, x := range ms {
 		ids[i] = x.EventID
 	}
 	det := d.baseDetail(mode, res, guidance)
-	det["verdict"], det["confidence"], det["suggested_level"], det["title"], det["events"] =
-		g.Verdict, g.Confidence, g.SuggestedLevel, title, ids
-
-	outcome := "released as 1 " + string(level) + " push"
-	if level == api.LevelPassive {
-		outcome = "released as 1 passive summary"
+	det["verdict"], det["confidence"], det["suggested_level"], det["title"], det["events"], det["level"] =
+		g.Verdict, g.Confidence, g.SuggestedLevel, p.Title, ids, p.Level
+	if p.Refused != "" {
+		det["refused"] = p.Refused
 	}
-	if n == 1 && level == m {
-		outcome = "forwarded with its summary"
-	}
-	note := ""
-	if refused != "" {
-		want := sug
-		if maySuppress && (g.Verdict == VerdictBlip || g.Verdict == VerdictFalse) {
-			want = api.LevelPassive
-		}
-		note = "; LLM suggested " + string(want) + "; refused: " + refused
-		det["refused"] = refused
-	}
-	head := fmt.Sprintf("%s grouped %s: %s", who(mode, res), plural(n, "alert"), g.Verdict)
-	each := func(text string, t Trace) []HoldPlan {
-		out := make([]HoldPlan, n)
-		for i, x := range ms {
-			out[i] = HoldPlan{Action: ActForward, Members: []Member{x}, Text: text, Verdict: g.Verdict, Trace: t}
-		}
-		return out
-	}
-	switch {
-	case mode == llm.ModeShadow:
-		det["applied"], det["would"] = false, outcome
-		return each("", Trace{Reason: fmt.Sprintf("%s grouped %s: %s → would be %s%s; nothing changed (shadow)",
-			who(mode, res), plural(n, "alert"), g.Verdict, outcome, note), Detail: det})
-	case mode == llm.ModeAdvise:
-		det["applied"], det["text"] = "text", text
-		return each(text, Trace{Reason: head + "; added its summary; level and grouping unchanged (advise)", Detail: det})
-	case g.Confidence < MinConfidence:
-		det["applied"], det["text"], det["why_not"] = "text", text, "low confidence"
-		return each(text, Trace{Reason: fmt.Sprintf("%s at confidence %.2f (below %.1f): text only%s", head, g.Confidence,
-			MinConfidence, note), Detail: det})
-	case n == 1 && level == m:
-		det["applied"], det["text"] = "text", text
-		return each(text, Trace{Reason: head + " → " + outcome + note, Detail: det})
-	}
-	det["applied"], det["level"] = true, level
-	return []HoldPlan{{Action: ActRelease, Members: ms, Title: title, Summary: summary, Level: level, Verdict: g.Verdict,
-		Trace: Trace{Outcome: "merge", Reason: head + " → " + outcome + note, Detail: det}}}
+	p.Detail = det
+	return p
 }

@@ -165,23 +165,22 @@ func (srv *Server) RunHold(ctx context.Context, every time.Duration) {
 
 // forward stores entry e again as a pushing event, title prefixed.
 func (s *server) forward(ctx context.Context, e store.HoldEntry, prefix, reason string) bool {
-	_, ok := s.forwardWith(ctx, e, prefix, reason, "")
+	_, ok := s.forwardWith(ctx, e, prefix, reason, nil, nil)
 	return ok
 }
 
-// forwardWith is forward with summary, the LLM's text, as the event's
-// summary when set. It returns the stored event's id.
-func (s *server) forwardWith(ctx context.Context, e store.HoldEntry, prefix, reason, summary string) (string, bool) {
+// forwardWith is forward with over laid over the event's fields (the
+// LLM's text) and meta added to its hold. It returns the stored event's id.
+func (s *server) forwardWith(ctx context.Context, e store.HoldEntry, prefix, reason string, over, meta map[string]any) (string, bool) {
 	m := e.Input
 	if m == nil {
 		m = map[string]any{"title": e.Title, "body": e.Body, "tag": e.Tag, "source": e.Source}
 	}
-	var set map[string]any
-	if summary != "" {
-		set = map[string]any{"summary": cut(summary, 256)}
+	h := map[string]any{"state": "forward", "reason": reason, "ids": []string{e.ID}}
+	for k, v := range meta {
+		h[k] = v
 	}
-	rec, err := s.ingestNotifyWith(ctx, m, map[string]any{"client": e.Client},
-		map[string]any{"state": "forward", "reason": reason, "ids": []string{e.ID}}, prefix, set)
+	rec, err := s.ingestNotifyWith(ctx, m, map[string]any{"client": e.Client}, h, prefix, over)
 	if err == nil {
 		err = s.Store.SetHoldForwarded(ctx, e.ID)
 	}
@@ -227,28 +226,40 @@ func (s *server) tickHold(ctx context.Context) {
 		return
 	}
 	pass := dm || s.Hold.Mode != hold.On
-	// The LLM decides at the deadline only (hold_llm.go).
-	var due []store.HoldEntry
-	for _, e := range entries {
-		if e.Open() && now.After(e.Deadline) && !e.Forwarded {
-			due = append(due, e)
-		}
-	}
-	tri := s.triageDue(ctx, due)
+	// The deadline forward never waits for the LLM: it goes out now, and
+	// the LLM's call about it starts after (hold_llm.go).
+	var asked []store.HoldEntry
+	quiet := map[string]*suppressed{}
+	var order []string
 	for _, e := range entries {
 		if ctx.Err() != nil {
 			return
 		}
 		switch {
-		case tri.done[e.ID]:
-			// An LLM release closed it.
 		case e.Open() && now.After(e.Deadline):
 			if !e.Forwarded {
-				id, ok := s.forwardWith(ctx, e, s.deadlinePrefix(), "deadline", tri.text[e.ID])
-				if !ok {
+				p := s.hl.claim(e.ID)
+				if p != nil && p.kind == planSuppress {
+					b := quiet[p.anchor]
+					if b == nil {
+						b = &suppressed{plan: p}
+						quiet[p.anchor] = b
+						order = append(order, p.anchor)
+					}
+					b.entries = append(b.entries, e)
 					continue
 				}
-				s.appendTrace(ctx, id, tri.trace[e.ID])
+				id, ok := s.forwardHold(ctx, e, p)
+				if !ok {
+					s.hl.unclaim(e.ID)
+					continue
+				}
+				s.hl.done(e.ID, id)
+				if p != nil {
+					s.appendTrace(ctx, id, s.planTrace(p))
+				} else {
+					asked = append(asked, e)
+				}
 			}
 			if _, err := s.Store.CloseHolds(ctx, []string{e.ID}, store.HoldExpired, "", "", now); err != nil {
 				s.Logger.Error("hold: expire", "hold", e.ID, "err", err)
@@ -257,6 +268,15 @@ func (s *server) tickHold(ctx context.Context) {
 			s.forward(ctx, e, deadmanPrefix, "deadman")
 		}
 	}
+	for _, a := range order {
+		if b := quiet[a]; !s.releaseSummary(ctx, *b) {
+			for _, e := range b.entries {
+				s.hl.unclaim(e.ID)
+			}
+		}
+	}
+	s.askHold(asked, entries)
+	s.hl.prune(entries)
 }
 
 // ---- endpoints ---------------------------------------------------------

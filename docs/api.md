@@ -834,7 +834,7 @@ tag lists and `POST /v1/events` are never held.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `HERALDO_HOLD_DEADLINE` | `30m` | An entry still `held` this long is forwarded as it is, title prefixed `[not triaged in 30 min]`, and marked `expired`. With the LLM on, the decisions model sees the due entries first ("LLM", "Decisions"). |
+| `HERALDO_HOLD_DEADLINE` | `30m` | An entry still `held` this long is forwarded as it is, title prefixed `[not triaged in 30 min]`, and marked `expired`. With the LLM on, the forward still goes out at once; the decisions model's answer may replace it later ("LLM", "Decisions"). |
 | `HERALDO_HOLD_DEADMAN` | `20m` | When nothing polls the queue this long, the dead-man trips (below). Before the first poll, the server's start counts. |
 | `HERALDO_HOLD_BYPASS_FILE` | none | The bypass list. |
 
@@ -1373,7 +1373,7 @@ It acts in three places, each one where heraldo already waits:
 
 | Where | When it asks | What it may change |
 |---|---|---|
-| Hold triage | At the deadline only: the entries whose deadline passed with triage still silent, in one call per hold tick | How the entries go out: grouped as one push, with the model's title and summary |
+| Hold triage | When entries reach their deadline with triage still silent: one call per hold tick, in the background, after their forwards went out | The forwarded notification's text, through its collapse id; how members still held go out at their own deadline |
 | Bundle title | After the view's bundle notification is delivered | The bundle notification's text, through its collapse id |
 | Digest paragraph | When the digest is built, with `digest.prose` on | One paragraph at the top of the body |
 
@@ -1384,41 +1384,60 @@ the circuit is open or after a budget was passed (`GET /v1/llm/status`,
 | Mode | Hold triage | Bundle title | Digest paragraph |
 |---|---|---|---|
 | `off` | Not asked. | Not asked. | Not asked. |
-| `shadow` | Asked; the entries forward as usual. The trace records what it would do. | Asked; the plain bundle stays. The trace records the title. | Asked; the plain digest goes out. The trace records it. |
-| `advise` | The entries forward as usual, each with the group's one-line summary as its `summary`. Level and grouping never change. | The title and summary replace the bundle notification's text. | Added. |
-| `enforce` | Each group releases as one event at the floors' level (below). Below confidence 0.6, it does what `advise` does. | As `advise`. | As `advise`. |
+| `shadow` | Asked; nothing changes. The trace records what it would do. | Asked; the plain bundle stays. The trace records the title. | Asked; the plain digest goes out. The trace records it. |
+| `advise` | Each forwarded notification is replaced quietly with the group's one-line summary added. A member still held carries the summary when it forwards. Level and grouping never change. | The title and summary replace the bundle notification's text. | Added. |
+| `enforce` | The group's first forwarded notification is replaced with the group's title and summary, and the members still held fold into it at their deadlines (below). Below confidence 0.6, it does what `advise` does. | As `advise`. | As `advise`. |
 
 #### Hold triage
 
-- **Deadline only.** The owner's triage job reads `/held` and acts first. The
-  model sees an entry only after its deadline passed with the entry still
-  `held`, so the two never race. A triage release or suppress never goes to
-  the model. The dead-man's forwards stay deterministic.
-- **The wait.** The deadline forward waits for the call, at most
-  `llm.decisions_timeout` (20 s). Nothing else does.
+- **The forward never waits.** At the deadline, the tick forwards each due
+  entry at once, as it always has, title prefixed `[not triaged in 30 min]`.
+  Only then does it start the call, in the background, about the due entries
+  and the entries still held beside them. A slow or dead endpoint delays no
+  push.
+- **Deadline only.** The owner's triage job reads `/held` and acts first. A
+  call starts only when an entry reached its deadline with triage still
+  silent. A triage release or suppress never goes to the model, and an entry
+  triage closes before the answer comes back is left alone ("triage closed it
+  first"). An answer about a member still held applies only at that member's
+  own deadline. The dead-man's forwards stay deterministic.
 - **The answer.** Per group: `ids` (the entries' refs `a1`, `a2`, ...),
   `title`, a `summary` of at most two lines, `verdict` (`REAL`, `BLIP`,
   `MAINTENANCE`, `FALSE` or `ROUTINE`), `suggested_level` and `confidence`
-  (0 to 1). An entry in no group forwards as usual.
-- **A release** is one event from source `heraldo-hold`, tags `<rung>,llm`,
-  with the model's title, the summary's first line as `summary`, and a body of
-  the summary and the held titles. Its `hold` is `{state: forward, reason:
-  llm, ids, verdict}`. The entries close as `released`, with the verdict and
-  reason `llm`, so `/held` shows what happened. A group of one at its own
-  level forwards as usual, with the summary added.
-- **Never dropped.** Every held event stays stored. A suppressed group still
-  leaves one passive event that names every member.
+  (0 to 1). An entry in no group keeps its usual forward.
+- **Collapse ids.** A deadline forward carries `hold.collapse`
+  (`hold:<entry id>`) and pushes with that collapse id; an event with a key
+  keeps its key's. The server replaces a delivered
+  notification through it, at level `passive` with no sound, and records no
+  new delivery. It never replaces a push that reached no device, so it never
+  shows what a mute, quiet hours or the push table kept back.
+- **Fold (enforce).** The group's first forwarded member is its anchor. Its
+  notification is replaced with the group's title, and its summary with "(N
+  alerts)". Each member still held forwards at its own deadline with that
+  title and summary, its own level, and the anchor's collapse id
+  (`hold.fold: true`), so the group stays one notification. Members already
+  forwarded keep their notification ("already pushed: left as it was").
+- **Suppression (enforce).** With the floors' leave (below), the members not
+  pushed yet become one passive event at their deadline: source
+  `heraldo-hold`, tags `quiet,llm`, the model's title, the summary's first
+  line as `summary`, and a body of the summary and the held titles. Its
+  `hold` is `{state: forward, reason: llm, ids, verdict}`. Those entries
+  close as `released`, with the verdict and reason `llm`. On a member already
+  pushed, the suppression is recorded, not applied.
+- **Never dropped.** Every held event stays stored. A suppressed member is
+  named in the passive summary.
+- **Memory.** Plans for members still held live in memory. After a restart,
+  they forward as usual.
 
 The floors, in code (`decide.HoldFloors` and `decide.Protected`), after the
 validator:
 
 | Case | Result |
 |---|---|
-| The suggested level is louder than the group's loudest member | The output is invalid; the entries forward as usual. |
-| The group's loudest member is `time-sensitive` or `critical` | Released at that level. A lower suggestion is refused: "LLM suggested passive; refused: time-sensitive floor". |
-| `BLIP` or `FALSE`, members below `time-sensitive`, `llm.hold_may_suppress` on | Released as one passive summary: stored, inbox only. |
-| A passive suggestion otherwise | Refused: suppression needs `llm.hold_may_suppress`, and only a `BLIP` or `FALSE` verdict may suppress. |
-| An `active` suggestion for `active` members | Applied. |
+| The suggested level is louder than the group's loudest member | The output is invalid; nothing changes. |
+| The group's loudest member is `time-sensitive` or `critical` | Never lowered. A lower suggestion is refused: "LLM suggested passive; refused: time-sensitive floor". The members still held fold at their own level. |
+| `BLIP` or `FALSE`, members below `time-sensitive`, `llm.hold_may_suppress` on | The members not pushed yet become one passive summary: stored, inbox only. |
+| A passive suggestion otherwise | Refused: suppression needs `llm.hold_may_suppress`, and only a `BLIP` or `FALSE` verdict may suppress. The members still held fold instead. |
 | An incident open or update at `time-sensitive` or above, a failed check-in, a `critical` event, heraldo's own event (source `heraldo` or `heraldo-*`), or a project in `llm.exclude_projects` | Never sent to the model; it forwards as usual. |
 
 #### Bundle title
@@ -1454,7 +1473,9 @@ usual`, `llm: circuit open; forwarded as usual`, `llm: invalid output (group
 
 Every decision writes an `llm` row to each affected event's trace
 (`GET /v1/events/{id}/why`, `heraldo why`, the apps' event detail): the held
-events, the release or forward, the bundle's latest event, the digest event.
+events, their forwards, the passive summary, the bundle's latest event, the
+digest event. A row is written once per event, call and reason: a retry adds
+none.
 Its detail has `call_id` (the `llm_calls` row), `model`, `latency_ms`,
 `mode`, `prompt_version`, `guidance` (the `id:version` pairs it carried),
 the `verdict`, `confidence` and `suggested_level`, and `applied` (`true`,
@@ -1462,8 +1483,9 @@ the `verdict`, `confidence` and `suggested_level`, and `applied` (`true`,
 confidence said no. Examples:
 
 - `LLM (model, 1.4 s) grouped 4 alerts: BLIP → released as 1 passive summary`
-- `LLM (model, 0.9 s) grouped 2 alerts: BLIP → released as 1 time-sensitive push; LLM suggested passive; refused: time-sensitive floor`
-- `LLM shadow (model, 1.1 s) grouped 3 alerts: REAL → would be released as 1 time-sensitive push; nothing changed (shadow)`
+- `LLM (model, 1.4 s) grouped 4 alerts: BLIP → replaced its notification with the group's; already pushed: suppression recorded, not applied`
+- `LLM (model, 0.9 s) grouped 2 alerts: BLIP → folded into the group's notification; LLM suggested passive; refused: time-sensitive floor`
+- `LLM shadow (model, 1.1 s) grouped 3 alerts: REAL → would fold into 1 notification; nothing changed (shadow)`
 - `llm: not consulted: check-in fail floor; forwarded as usual`
 
 #### Turn it on safely
@@ -1473,7 +1495,7 @@ confidence said no. Examples:
    held and bundled events, and `heraldo llm status` for errors and the
    budget. Add guidance where the grouping is wrong.
 3. `llm.mode advise`: the text shows on notifications; nothing else changes.
-4. `llm.mode enforce`: groups release as one push within the floors. Leave
+4. `llm.mode enforce`: a group becomes one notification within the floors. Leave
    `llm.hold_may_suppress` off until the BLIP and FALSE verdicts have been
    right for a while.
 
