@@ -4,6 +4,8 @@ A self-hosted notification hub: one Go server stores every event and delivers it
 to a native iOS and macOS app. Later, a status overview on the same event stream.
 The plan and its stages live in bm (project `heraldo`).
 
+The product principles are in README.md, "What it is for". Judge every feature against them.
+
 ## Layout
 
 | Path | Contents |
