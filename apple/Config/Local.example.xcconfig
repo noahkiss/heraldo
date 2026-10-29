@@ -12,14 +12,17 @@ OTHER_CODE_SIGN_FLAGS[sdk=macosx*] = --timestamp
 
 // 2. iOS: an App Store provisioning profile for each bundle ID, installed on
 //    this Mac. Names as `security cms -D -i <file>` prints them under Name.
-//    fastlane match (appstore) makes them with these names:
+//    The app's App ID needs the iCloud capability (key-value storage) for
+//    com.apple.developer.ubiquity-kvstore-identifier; regenerate the app's
+//    profiles after enabling it. fastlane match (appstore) makes them with
+//    these names:
 // APP_IOS_PROFILE = match AppStore com.nkmkdigital.heraldo
 // APP_NSE_IOS_PROFILE = match AppStore com.nkmkdigital.heraldo.nse
 // APP_WIDGETS_IOS_PROFILE = match AppStore com.nkmkdigital.heraldo.widgets
 // APP_SHARE_IOS_PROFILE = match AppStore com.nkmkdigital.heraldo.share
 
-// 3. macOS: the Developer ID profile for the app's bundle ID, with push and
-//    the app group. fastlane match (developer_id, platform macos) names it:
+// 3. macOS: the Developer ID profile for the app's bundle ID, with push,
+//    the app group and iCloud key-value storage. fastlane match (developer_id, platform macos) names it:
 // APP_MAC_PROFILE = match Direct com.nkmkdigital.heraldo macos
 //    With the profile, sign with the full entitlements and keep the
 //    credentials in the synced, app-group Keychain item the iOS app uses:

@@ -33,6 +33,11 @@ APP_SHARE_MAC_ENTITLEMENTS = ShareExtension/ShareMacUnsigned.entitlements
 APP_SHARE_MAC_PROFILE =
 // A Developer ID profile carries production APNs only, in Debug too.
 APS_ENVIRONMENT[sdk=macosx*] = production
+// The widgets read the app group's snapshot and Keychain item. On iOS that is
+// the app group; the Mac widget extension has no group, so its widgets are
+// iOS-only for now.
+APP_WIDGETS_GROUP =
+APP_WIDGETS_GROUP[sdk=iphone*] = $(APP_GROUP_ID)
 APP_IOS_PROFILE =
 APP_NSE_IOS_PROFILE =
 APP_WIDGETS_IOS_PROFILE =

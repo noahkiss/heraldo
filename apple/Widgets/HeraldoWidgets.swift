@@ -5,17 +5,22 @@ import WidgetKit
 @main
 struct HeraldoWidgets: WidgetBundle {
     var body: some Widget {
-        StatusWidget()
         #if os(iOS)
+        AttentionWidget()
+        ProjectWidget()
         ProgressActivityWidget()
+        #else
+        StatusWidget()
         #endif
     }
 }
 
-/// Placeholder home-screen widget. Stage 12 fills it from the event stream.
+#if os(macOS)
+/// Placeholder Mac widget. The Mac widget extension has no app group yet, so
+/// it cannot read the app's snapshot; the iOS widgets are in StatusWidgets.swift.
 struct StatusWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "status", provider: StatusProvider()) { _ in
+        StaticConfiguration(kind: "status", provider: PlaceholderProvider()) { _ in
             Label(AppInfo.displayName(), systemImage: "newspaper")
                 .containerBackground(.fill.tertiary, for: .widget)
         }
@@ -24,16 +29,17 @@ struct StatusWidget: Widget {
     }
 }
 
-struct StatusEntry: TimelineEntry {
+struct PlaceholderEntry: TimelineEntry {
     let date: Date
 }
 
-struct StatusProvider: TimelineProvider {
-    func placeholder(in context: Context) -> StatusEntry { StatusEntry(date: .now) }
-    func getSnapshot(in context: Context, completion: @escaping (StatusEntry) -> Void) {
-        completion(StatusEntry(date: .now))
+struct PlaceholderProvider: TimelineProvider {
+    func placeholder(in context: Context) -> PlaceholderEntry { PlaceholderEntry(date: .now) }
+    func getSnapshot(in context: Context, completion: @escaping (PlaceholderEntry) -> Void) {
+        completion(PlaceholderEntry(date: .now))
     }
-    func getTimeline(in context: Context, completion: @escaping (Timeline<StatusEntry>) -> Void) {
-        completion(Timeline(entries: [StatusEntry(date: .now)], policy: .never))
+    func getTimeline(in context: Context, completion: @escaping (Timeline<PlaceholderEntry>) -> Void) {
+        completion(Timeline(entries: [PlaceholderEntry(date: .now)], policy: .never))
     }
 }
+#endif

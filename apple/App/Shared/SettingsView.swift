@@ -43,6 +43,8 @@ struct SettingsView: View {
 
                 PushSection()
 
+                DisplaySection()
+
                 MutesSection()
 
                 #if os(macOS)

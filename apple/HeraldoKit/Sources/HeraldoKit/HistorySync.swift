@@ -95,11 +95,19 @@ public struct HistorySync: Sendable {
     /// The most pages one call reads before it stops and leaves the rest
     /// for the next call.
     public var maxPages: Int
+    /// The routine filter of the cache. `exclude` by default: a check's
+    /// pings would crowd real history out of the kept events. A server
+    /// before the filter sends every row and the client drops the routine
+    /// ones; pages then count as full by `fetchedCount`, so the end of
+    /// history is still found right.
+    public var cacheRoutine: EventQuery.Routine?
 
-    public init(client: HeraldoClient, pageSize: Int = 200, maxPages: Int = 10) {
+    public init(client: HeraldoClient, pageSize: Int = 200, maxPages: Int = 10,
+                cacheRoutine: EventQuery.Routine? = .exclude) {
         self.client = client
         self.pageSize = pageSize
         self.maxPages = maxPages
+        self.cacheRoutine = cacheRoutine
     }
 
     /// Brings the cache up to date. A fresh cache gets the newest page; a
@@ -110,18 +118,19 @@ public struct HistorySync: Sendable {
             // The head first: an event stored between the two calls shows up
             // in both and the merge drops the copy, so nothing falls between.
             guard let head = try await client.headCursor() else { return c }
-            let page = try await client.listEvents(EventQuery(order: .desc, limit: pageSize))
+            let page = try await client.listEvents(EventQuery(order: .desc, limit: pageSize, routine: cacheRoutine))
             c.prepend(page.events)
             c.olderCursor = page.nextCursor
-            c.reachedEnd = page.events.count < pageSize
+            c.reachedEnd = page.fetchedCount < pageSize
             c.syncCursor = head
         }
         for _ in 0..<maxPages {
-            let page = try await client.listEvents(EventQuery(after: c.syncCursor, order: .asc, limit: pageSize))
-            guard !page.events.isEmpty else { break }
+            let page = try await client.listEvents(EventQuery(after: c.syncCursor, order: .asc, limit: pageSize,
+                                                              routine: cacheRoutine))
+            guard page.fetchedCount > 0 else { break }
             c.prepend(page.events.reversed())
             if let next = page.nextCursor { c.syncCursor = next }
-            if page.events.count < pageSize { break }
+            if page.fetchedCount < pageSize { break }
         }
         return c
     }
@@ -130,10 +139,11 @@ public struct HistorySync: Sendable {
     public func loadOlder(_ cache: HistoryCache) async throws -> HistoryCache {
         var c = cache
         guard !c.reachedEnd, let before = c.olderCursor else { return c }
-        let page = try await client.listEvents(EventQuery(before: before, order: .desc, limit: pageSize))
+        let page = try await client.listEvents(EventQuery(before: before, order: .desc, limit: pageSize,
+                                                          routine: cacheRoutine))
         c.append(page.events)
         if let next = page.nextCursor { c.olderCursor = next }
-        c.reachedEnd = page.events.count < pageSize
+        c.reachedEnd = page.fetchedCount < pageSize
         return c
     }
 

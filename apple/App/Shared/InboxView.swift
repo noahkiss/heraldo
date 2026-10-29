@@ -5,7 +5,13 @@ import SwiftUI
 struct InboxView: View {
     @Environment(AppModel.self) private var model
     @State private var path: [Event] = []
-    @State private var feed = InboxFeed()
+    @State private var feed: InboxFeed = {
+        let f = InboxFeed()
+        f.restore(DisplayPrefs.shared.inboxFilter)
+        // Open on a saved view: the Inbox starts scoped to it.
+        f.viewID = DisplayPrefs.shared.startViewID
+        return f
+    }()
 
     private var events: [Event] { feed.events(model) }
 
@@ -71,7 +77,7 @@ struct InboxView: View {
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            InboxFilterMenu(feed: feed)
+            InboxFilterMenu(feed: feed, saves: .withProject)
         }
         ToolbarItem(placement: .secondaryAction) {
             Button {

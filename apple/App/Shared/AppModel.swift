@@ -155,6 +155,7 @@ final class AppModel {
             lastSync = .now
             lastError = nil
             onBadge?(unread.badge)
+            Widgets.reload(self)
         } catch {
             log.error("refresh: \(error.localizedDescription, privacy: .public)")
             lastError = error.localizedDescription

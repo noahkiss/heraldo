@@ -7,6 +7,8 @@ public struct PushInfo: Equatable, Sendable {
     public var source: String?
     public var key: String?
     public var action: String?
+    /// The event's project, for grouping by project.
+    public var project: String?
     public var url: String?
     public var image: String?
     /// The registry icon's name, for `GET /v1/icons/{name}`.
@@ -24,6 +26,7 @@ public struct PushInfo: Equatable, Sendable {
         source = h["source"] as? String
         key = h["key"] as? String
         action = h["action"] as? String
+        project = (h["project"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         url = h["url"] as? String
         image = h["image"] as? String
         icon = h["icon"] as? String

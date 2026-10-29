@@ -29,8 +29,11 @@ final class InboxFeed {
 
     var trimmedQuery: String { query.trimmingCharacters(in: .whitespaces) }
 
+    /// Whether the list comes from the server. The synced cache holds no
+    /// routine events, so showing them asks the server too.
     var filtering: Bool {
         !trimmedQuery.isEmpty || kind != nil || source != nil || hold != nil || project != nil || viewID != nil
+            || showRoutine
     }
 
     /// Whether a filter other than the project is set.
@@ -82,7 +85,7 @@ final class InboxFeed {
             let page = try await sync.search(q: q.isEmpty ? nil : q, kind: kind, source: source, hold: hold,
                                              project: project, routine: routineFilter, view: viewID)
             results = page.events
-            resultsCursor = page.events.count < sync.pageSize ? nil : page.nextCursor
+            resultsCursor = page.fetchedCount < sync.pageSize ? nil : page.nextCursor
             viewUnsupported = false
         } catch {
             // A view's list never falls back to another list.
@@ -104,7 +107,7 @@ final class InboxFeed {
                                                  project: project, routine: routineFilter, view: viewID,
                                                  before: before)
                 results = (results ?? []) + page.events
-                resultsCursor = page.events.count < sync.pageSize ? nil : page.nextCursor
+                resultsCursor = page.fetchedCount < sync.pageSize ? nil : page.nextCursor
             } catch {
                 resultsCursor = nil
             }
@@ -145,6 +148,19 @@ struct InboxFilterMenu: View {
     /// Off where the sidebar chooses the view, as on the Mac.
     var showsViews = true
     @State private var naming = false
+    /// Whether a choice in the menu saves the Inbox filter, and with or
+    /// without the project. Only the Inbox's own menu saves.
+    var saves: Saves = .no
+
+    enum Saves { case no, withProject, withoutProject }
+
+    /// A binding that saves the Inbox filter when the person changes it.
+    private func bind<T>(_ path: ReferenceWritableKeyPath<InboxFeed, T>) -> Binding<T> {
+        Binding(get: { feed[keyPath: path] }, set: { value in
+            feed[keyPath: path] = value
+            if saves != .no { feed.saveFilter(DisplayPrefs.shared, withProject: saves == .withProject) }
+        })
+    }
 
     /// The filled icon: a filter is set.
     private var filled: Bool {
@@ -161,26 +177,26 @@ struct InboxFilterMenu: View {
                     }
                 }
             }
-            Picker("Kind", selection: $feed.kind) {
+            Picker("Kind", selection: bind(\.kind)) {
                 Text("All kinds").tag(String?.none)
                 ForEach(Kind.allCases, id: \.self) { Text($0.rawValue.capitalized).tag(String?.some($0.rawValue)) }
             }
-            Picker("Source", selection: $feed.source) {
+            Picker("Source", selection: bind(\.source)) {
                 Text("All sources").tag(String?.none)
                 ForEach(model.cache.sources, id: \.self) { Text($0).tag(String?.some($0)) }
             }
             if showsProject && !model.projectChoices.isEmpty {
-                Picker("Project", selection: $feed.project) {
+                Picker("Project", selection: bind(\.project)) {
                     Text("All projects").tag(String?.none)
                     ForEach(model.projectChoices, id: \.self) { Text($0).tag(String?.some($0)) }
                     Text("No project").tag(String?.some(noProject))
                 }
             }
-            Picker("Hold", selection: $feed.hold) {
+            Picker("Hold", selection: bind(\.hold)) {
                 Text("Any hold").tag(String?.none)
                 ForEach(model.cache.holdStates, id: \.self) { Text($0.capitalized).tag(String?.some($0)) }
             }
-            Toggle("Show routine events", isOn: $feed.showRoutine)
+            Toggle("Show routine events", isOn: bind(\.showRoutine))
             if model.viewsSupported {
                 Divider()
                 Button("Save as View…") { naming = true }
@@ -188,7 +204,10 @@ struct InboxFilterMenu: View {
             }
             #if os(macOS)
             Divider()
-            Button("Clear filters") { feed.clearMenuFilters() }
+            Button("Clear filters") {
+                feed.clearMenuFilters()
+                if saves != .no { feed.saveFilter(DisplayPrefs.shared, withProject: saves == .withProject) }
+            }
                 .disabled(!feed.hasMenuFilter)
             #endif
         } label: {

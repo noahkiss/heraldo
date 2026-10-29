@@ -1,12 +1,14 @@
 import HeraldoKit
 import UniformTypeIdentifiers
 import UserNotifications
+import WidgetKit
 
 /// Rewrites a push before it is shown: fetches the full event by `heraldo.id`
 /// with the read token the app shares through the app group Keychain, puts
 /// in the full text when the push carried a cut copy, and attaches the image,
 /// else the source's icon, as the thumbnail. A digest keeps its one line; the
-/// full text is in the app.
+/// full text is in the app. With "Group by project" on, it threads the
+/// notification as `project:<name>`. Each push reloads the widgets.
 final class NotificationService: UNNotificationServiceExtension {
     private var contentHandler: ((UNNotificationContent) -> Void)?
     private var bestAttempt: UNMutableNotificationContent?
@@ -26,7 +28,13 @@ final class NotificationService: UNNotificationServiceExtension {
             contentHandler(request.content)
             return
         }
+        // Group by project: the pref is mirrored to the app group.
+        if let thread = SyncedPrefs.mirror().groupBy.threadIdentifier(project: info.project) {
+            content.threadIdentifier = thread
+        }
         bestAttempt = content
+        // Something changed: the widgets read the server again.
+        WidgetCenter.shared.reloadAllTimelines()
         work = Task {
             let final = await Self.enrich(content, info: info)
             self.deliver(final)
@@ -58,7 +66,10 @@ final class NotificationService: UNNotificationServiceExtension {
                 content.body = text.count > maxBody ? String(text.prefix(maxBody)) + "…" : text
             }
             // thread-id comes from the payload; keep it, fill it only when missing.
-            if content.threadIdentifier.isEmpty { content.threadIdentifier = event.thread ?? event.source }
+            if content.threadIdentifier.isEmpty {
+                content.threadIdentifier = SyncedPrefs.mirror().groupBy.threadIdentifier(project: event.project)
+                    ?? event.thread ?? event.source
+            }
         }
 
         let imageURL = (info.image ?? event?.image).flatMap(URL.init(string:))

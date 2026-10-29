@@ -78,6 +78,7 @@ final class MacWindowState {
 
     init(model: AppModel) {
         self.model = model
+        inbox.restore(DisplayPrefs.shared.inboxFilter, withProject: false)
     }
 
     var selection: MacDetailItem? {

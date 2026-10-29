@@ -130,6 +130,7 @@ public struct HeraldoClient: Sendable {
         // A server before the filter ignored it. The page may come up short;
         // its next_cursor still continues it.
         var p = page
+        p.fetched = page.events.count
         p.events = page.events.filter { $0.isRoutine == (routine == .only) }
         return p
     }

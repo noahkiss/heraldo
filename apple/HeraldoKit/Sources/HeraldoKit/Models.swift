@@ -522,6 +522,13 @@ public struct PushDecision: Codable, Hashable, Sendable {
 public struct EventPage: Codable, Sendable {
     public var events: [Event]
     public var nextCursor: String?
+    /// The rows the server sent, when `HeraldoClient.listEvents` dropped
+    /// some itself (a server before the routine filter). Nil otherwise.
+    public var fetched: Int?
+
+    /// The rows the server sent. A page is full, and more may follow, by
+    /// this count, not by the events kept.
+    public var fetchedCount: Int { fetched ?? events.count }
 
     enum CodingKeys: String, CodingKey {
         case events

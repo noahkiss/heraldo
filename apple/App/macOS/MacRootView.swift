@@ -46,7 +46,14 @@ struct MacRootView: View {
             if let id = state.viewID, model.viewsSupported, !ids.contains(id) { state.show(.inbox) }
         }
         .onAppear {
-            if let h = MacHome(rawValue: savedHome), h != .held { state.show(h) }
+            // The synced default view (a home or a saved view), else the
+            // last home on this Mac.
+            if let id = DisplayPrefs.shared.startViewID {
+                state.sidebar = .view(id)
+            } else {
+                let start = DisplayPrefs.shared.defaultView.flatMap(MacHome.init(rawValue:)) ?? MacHome(rawValue: savedHome)
+                if let h = start, h != .held { state.show(h) }
+            }
             open(model.openEventID)
             // A provisioning launch saves the settings itself.
             if !model.isConfigured && !Provision.requested { openSettings() }
@@ -69,7 +76,8 @@ struct MacRootView: View {
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
             if let feed = state.feed {
-                InboxFilterMenu(feed: feed, showsProject: false, showsViews: false)
+                InboxFilterMenu(feed: feed, showsProject: false, showsViews: false,
+                                saves: feed === state.inbox ? .withoutProject : .no)
                     .help("Filter")
             }
             Button {

@@ -56,12 +56,13 @@ struct HeraldoApp: App {
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
-    @State private var tab = Tab.inbox
+    @State private var tab = DisplayPrefs.shared.defaultView.flatMap(Tab.init(rawValue:)) ?? .inbox
     #if os(macOS)
     @Environment(\.openSettings) private var openSettings
     #endif
 
-    enum Tab: Hashable { case inbox, incidents, checkins, settings }
+    /// The raw values are the synced default view's names.
+    enum Tab: String, Hashable { case inbox, incidents, checkins, settings }
 
     var body: some View {
         TabView(selection: $tab) {

@@ -336,8 +336,11 @@ app group.
 - **Inbox**: history synced by cursor on launch and on foreground, search,
   filters by kind, source, project and hold state (the Held filter shows the
   triage verdict on each row). Routine events (passing check-ins, progress,
-  status) stay out; Show routine events in the filter menu brings them back,
-  and so does a kind filter of their kind. Each row shows its project. A swipe marks events read up to that one; the
+  status) stay out: the app syncs its cache with `routine=exclude`, so pings
+  do not crowd real history out of the 3000 events it keeps. On a server
+  before the filter the app drops them itself. Show routine events in the
+  filter menu, or a kind filter of their kind, asks the server for them. The
+  filters you choose are saved and synced (see "Display"). Each row shows its project. A swipe marks events read up to that one; the
   menu marks all read. Both move the shared `inbox` cursor, so the CLI and the
   app share one unread state. The badge is the cursor's `unread`.
 - **Incidents**: open incidents first, then acknowledged ones, from
@@ -373,6 +376,26 @@ app group.
   Projects; selecting one scopes the list, and its context menu has Delete.
   A view with a bundle folds a burst of its pushes into one notification
   ([docs/api.md](docs/api.md), "Saved views").
+- **Display**: these preferences sync to your other devices through the
+  iCloud key-value store, with a copy on the device:
+  - Group notifications: by thread or source (the default), or by project.
+    By project, the notification extension threads each notification as
+    `project:<name>`; an event with no project keeps the server's thread.
+  - Open on: the tab or saved view the app opens on.
+  - The Inbox's filters, Show routine events included.
+  - Share to project: the project that sharing to Heraldo offers first. It
+    is the share sheet's last project too, so a share on one device sets it
+    on the others after the app's next sync.
+
+  Text size, layout, the Dock setting, the push token, permissions and the
+  caches stay on each device. A build without the iCloud key-value
+  entitlement keeps the preferences on the device, and Settings says so.
+- **Widgets**: on the Lock Screen, Needs attention (circular, rectangular and
+  inline) counts open incidents and down checks. On the Home Screen or Lock
+  Screen, Project shows one project's open incidents, down checks and newest
+  events; edit the widget to choose the project. The widgets read the server
+  with the shared read token, and fall back to the copy the app saves after
+  each sync. Each sync and each push reloads them.
 - **Live Activities**: a `progress` key shows as a Live Activity on the Lock
   Screen, in the Dynamic Island and in the Watch Smart Stack. The server starts
   it with push-to-start, so the app need not be open. The app reports its
@@ -461,6 +484,12 @@ brew install --cask noahkiss/tap/heraldo-app
   window closes, the Settings window included. Opening a window from the menu
   bar, a notification or the app itself brings them back. The setting stays on
   this Mac.
+- **Display**: the Inbox filters and Open on sync with the iPhone through
+  iCloud (see "iOS app"). Open on can name a home or a saved view in the
+  sidebar. With Last used, the window opens on the home it showed last. Notification grouping by project is iOS only: the
+  Mac has no notification extension.
+- **Widgets**: the Mac widgets are a placeholder for now. The Mac widget
+  extension has no app group, so it cannot read the app's copy.
 
 ### Provision from the shell
 
