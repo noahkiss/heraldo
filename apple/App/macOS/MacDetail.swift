@@ -57,7 +57,13 @@ struct MacDetailView: View {
                 EventByIDView(id: id)
             }
         case .check(let key):
-            CheckDetailView(key: key)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(key)
+                    .font(.title2.bold())
+                    .textSelection(.enabled)
+                    .padding([.horizontal, .top])
+                CheckDetailView(key: key)
+            }
         case .activity(let key):
             ActivityDetailView(key: key)
         case .held(let id):

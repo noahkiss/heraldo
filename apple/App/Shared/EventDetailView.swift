@@ -14,6 +14,10 @@ struct EventDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header
+                #if os(macOS)
+                // A wide window: the actions sit under the title, above a long body.
+                actions
+                #endif
                 if let image = event.image.flatMap(URL.init(string:)) {
                     AsyncImage(url: image) { img in
                         img.resizable().scaledToFit().clipShape(.rect(cornerRadius: 8))
@@ -27,7 +31,9 @@ struct EventDetailView: View {
                 if let body = event.body, !body.isEmpty {
                     MarkdownView(text: body)
                 }
+                #if os(iOS)
                 actions
+                #endif
                 facts
             }
             .padding()

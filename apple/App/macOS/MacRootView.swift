@@ -6,22 +6,19 @@ import SwiftUI
 struct MacRootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openSettings) private var openSettings
-    @State private var state = MacWindowState(model: AppModel.shared)
+    @State private var state = MacWindowState.shared
     @State private var columns = NavigationSplitViewVisibility.all
     @FocusState private var searchFocused: Bool
-    @AppStorage("mac.sidebarWidth") private var sidebarWidth = 220.0
-    @AppStorage("mac.listWidth") private var listWidth = 380.0
     @AppStorage("mac.home") private var savedHome = MacHome.inbox.rawValue
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columns) {
+            // AppKit saves the column widths with the window.
             MacSidebar(state: state)
-                .navigationSplitViewColumnWidth(min: 180, ideal: sidebarWidth, max: 320)
-                .onGeometryChange(for: Double.self) { $0.size.width } action: { sidebarWidth = $0 }
+                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
         } content: {
             MacContentList(state: state)
-                .navigationSplitViewColumnWidth(min: 300, ideal: listWidth, max: 640)
-                .onGeometryChange(for: Double.self) { $0.size.width } action: { listWidth = $0 }
+                .navigationSplitViewColumnWidth(min: 320, ideal: 400, max: 640)
         } detail: {
             MacDetailColumn(state: state)
         }
@@ -29,7 +26,6 @@ struct MacRootView: View {
         .searchFocused($searchFocused)
         .onSubmit(of: .search) { Task { await state.feed?.search(model) } }
         .toolbar { toolbar }
-        .focusedSceneValue(\.macWindow, state)
         .frame(minWidth: 820, minHeight: 480)
         .heraldoLinks()
         .task(id: state.feed?.searchKey) {

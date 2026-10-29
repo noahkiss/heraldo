@@ -15,6 +15,14 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationC
     private var poll: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        // Screenshots in both themes: HERALDO_APPEARANCE=light or dark.
+        switch ProcessInfo.processInfo.environment["HERALDO_APPEARANCE"] {
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        default: break
+        }
+        #endif
         UNUserNotificationCenter.current().delegate = self
         let push = PushManager.shared
         AppModel.shared.onBadge = { push.setBadge($0) }

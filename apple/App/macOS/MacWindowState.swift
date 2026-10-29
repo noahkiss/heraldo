@@ -47,11 +47,14 @@ enum MacDetailItem: Hashable, Codable {
     case held(String)
 }
 
-/// One Mac window's state: the sidebar choice, the selection in each list,
-/// the search text and the Inbox and project feeds.
+/// The main window's state: the sidebar choice, the selection in each
+/// list, the search text and the Inbox and project feeds. There is one main
+/// window, so there is one of these; the menu commands act on it.
 @MainActor
 @Observable
 final class MacWindowState {
+    static let shared = MacWindowState(model: AppModel.shared)
+
     let model: AppModel
     var sidebar: MacSidebarItem? = .home(.inbox) {
         didSet { if sidebar != oldValue { sidebarChanged() } }
@@ -151,9 +154,4 @@ final class MacWindowState {
         let text = fields.compactMap { $0 }.joined(separator: " ")
         return words.allSatisfy { text.localizedCaseInsensitiveContains($0) }
     }
-}
-
-extension FocusedValues {
-    /// The key Mac window's state, for the menu commands.
-    @Entry var macWindow: MacWindowState?
 }

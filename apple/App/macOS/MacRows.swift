@@ -144,9 +144,10 @@ struct MacCheckRow: View {
                     }
                 }
                 HStack(spacing: 6) {
+                    // The icon carries the state's color; the text stays legible.
                     Text(check.stateLabel)
                         .font(.caption.weight(.medium))
-                        .foregroundStyle(color)
+                        .foregroundStyle(.secondary)
                     if let host = check.host {
                         Text(host).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }

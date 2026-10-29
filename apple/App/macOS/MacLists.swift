@@ -112,7 +112,7 @@ struct MacIncidentList: View {
         if !events.isEmpty {
             Section(title) {
                 ForEach(events) { e in
-                    MacEventRow(event: e, time: e.action == "resolve" ? .openFor : .opened)
+                    MacEventRow(event: e, unread: model.isUnread(e), time: e.action == "resolve" ? .openFor : .opened)
                         .tag(MacDetailItem.event(e.id))
                 }
             }
@@ -237,7 +237,7 @@ struct MacProjectList: View {
             if !incidents.isEmpty {
                 Section("Incidents") {
                     ForEach(incidents) { e in
-                        MacEventRow(event: e, showProject: false, time: .opened)
+                        MacEventRow(event: e, unread: model.isUnread(e), showProject: false, time: .opened)
                             .tag(MacDetailItem.event(e.id))
                     }
                 }
@@ -294,10 +294,10 @@ struct MacItemMenu: View {
                     Button("Mark Read up to Here") { Task { await model.markRead(e) } }
                 }
                 if e.isOpenIncident && !e.isAcked && model.canWrite {
-                    Button("Acknowledge") { Task { try? await model.ack(e) } }
+                    Button("Acknowledge") { model.perform { try await $0.ack(e) } }
                 }
                 if let p = e.project, model.canWrite {
-                    Button("Mute Project for 1 h") { Task { try? await model.muteProject(p) } }
+                    Button("Mute Project for 1 h") { model.perform { try await $0.muteProject(p) } }
                 }
                 Divider()
                 Button("Copy ID") { copy(e.id) }
@@ -305,7 +305,7 @@ struct MacItemMenu: View {
         case .check(let key):
             if let c = model.checks.first(where: { $0.key == key }), model.canWrite {
                 let pause = c.state != .paused
-                Button(pause ? "Pause" : "Resume") { Task { try? await model.setPaused(c, pause) } }
+                Button(pause ? "Pause" : "Resume") { model.perform { try await $0.setPaused(c, pause) } }
             }
             Button("Copy Key") { copy(key) }
         case .activity(let key):
