@@ -15,7 +15,7 @@ APP_GROUP_ID = group.$(APP_BUNDLE_ID)
 // signs only with a profile that carries the grant.
 HERALDO_CRITICAL_ALERTS = NO
 
-MARKETING_VERSION = 0.7.0
+MARKETING_VERSION = 0.8.0
 // Local and simulator builds only. build.sh and testflight.sh set the build
 // number to the UTC time (YYYYMMDDHHMM), so it rises on every archive.
 CURRENT_PROJECT_VERSION = 1
