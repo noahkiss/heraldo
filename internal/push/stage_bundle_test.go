@@ -53,7 +53,7 @@ func TestBundle(t *testing.T) {
 	if a.APS.Alert.Title != "nas failed" || req.CollapseID != CollapseID("b:nas") {
 		t.Fatalf("first push %+v %+v", req, a)
 	}
-	if got := stagesOf(r.why(t, first)); !strings.Contains(got, "bundle:pass deliver:pass") {
+	if got := stagesOf(r.why(t, first)); !strings.Contains(got, "bundle:pass quiet:pass focus:pass deliver:pass") {
 		t.Fatalf("first stages %s", got)
 	}
 
