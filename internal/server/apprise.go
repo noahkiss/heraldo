@@ -332,6 +332,12 @@ func envelope(m map[string]any, extra map[string]any) map[string]any {
 // front of the title after the rules typed the event, so a forward types
 // like the original.
 func (s *server) ingestNotify(ctx context.Context, m, extra, hold map[string]any, prefix string) (store.Record, error) {
+	return s.ingestNotifyWith(ctx, m, extra, hold, prefix, nil)
+}
+
+// ingestNotifyWith is ingestNotify with over laid over the typed fields,
+// such as the LLM's summary. Fields the envelope refuses are left out.
+func (s *server) ingestNotifyWith(ctx context.Context, m, extra, hold map[string]any, prefix string, over map[string]any) (store.Record, error) {
 	in, err := s.Validator.Fields(envelope(m, extra))
 	if err != nil {
 		// A field the schema refuses (an odd url) must not lose the message.
@@ -358,6 +364,20 @@ func (s *server) ingestNotify(ctx context.Context, m, extra, hold map[string]any
 		f["title"] = cut(prefix+str(f, "title"), 256)
 		if t, err := s.Validator.Fields(f); err == nil {
 			typed = t
+		}
+	}
+	if len(over) > 0 {
+		f := make(map[string]any, len(typed.Fields)+len(over))
+		for k, v := range typed.Fields {
+			f[k] = v
+		}
+		for k, v := range over {
+			f[k] = v
+		}
+		if t, err := s.Validator.Fields(f); err == nil {
+			typed = t
+		} else {
+			s.Logger.Warn("notify: the LLM's fields are not valid; stored without them", "err", err)
 		}
 	}
 	h := hold

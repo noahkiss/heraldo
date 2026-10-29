@@ -19,6 +19,7 @@ import (
 
 	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/auth"
+	"github.com/noahkiss/heraldo/internal/decide"
 	"github.com/noahkiss/heraldo/internal/digest"
 	"github.com/noahkiss/heraldo/internal/hold"
 	"github.com/noahkiss/heraldo/internal/ids"
@@ -110,6 +111,9 @@ type server struct {
 	// llm is the LLM client; askTools the chat model's read-only tools.
 	llm      *llm.Client
 	askTools llm.Toolbox
+	// decide is the LLM's decisions role: hold triage, bundle titles and
+	// the digest's paragraph.
+	decide *decide.Decider
 }
 
 // Server is the HTTP handler and the check-in scheduler.
@@ -163,6 +167,7 @@ func NewServer(o Options) *Server {
 	s := &server{Options: o, hub: newHub(), started: o.Now()}
 	s.digest = s.newDigest()
 	s.llm = s.newLLM()
+	s.decide = s.newDecider()
 	if e, ok := o.Live.(interface {
 		SetEmit(func(context.Context, map[string]any) error)
 	}); ok {

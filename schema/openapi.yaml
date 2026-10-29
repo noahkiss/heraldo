@@ -2552,7 +2552,7 @@ components:
       properties:
         stage:
           type: string
-          description: "The stage, in pipeline order: hold, expiry, table, replace, devices, mute, inhibit, deliver. Later servers add stages."
+          description: "The stage, in pipeline order: hold, expiry, table, replace, devices, mute, inhibit, deliver. Rows beside the pipeline follow it: escalate (Pushover) and llm (the LLM's decisions role; its detail has call_id, mode, verdict and applied). Later servers add stages."
         outcome:
           type: string
           enum: [pass, downgrade, delay, merge, drop]

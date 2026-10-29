@@ -143,6 +143,7 @@ var registry = []Key{
 	{Name: "digest.enabled", Type: Bool, Default: false, Desc: "Send a daily digest."},
 	{Name: "digest.at", Type: Clock, Default: "07:30", Desc: "When the digest is sent, HH:MM."},
 	{Name: "digest.tz", Type: TZ, Default: "UTC", Desc: "The time zone of digest.at."},
+	{Name: "digest.prose", Type: Bool, Default: false, Desc: "Lead the digest with a paragraph the LLM writes; needs llm.mode advise or enforce."},
 
 	// The stale sweep.
 	{Name: "stale.enabled", Type: Bool, Default: false, Desc: "Flag incidents open too long."},

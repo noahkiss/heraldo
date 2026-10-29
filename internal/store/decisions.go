@@ -107,18 +107,30 @@ func (s *Store) decisions(ctx context.Context, ids []string) (map[string][]Decis
 	return by, rows.Err()
 }
 
+// LLMStage is the stage of the rows the LLM's decisions role appends.
+const LLMStage = "llm"
+
 // DecisionSummary is the one line that sums up a push trace: the reason of
-// the stage that ended it, then each downgrade on the way. Escalation rows
-// (AppendStage) count only when the trace has nothing else, as on a server
-// with push off. It is "" for an empty trace.
+// the stage that ended it, then each downgrade on the way, then the last
+// LLM row's reason (LLMStage). Escalation rows (AppendStage) count only
+// when the trace has nothing else, as on a server with push off. It is ""
+// for an empty trace.
 func DecisionSummary(rows []DecisionRow) string {
 	var pipe []DecisionRow
+	var llm string
 	for _, r := range rows {
-		if r.Stage != AppendStage {
+		switch r.Stage {
+		case AppendStage:
+		case LLMStage:
+			llm = r.Reason
+		default:
 			pipe = append(pipe, r)
 		}
 	}
 	if len(pipe) == 0 {
+		if llm != "" {
+			return llm
+		}
 		if len(rows) == 0 {
 			return ""
 		}
@@ -129,6 +141,9 @@ func DecisionSummary(rows []DecisionRow) string {
 		if r.Outcome == "downgrade" {
 			out += "; " + r.Reason
 		}
+	}
+	if llm != "" {
+		out += "; " + llm
 	}
 	return out
 }

@@ -133,6 +133,11 @@ type Run struct {
 	// Flap is the flap state the push shows; the flap stage sets it.
 	Flap *FlapNote
 
+	// after runs once the deliver stage delivered, after the trace is
+	// recorded: work that must not delay the push, such as the bundle
+	// text hook.
+	after []func()
+
 	// skipInhibit is set when the mute lookup failed: as before stages, the
 	// push then goes out without an inhibit check.
 	skipInhibit bool
@@ -169,6 +174,11 @@ func (p *Pusher) run(ctx context.Context, r *Run) {
 	}
 	if err := p.cfg.Store.RecordDecisions(context.WithoutCancel(ctx), r.Event.Id, rows); err != nil {
 		r.Log.Error("push: record decisions", "err", err)
+	}
+	if r.delivered {
+		for _, f := range r.after {
+			f()
+		}
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/noahkiss/heraldo/api"
+	"github.com/noahkiss/heraldo/internal/decide"
 	"github.com/noahkiss/heraldo/internal/store"
 )
 
@@ -22,6 +23,12 @@ import (
 // push on their own, and a passive replace keeps its own collapse id. A
 // re-alert never bundles. The window lives in memory: after a restart the
 // next push opens a new one.
+//
+// With a bundle text hook (SetBundleText, the LLM's decisions role), the
+// bundle notification still goes out first, unchanged; the hook then runs
+// after delivery, and an answer that arrives while the window is open
+// replaces the notification quietly through the same collapse id
+// (stage_bundle_llm.go). Nothing waits for it.
 func (p *Pusher) bundleStage(ctx context.Context, r *Run) Verdict {
 	if r.OpenFor > 0 {
 		return Pass("re-alert: not bundled")
@@ -55,7 +62,7 @@ func (p *Pusher) bundleStage(ctx context.Context, r *Run) Verdict {
 	}
 	b := *view.Bundle
 	visible := max(b.MaxVisible, 1)
-	n, opened := p.bundles.add(view.ID, r.Now, b.Window)
+	n, opened := p.bundles.add(view.ID, r.Now, b.Window, decide.MemberOf(r.Event))
 	detail := map[string]any{"view": view.ID, "view_name": view.Name, "count": n,
 		"window_s": int(b.Window.Seconds()), "max_visible": visible, "window_opened": opened.UTC().Format(time.RFC3339)}
 	if n <= visible {
@@ -75,6 +82,7 @@ func (p *Pusher) bundleStage(ctx context.Context, r *Run) Verdict {
 	r.CollapseID = CollapseID(thread)
 	detail["collapse_id"] = r.CollapseID
 	why := fmt.Sprintf("bundled into view %s (%d in %s)", view.Name, n, Duration(r.Now.Sub(opened)))
+	p.afterBundle(r, view.ID, view.Name, opened, n)
 	if n == visible+1 {
 		return Pass(why).With(detail)
 	}
@@ -91,12 +99,17 @@ type bundleWindow struct {
 	opened time.Time
 	ends   time.Time
 	count  int
+	// members are the window's events, for the bundle text hook; the
+	// newest decide.MaxBundleMembers.
+	members []decide.Member
+	// llm is the bundle text hook's state (stage_bundle_llm.go).
+	llm bundleLLM
 }
 
 // add counts one push of view at now and returns the count in the view's
 // window and when the window opened. A push after the window ends opens a
 // new one.
-func (b *bundler) add(view string, now time.Time, window time.Duration) (int, time.Time) {
+func (b *bundler) add(view string, now time.Time, window time.Duration, m decide.Member) (int, time.Time) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.windows == nil {
@@ -113,5 +126,9 @@ func (b *bundler) add(view string, now time.Time, window time.Duration) (int, ti
 		b.windows[view] = w
 	}
 	w.count++
+	w.members = append(w.members, m)
+	if len(w.members) > decide.MaxBundleMembers {
+		w.members = w.members[len(w.members)-decide.MaxBundleMembers:]
+	}
 	return w.count, w.opened
 }

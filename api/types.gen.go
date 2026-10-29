@@ -2263,7 +2263,7 @@ type PushDecision struct {
 	// Reason One line a person reads, such as "muted by mute_... (project)".
 	Reason string `json:"reason"`
 
-	// Stage The stage, in pipeline order: hold, expiry, table, replace, devices, mute, inhibit, deliver. Later servers add stages.
+	// Stage The stage, in pipeline order: hold, expiry, table, replace, devices, mute, inhibit, deliver. Rows beside the pipeline follow it: escalate (Pushover) and llm (the LLM's decisions role; its detail has call_id, mode, verdict and applied). Later servers add stages.
 	Stage string `json:"stage"`
 }
 

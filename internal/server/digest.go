@@ -26,9 +26,23 @@ func (s *server) newDigest() *digest.Runner {
 				return digest.Emitted{}, err
 			}
 			rec, created, err := s.ingest(ctx, in, false)
+			if err == nil && created && s.decide != nil {
+				if t, ok := s.decide.DigestTrace(digestUntil(fields)); ok {
+					s.appendTrace(ctx, rec.ID, t)
+				}
+			}
 			return digest.Emitted{ID: rec.ID, Created: created}, err
 		},
 	})
+}
+
+// digestUntil is a digest event's window end, as Digest.Fields writes it.
+func digestUntil(fields map[string]any) string {
+	d, _ := fields["details"].(map[string]any)
+	h, _ := d["heraldo"].(map[string]any)
+	g, _ := h["digest"].(map[string]any)
+	u, _ := g["until"].(string)
+	return u
 }
 
 // RunDigest sends the daily digest when it is due, until ctx ends. Run it

@@ -13,6 +13,7 @@ import (
 
 	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/auth"
+	"github.com/noahkiss/heraldo/internal/decide"
 	"github.com/noahkiss/heraldo/internal/ids"
 	"github.com/noahkiss/heraldo/internal/llm"
 	"github.com/noahkiss/heraldo/internal/store"
@@ -44,6 +45,25 @@ func (s *server) newLLM() *llm.Client {
 	}
 	return llm.New(cfg)
 }
+
+// newDecider builds the decisions role over the LLM client, and hooks it
+// into the digest (digest.prose) and a pusher that takes a bundle text
+// hook.
+func (s *server) newDecider() *decide.Decider {
+	cfg := decide.Config{LLM: s.llm, Settings: s.Settings, Logger: s.Logger.With("component", "decide")}
+	if s.Store != nil {
+		cfg.Guidance = s.Store
+	}
+	d := decide.New(cfg)
+	s.digest.SetSummary(d.DigestProse)
+	if p, ok := s.Pusher.(interface{ SetBundleText(decide.BundleText) }); ok {
+		p.SetBundleText(d.Bundle)
+	}
+	return d
+}
+
+// Decider is the LLM's decisions role, for tests.
+func (srv *Server) Decider() *decide.Decider { return srv.s.decide }
 
 // LLM is the server's LLM client, for the decisions role and tests.
 func (srv *Server) LLM() *llm.Client { return srv.s.llm }

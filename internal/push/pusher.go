@@ -75,6 +75,8 @@ type Pusher struct {
 	pending sync.WaitGroup
 	// bundles are the saved views' bundle windows (stage_bundle.go).
 	bundles bundler
+	// hooks holds the bundle text hook and Run's context.
+	hooks hooks
 }
 
 // New returns a Pusher. Start it with Run.
@@ -177,6 +179,7 @@ func (p *Pusher) Sweep(ctx context.Context, since time.Time) (int, error) {
 // Run drains the queue and sends due re-alerts until ctx ends. Events still
 // queued then are not pushed: call Drain first.
 func (p *Pusher) Run(ctx context.Context) {
+	p.hooks.setCtx(ctx)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
