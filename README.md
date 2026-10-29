@@ -217,7 +217,7 @@ any `-wal` and `-shm` files left beside the old database first.
 | Command | Does |
 |---|---|
 | `heraldo peek [--mark]` | Lists the events after the read cursor. `--mark` moves the cursor past them. With no cursor yet, it lists the newest events. `--project` keeps the unread events in those projects; not with `--mark`. |
-| `heraldo show [--json] <id>` | Prints one event with its full body; `why`, one line on why it did or did not push; and an `attached:` line per attachment (type and size). |
+| `heraldo show [--json \| --md] <id>` | Prints one event with its full body; `why`, one line on why it did or did not push; and an `attached:` line per attachment (type and size). `--md` prints the event as markdown to share, the same text as the apps' Share button, ending with its `heraldo://event/<id>` link. |
 | `heraldo why [--json] <id>` | Prints why an event did or did not push, one line per push stage: hold, expiry, push table, mutes, inhibit rules, delivery per device. See [docs/api.md](docs/api.md), "Why it pushed". |
 | `heraldo attachment get [-o file] <id>` | Writes an attachment's bytes to a new file, or to stdout. It never overwrites a file. |
 | `heraldo ls` | Lists the newest events (20 by default, oldest first). Filters: `--kind`, `--source`, `--host`, `--key`, `--tag`, `--project` (a comma-separated list; `-` for none), `-q` (full text). `--open` lists the incidents that are not resolved. Routine events (passing check-ins, progress, status) stay out unless `--routine` is given, or `--kind` or `--key` names them. `--view <name>` applies a saved view; other filters replace its fields, and the view's own routine filter applies. |
@@ -372,9 +372,21 @@ app group.
   and dismissal (docs/api.md, "Live Activities"). The inbox leaves progress
   events out; each activity leaves one message when it ends, and its History
   lists the progress.
-- **Shortcuts**: Send Event (with the write token), Get Recent History (JSON),
-  Get Open Incidents (open and acknowledged, as text or JSON), and Start,
-  Update, End and Get Live Activity, with Notify!'s parameters.
+- **Share in**: Heraldo is in the share sheet. It takes text, a link,
+  images and files (images, plain text, PDF or JSON; 5 MB each, 8 at most;
+  a larger image goes up as a smaller JPEG). The sheet has a title, a project
+  picker (from `/v1/projects`; it remembers the last one) and "Add to open
+  incident" (from `/v1/state`), which posts `kind incident, action update` on
+  that key. It posts level `passive` with source `share:<device>`, with the
+  files as attachments (docs/api.md, "Attachments"). It needs the write token.
+- **Share out**: Share on event detail sends the event as markdown, ending
+  with its `heraldo://event/<id>` link. `heraldo show --md` prints the same
+  text.
+- **Shortcuts**: Send to Heraldo (with the write token; optional files,
+  project and open incident), Get Event (markdown, JSON or its link, from an
+  id or a `heraldo://event/` link), Get Recent History (JSON), Get Open
+  Incidents (open and acknowledged, as text or JSON), and Start, Update, End
+  and Get Live Activity, with Notify!'s parameters.
 - `heraldo://event/<id>` opens one event. `heraldo://open?url=<url>` opens the
   URL; a Live Activity's open button uses it.
 
@@ -422,8 +434,15 @@ brew install --cask noahkiss/tap/heraldo-app
   that are down, and the running Live Activities. A click on an item opens it
   in the window.
 - **Settings** is in the app menu (Command-comma).
+- **Share**: Heraldo is in every app's Share menu, with the same sheet as on
+  the iPhone. Services > Send to Heraldo sends the selected text or link as a
+  passive event under the share sheet's last project. Share on event detail
+  sends the event as markdown with its link.
 - **Credentials**: the same iCloud Keychain item as the iPhone, so tokens saved
-  on one device reach the other.
+  on one device reach the other. The share extension reads that item too, so
+  it needs its own Developer ID profile with the app group
+  (`apple/Config/Local.example.xcconfig`); an unsigned build's extension
+  cannot read this Mac's login keychain item and asks you to open the app.
 - **Push**: the Mac registers its own APNs token with `platform` `macOS` and
   environment `production`, and reports the same permission health. The Dock
   icon shows the `unread` badge.

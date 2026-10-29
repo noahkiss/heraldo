@@ -47,7 +47,7 @@ heraldo mcp [--read-only]
 |---|---|---|
 | `overview` | Unread count, open incidents, checks that are down or late, running Live Activities, mutes in force. On request: statuses, projects, devices | read (mutes: write) |
 | `events_search` | List or search events: filters, full text, unread, cursor paging | read |
-| `event_read` | One event in full: body (paged), details, delivery, why it did or did not push (`why`, `decisions`), attachment list | read |
+| `event_read` | One event in full: body (paged), details, delivery, why it did or did not push (`why`, `decisions`), attachment list; `markdown: true` adds the shareable text | read |
 | `checkin_read` | One check: schedule, state, due times, the end of the last log | read |
 | `activity_read` | One Live Activity: content, device instances, timeline | read |
 | `attachment_read` | One attached file: text inline (paged), an image as image content | read |
@@ -107,6 +107,7 @@ that matches the tool's `outputSchema`.
 | `event_read` details | 4 KiB of JSON, else `{"_omitted_bytes": n}` |
 | `event_read` delivery | counts, plus the first 10 outcomes |
 | `event_read` decisions | every push stage the event passed through; absent before the server decides it |
+| `event_read` markdown | 16 KiB, with a note when cut |
 | Check `last_log` | the last 8 KiB |
 | `hold_read` entries | 50, oldest first, each body 2 KiB; `total` is always given |
 | `activity_read` timeline | the newest 50 by default, 200 at most |
