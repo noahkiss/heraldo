@@ -27,6 +27,8 @@ const (
 	readTok  = "http-mcp-read-token-for-tests"
 	writeTok = "http-mcp-write-token-for-tests"
 	adminTok = "http-mcp-admin-token-for-tests"
+	keyTok   = "http-mcp-notify-key-token-for-tests"
+	teeTok   = "http-mcp-bridge-token-for-tests"
 )
 
 func newServer(t *testing.T, on bool) string {
@@ -36,8 +38,9 @@ func newServer(t *testing.T, on bool) string {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	tokens, err := auth.Parse(strings.NewReader(fmt.Sprintf("reader read %s\ncodex write %s\nops admin %s\n",
-		auth.Hash(readTok), auth.Hash(writeTok), auth.Hash(adminTok))), '\n')
+	tokens, err := auth.Parse(strings.NewReader(fmt.Sprintf(
+		"reader read %s\ncodex write %s\nops admin %s\nsender write %s notify-key\nbridge write %s trusted-ingest\n",
+		auth.Hash(readTok), auth.Hash(writeTok), auth.Hash(adminTok), auth.Hash(keyTok), auth.Hash(teeTok))), '\n')
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +111,7 @@ func call(t *testing.T, cs *mcp.ClientSession, name string, args any) (map[strin
 	b, _ := json.Marshal(res.StructuredContent)
 	out := map[string]any{}
 	_ = json.Unmarshal(b, &out)
-	for _, tok := range []string{readTok, writeTok, adminTok} {
+	for _, tok := range []string{readTok, writeTok, adminTok, keyTok, teeTok} {
 		if strings.Contains(string(b)+text, tok) {
 			t.Fatalf("%s: a token leaked", name)
 		}
@@ -151,6 +154,20 @@ func TestAuth(t *testing.T) {
 	}
 	if code := status(t, http.MethodPost, base+"/v1/mcp", readTok, initBody); code != http.StatusOK {
 		t.Fatalf("read token: %d", code)
+	}
+	// A sender's credential is refused: a notify-key token must never gain
+	// read access, and a bridge token is no agent's.
+	call := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"events_search","arguments":{}}}`
+	for _, tok := range []string{keyTok, teeTok} {
+		for _, body := range []string{initBody, call} {
+			if code := status(t, http.MethodPost, base+"/v1/mcp", tok, body); code != http.StatusForbidden {
+				t.Fatalf("sender token %s: %d", tok, code)
+			}
+		}
+	}
+	// Through REST the notify-key token still cannot read.
+	if code := status(t, http.MethodGet, base+"/v1/events", keyTok, ""); code != http.StatusForbidden {
+		t.Fatalf("notify-key token on GET /v1/events: %d", code)
 	}
 	// The MCP grant does not reach the REST API: a write token still cannot
 	// read there.

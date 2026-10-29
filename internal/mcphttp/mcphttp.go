@@ -51,7 +51,7 @@ func New(o Options) func(api http.Handler, tokenOf func(*http.Request) auth.Toke
 	o.Logger = slog.New(warnOnly{o.Logger.Handler()})
 	return func(api http.Handler, tokenOf func(*http.Request) auth.Token) http.Handler {
 		e := &endpoint{Options: o, api: api, servers: map[string]*mcp.Server{}}
-		return mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+		h := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
 			return e.server(tokenOf(r), r.Host)
 		}, &mcp.StreamableHTTPOptions{
 			Stateless:           true,
@@ -62,6 +62,18 @@ func New(o Options) func(api http.Handler, tokenOf func(*http.Request) auth.Toke
 			// so a DNS-rebound page gains nothing. The check would refuse a
 			// reverse proxy on the same host that forwards the public name.
 			DisableLocalhostProtection: true,
+		})
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// A sender's credential never reaches the tools: a notify-key
+			// token sits in sender configs on many hosts and must not gain
+			// read access, and a trusted-ingest token is a bridge's.
+			if t := tokenOf(r); auth.SenderOnly(t) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = io.WriteString(w, `{"error":"this token is a sender's credential (notify-key or trusted-ingest); give the agent its own read or write token"}`)
+				return
+			}
+			h.ServeHTTP(w, r)
 		})
 	}
 }

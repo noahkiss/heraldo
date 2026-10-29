@@ -88,7 +88,8 @@ Auth:
   server's own process with that token. There, and only there, a `write`
   token may also read: an HTTP MCP client sends one token, and a write tool
   reads before it writes. The same `write` token on `GET /v1/events` still
-  gets 403.
+  gets 403. A token with the `notify-key` or `trusted-ingest` capability gets
+  403 on `/v1/mcp`, so a sender's credential never gains read access.
 - A `read` token with the `standby` capability is a standby's token on its
   primary. It may read the full push tokens and import events (see
   "Standby"). A plain `read` token sees token suffixes only.

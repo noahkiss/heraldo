@@ -207,7 +207,10 @@ without the CLI, or a hosted agent that can only reach a URL.
   message and gets a JSON answer. The server keeps no MCP session, so GET and
   DELETE get 405.
 - Auth: `Authorization: Bearer <token>` on every request, a token from the
-  server's token list. No token, or an unknown one, gets 401.
+  server's token list. No token, or an unknown one, gets 401. A token with
+  the `notify-key` or `trusted-ingest` capability gets 403: it is a sender's
+  credential, and a notify-key may sit in sender configs on many hosts. Give
+  each agent its own `read` or `write` token.
 - The token's scope picks the tools:
 
   | Scope | Tools |

@@ -1954,7 +1954,8 @@ paths:
         POST, answered as JSON. Stateless: no Mcp-Session-Id, and GET and DELETE get 405.
         A read token gets the read tools. A write or admin token gets the write tools
         too, and its tools may also read. The tools are the ones `heraldo mcp` serves on
-        stdio; docs/mcp.md lists them.
+        stdio; docs/mcp.md lists them. A token with the notify-key or trusted-ingest
+        capability gets 403.
       tags: [mcp]
       requestBody:
         required: true
@@ -1972,6 +1973,8 @@ paths:
         "400":
           description: Not a JSON-RPC message.
         "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
         "404":
           description: HERALDO_MCP_HTTP is off.

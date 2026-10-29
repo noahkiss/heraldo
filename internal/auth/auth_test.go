@@ -79,3 +79,18 @@ func TestCapabilities(t *testing.T) {
 		t.Fatalf("caps: keyed %v", kt.Caps)
 	}
 }
+
+func TestGrantAllows(t *testing.T) {
+	w := Token{Name: "w", Scope: ScopeWrite}
+	k := Token{Name: "k", Scope: ScopeWrite, Caps: []string{CapNotifyKey}}
+	r := Token{Name: "r", Scope: ScopeRead}
+	if !GrantAllows(w, ScopeRead) || !GrantAllows(w, ScopeWrite) {
+		t.Fatal("a plain write grant reads and writes")
+	}
+	if GrantAllows(k, ScopeRead) || !SenderOnly(k) || SenderOnly(w) {
+		t.Fatal("a notify-key grant must not read")
+	}
+	if GrantAllows(r, ScopeWrite) || GrantAllows(w, ScopeAdmin) {
+		t.Fatal("a grant never raises a scope")
+	}
+}
