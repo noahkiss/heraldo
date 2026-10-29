@@ -361,6 +361,22 @@ func (c *Client) Post(ctx context.Context, input map[string]any) (Event, error) 
 	return e, err
 }
 
+// ErrNoRevisions means the server has no /v1/revisions: it is older than
+// the revision vector, so a client refreshes everything instead.
+var ErrNoRevisions = errors.New("the server has no revision vector; it needs a newer heraldo-server")
+
+// Revisions returns the server's revision vector: one counter per domain
+// and the boot id. Compare counters for equality only; a new boot means
+// refresh everything.
+func (c *Client) Revisions(ctx context.Context) (api.Revisions, error) {
+	var rv api.Revisions
+	err := c.do(ctx, http.MethodGet, "/v1/revisions", nil, c.Token, nil, &rv)
+	if IsStatus(err, http.StatusNotFound) || IsStatus(err, http.StatusMethodNotAllowed) {
+		return api.Revisions{}, ErrNoRevisions
+	}
+	return rv, err
+}
+
 // ErrNoStream means the server has no /v1/stream; poll instead.
 var ErrNoStream = errors.New("the server has no event stream")
 

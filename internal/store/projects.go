@@ -152,5 +152,9 @@ func (s *Store) BackfillProjects(ctx context.Context, decide func(fields map[str
 	if dry {
 		return res, nil
 	}
-	return res, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return Backfill{}, err
+	}
+	s.changed(DomainEvents, DomainState, DomainProjects, DomainChecks, DomainActivities)
+	return res, nil
 }

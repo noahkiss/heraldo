@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/auth"
 )
 
@@ -149,21 +150,95 @@ func TestStreamPokes(t *testing.T) {
 		t.Fatalf("content type %q", ct)
 	}
 	sc := bufio.NewScanner(resp.Body)
-	next := func() string {
+	// next returns the next event's name and data.
+	next := func() (string, string) {
+		event := ""
 		for sc.Scan() {
-			if d, ok := strings.CutPrefix(sc.Text(), "data: "); ok {
-				return d
+			line := sc.Text()
+			if v, ok := strings.CutPrefix(line, "event: "); ok {
+				event = v
+			}
+			if d, ok := strings.CutPrefix(line, "data: "); ok {
+				return event, d
 			}
 		}
 		t.Fatalf("stream ended: %v", sc.Err())
-		return ""
+		return "", ""
 	}
-	if d := next(); d != `{"cursor":"s1"}` {
-		t.Fatalf("first poke %q", d)
+	type poke struct {
+		Cursor string
+		api.Revisions
+	}
+	read := func(want string) poke {
+		t.Helper()
+		ev, d := next()
+		if ev != want {
+			t.Fatalf("event %q (%s); want %q", ev, d, want)
+		}
+		var p poke
+		if err := json.Unmarshal([]byte(d), &p); err != nil {
+			t.Fatalf("%s: %v", d, err)
+		}
+		return p
+	}
+	// First the vector, as GET /v1/revisions answers it.
+	first := read("revisions")
+	var got api.Revisions
+	if err := json.Unmarshal(e.do(t, http.MethodGet, "/v1/revisions", readTok, nil).Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if first.Revisions != got || first.Boot == "" || first.Cursor != "" {
+		t.Fatalf("revisions event %+v; GET answers %+v", first, got)
+	}
+	// Then the poke an old client reads on connect: the head's cursor.
+	p := read("poke")
+	if p.Cursor != "s1" || p.Revisions != got {
+		t.Fatalf("first poke %+v", p)
 	}
 	e.post(t, `{"source":"s","kind":"message"}`)
-	if d := next(); d != `{"cursor":"s2"}` {
-		t.Fatalf("second poke %q", d)
+	p2 := read("poke")
+	if p2.Cursor != "s2" || p2.Rev.Events == p.Rev.Events || p2.Boot != p.Boot {
+		t.Fatalf("second poke %+v after %+v", p2, p)
+	}
+	// A cursor PUT stores no event: the cursor stays, its revision moves.
+	if rec := e.do(t, http.MethodPut, "/v1/cursors/inbox", readTok, []byte(`{"cursor":"s2"}`)); rec.Code != http.StatusOK {
+		t.Fatalf("put cursor: %d %s", rec.Code, rec.Body)
+	}
+	p3 := read("poke")
+	if p3.Cursor != "s2" || p3.Rev.Cursor == p2.Rev.Cursor || p3.Rev.Events != p2.Rev.Events {
+		t.Fatalf("cursor poke %+v after %+v", p3, p2)
+	}
+	// An old client reads only cursor from the same data.
+	var old struct{ Cursor string }
+	if rec := e.do(t, http.MethodPost, "/v1/views", writeTok, []byte(`{"name":"V"}`)); rec.Code != http.StatusCreated {
+		t.Fatalf("view: %d %s", rec.Code, rec.Body)
+	}
+	if _, d := next(); json.Unmarshal([]byte(d), &old) != nil || old.Cursor != "s2" {
+		t.Fatalf("old reader: %q", d)
+	}
+}
+
+func TestStreamHeartbeatParam(t *testing.T) {
+	def := 25 * time.Second
+	for _, c := range []struct {
+		in   string
+		want time.Duration
+	}{
+		{"", def}, {"60", time.Minute}, {"1", MinHeartbeat}, {"0", MinHeartbeat}, {"-5", MinHeartbeat},
+		{"15", 15 * time.Second}, {"120", 2 * time.Minute}, {"9999", MaxHeartbeat},
+	} {
+		if got, err := streamHeartbeat(c.in, def); err != nil || got != c.want {
+			t.Errorf("%q: %v %v; want %v", c.in, got, err, c.want)
+		}
+	}
+	for _, bad := range []string{"x", "1.5", "60s"} {
+		if _, err := streamHeartbeat(bad, def); err == nil {
+			t.Errorf("%q: no error", bad)
+		}
+	}
+	e := newEnv(t)
+	if rec := e.do(t, http.MethodGet, "/v1/stream?heartbeat=soon", readTok, nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad heartbeat: %d", rec.Code)
 	}
 }
 

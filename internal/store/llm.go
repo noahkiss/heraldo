@@ -65,7 +65,7 @@ func (s *Store) AddLLMCall(ctx context.Context, c LLMCall) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO llm_calls (`+llmCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.ID, c.Role, c.Model, c.BaseHost, fmtTime(c.At), c.LatencyMS, c.TokensIn, c.TokensOut, c.InputHash,
 		c.PromptVersion, c.Status, output, nullStr(c.Error))
-	return err
+	return s.bumpIf(err, DomainLLM)
 }
 
 // CachedLLMCall returns the newest status ok call with hash at or after

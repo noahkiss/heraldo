@@ -6,9 +6,11 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
 	"sync"
 	"time"
 
+	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/settings"
 	"github.com/noahkiss/heraldo/internal/store"
 )
@@ -19,56 +21,91 @@ const inboxCursor = "inbox"
 
 // ---- event stream ------------------------------------------------------
 
-// hub tells open event streams that an event was stored. A poke carries no
-// event: the client fetches by cursor, so a missed poke loses nothing.
+// hub tells open event streams that something changed. A signal carries
+// nothing: the stream reads the current revision vector and head when it
+// wakes, so a burst of writes coalesces into one poke, and a missed signal
+// loses nothing.
 type hub struct {
 	mu   sync.Mutex
-	subs map[chan int64]struct{}
+	subs map[chan struct{}]struct{}
 }
 
-func newHub() *hub { return &hub{subs: map[chan int64]struct{}{}} }
+func newHub() *hub { return &hub{subs: map[chan struct{}]struct{}{}} }
 
-func (h *hub) subscribe() chan int64 {
-	c := make(chan int64, 1)
+func (h *hub) subscribe() chan struct{} {
+	c := make(chan struct{}, 1)
 	h.mu.Lock()
 	h.subs[c] = struct{}{}
 	h.mu.Unlock()
 	return c
 }
 
-func (h *hub) unsubscribe(c chan int64) {
+func (h *hub) unsubscribe(c chan struct{}) {
 	h.mu.Lock()
 	delete(h.subs, c)
 	h.mu.Unlock()
 }
 
-// poke never blocks. A subscriber that has not read its last poke gets the
-// newer seq in its place.
-func (h *hub) poke(seq int64) {
+// signal never blocks. A subscriber that has not woken for its last signal
+// keeps that one.
+func (h *hub) signal() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for c := range h.subs {
 		select {
-		case c <- seq:
+		case c <- struct{}{}:
 		default:
-			select {
-			case <-c:
-			default:
-			}
-			c <- seq
 		}
 	}
 }
 
-// stream is GET /v1/stream: server-sent events, one poke event per stored
-// event, with the cursor of the newest event. The first poke, sent on
-// connect, carries the current head.
+// Heartbeat bounds for GET /v1/stream?heartbeat=.
+const (
+	MinHeartbeat = 15 * time.Second
+	MaxHeartbeat = 120 * time.Second
+)
+
+// streamHeartbeat is the keep-alive gap a stream asked for with
+// ?heartbeat=<seconds>, clamped to MinHeartbeat through MaxHeartbeat; def
+// when it asked for none.
+func streamHeartbeat(v string, def time.Duration) (time.Duration, error) {
+	if v == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("heartbeat: want whole seconds, not %q", v)
+	}
+	d := time.Duration(n) * time.Second
+	return min(max(d, MinHeartbeat), MaxHeartbeat), nil
+}
+
+// pokeData is the data of a poke: the newest event's cursor, as before
+// 0.10, and the revision vector.
+type pokeData struct {
+	Cursor string             `json:"cursor"`
+	Boot   string             `json:"boot"`
+	Rev    api.RevisionVector `json:"rev"`
+}
+
+// stream is GET /v1/stream: server-sent events. On connect, one revisions
+// event with the vector, then one poke; after that one poke per change,
+// with the cursor of the newest event and the vector.
 func (s *server) stream(w http.ResponseWriter, r *http.Request) {
+	every, err := streamHeartbeat(r.URL.Query().Get("heartbeat"), s.Heartbeat)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "%v", err)
+		return
+	}
 	rc := http.NewResponseController(w)
 	// The server's write timeout would cut a stream off.
 	_ = rc.SetWriteDeadline(time.Time{})
 	c := s.hub.subscribe()
 	defer s.hub.unsubscribe(c)
+	// The vector is read before the head, so a write in between shows as
+	// a newer vector on the next poke, never as a vector newer than the
+	// data the client then fetches.
+	rv := s.revs.snapshot()
 	head, err := s.Store.Head(r.Context())
 	if err != nil {
 		s.Logger.Error("stream: head", "err", err)
@@ -79,16 +116,23 @@ func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
-	send := func(seq int64) bool {
-		if _, err := fmt.Fprintf(w, "event: poke\ndata: {\"cursor\":%q}\n\n", store.CursorFor(seq)); err != nil {
+	write := func(event string, v any) bool {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return false
+		}
+		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, b); err != nil {
 			return false
 		}
 		return rc.Flush() == nil
 	}
-	if _, err := io.WriteString(w, "retry: 3000\n\n"); err != nil || !send(head) {
+	poke := func(rv api.Revisions, head int64) bool {
+		return write("poke", pokeData{Cursor: store.CursorFor(head), Boot: rv.Boot, Rev: rv.Rev})
+	}
+	if _, err := io.WriteString(w, "retry: 3000\n\n"); err != nil || !write("revisions", rv) || !poke(rv, head) {
 		return
 	}
-	tick := time.NewTicker(s.Heartbeat)
+	tick := time.NewTicker(every)
 	defer tick.Stop()
 	for {
 		select {
@@ -96,8 +140,16 @@ func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-s.Done:
 			return
-		case seq := <-c:
-			if !send(seq) {
+		case <-c:
+			rv := s.revs.snapshot()
+			head, err := s.Store.Head(r.Context())
+			if err != nil {
+				if r.Context().Err() == nil {
+					s.Logger.Error("stream: head", "err", err)
+				}
+				return
+			}
+			if !poke(rv, head) {
 				return
 			}
 		case <-tick.C:

@@ -199,6 +199,10 @@ func (s *server) tickHold(ctx context.Context) {
 	changed := dm != s.deadmanActive
 	s.deadmanActive = dm
 	s.hmu.Unlock()
+	if changed {
+		// /held reports deadman_active.
+		s.revs.bump(store.DomainHeld)
+	}
 	if changed && dm {
 		last, _ := s.Store.HoldLastPoll(ctx)
 		if last.IsZero() || last.Before(s.started) {

@@ -167,7 +167,7 @@ func (s *Store) AddView(ctx context.Context, v View) error {
 	defer s.wmu.Unlock()
 	_, err = s.db.ExecContext(ctx, `INSERT INTO views (`+viewCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		v.ID, v.Name, filter, bundle, v.Position, nullStr(v.Icon), fmtTime(v.CreatedAt), fmtTime(v.UpdatedAt), v.CreatedBy)
-	return viewErr(err)
+	return viewErr(s.bumpIf(err, DomainViews))
 }
 
 // PutView replaces the stored view with v.ID: name, filter, bundle,
@@ -187,6 +187,7 @@ func (s *Store) PutView(ctx context.Context, v View) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
+	s.changed(DomainViews)
 	return nil
 }
 
@@ -201,6 +202,7 @@ func (s *Store) DeleteView(ctx context.Context, id string) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
+	s.changed(DomainViews)
 	return nil
 }
 

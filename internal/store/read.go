@@ -82,6 +82,9 @@ func (s *Store) StartCursor(ctx context.Context, name, by string) (bool, error) 
 		return false, err
 	}
 	n, err := res.RowsAffected()
+	if n == 1 {
+		s.changed(DomainCursor, DomainState)
+	}
 	return n == 1, err
 }
 
@@ -93,11 +96,15 @@ func (s *Store) SetCursor(ctx context.Context, name string, seq int64, by string
 	s.wmu.Lock()
 	defer s.wmu.Unlock()
 	at := s.now().UTC().Format(timeFormat)
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO cursors (name, seq, updated_at, updated_by) VALUES (?, ?, ?, ?)
+	res, err := s.db.ExecContext(ctx, `INSERT INTO cursors (name, seq, updated_at, updated_by) VALUES (?, ?, ?, ?)
 		ON CONFLICT (name) DO UPDATE SET seq = excluded.seq, updated_at = excluded.updated_at,
 		updated_by = excluded.updated_by
-		WHERE excluded.seq > cursors.seq`, name, seq, at, by); err != nil {
+		WHERE excluded.seq > cursors.seq`, name, seq, at, by)
+	if err != nil {
 		return 0, err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		s.changed(DomainCursor, DomainState)
 	}
 	cur, _, err := s.Cursor(ctx, name)
 	return cur, err

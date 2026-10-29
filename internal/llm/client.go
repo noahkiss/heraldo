@@ -112,6 +112,10 @@ type Config struct {
 	HTTP   *http.Client
 	Now    func() time.Time
 	Logger *slog.Logger
+	// Changed is called after the in-memory part of Status changes: the
+	// failures, the circuit, the shadow until midnight, the last error.
+	// It must not block. nil means no one is told.
+	Changed func()
 }
 
 // Client is the LLM provider with its guards. It is safe for concurrent
@@ -499,6 +503,7 @@ func (c *Client) admit(ctx context.Context, now time.Time) error {
 	if why != "" {
 		c.shadowUntil = nextMidnight(now)
 		c.mu.Unlock()
+		c.changed()
 		c.outage(ctx, why+"; the effective mode is at most shadow until midnight")
 		return fmt.Errorf("%w: %s", ErrBudget, why)
 	}
@@ -530,6 +535,7 @@ func (c *Client) fail(ctx context.Context, msg string) {
 	}
 	n := c.failures
 	c.mu.Unlock()
+	c.changed()
 	if opened {
 		c.cfg.Logger.Warn("llm: circuit open", "failures", n, "for", CircuitOpenFor.String())
 		c.outage(ctx, fmt.Sprintf("%d failures in a row (last: %s); the circuit is open for %s", n, msg, CircuitOpenFor))
@@ -539,11 +545,22 @@ func (c *Client) fail(ctx context.Context, msg string) {
 func (c *Client) succeed() {
 	now := c.cfg.Now()
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	was := c.failures != 0 || !c.openUntil.IsZero()
 	c.failures, c.openUntil = 0, time.Time{}
 	if !now.Before(c.shadowUntil) {
 		// The outage is over: the next one gets its own notice.
 		c.noticed = false
+	}
+	c.mu.Unlock()
+	if was {
+		c.changed()
+	}
+}
+
+// changed calls Config.Changed.
+func (c *Client) changed() {
+	if c.cfg.Changed != nil {
+		c.cfg.Changed()
 	}
 }
 

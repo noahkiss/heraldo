@@ -2279,6 +2279,38 @@ type PushTrace struct {
 	Why *string `json:"why,omitempty"`
 }
 
+// RevisionVector One counter per domain; compare for equality only. events: GET /v1/events
+// (new events); cursor: GET /v1/cursors; state: GET /v1/state; checks: GET
+// /v1/checkins; projects: GET /v1/projects; views: GET /v1/views; held: the
+// held entries; activities: GET /v1/activities; llm: GET /v1/llm/status; mutes:
+// GET /v1/mutes; settings: GET /v1/settings. A later server may add domains.
+type RevisionVector struct {
+	Activities int64 `json:"activities"`
+	Checks     int64 `json:"checks"`
+	Cursor     int64 `json:"cursor"`
+	Events     int64 `json:"events"`
+	Held       int64 `json:"held"`
+	Llm        int64 `json:"llm"`
+	Mutes      int64 `json:"mutes"`
+	Projects   int64 `json:"projects"`
+	Settings   int64 `json:"settings"`
+	State      int64 `json:"state"`
+	Views      int64 `json:"views"`
+}
+
+// Revisions defines model for Revisions.
+type Revisions struct {
+	// Boot Opaque. Changes on every server start.
+	Boot string `json:"boot"`
+
+	// Rev One counter per domain; compare for equality only. events: GET /v1/events
+	// (new events); cursor: GET /v1/cursors; state: GET /v1/state; checks: GET
+	// /v1/checkins; projects: GET /v1/projects; views: GET /v1/views; held: the
+	// held entries; activities: GET /v1/activities; llm: GET /v1/llm/status; mutes:
+	// GET /v1/mutes; settings: GET /v1/settings. A later server may add domains.
+	Rev RevisionVector `json:"rev"`
+}
+
 // Schedule When the check expects a ping. The server uses it only to create a check it does not know yet, as healthchecks.io does with ?create=1; after that the check's config lives on the server. Set period_s, or cron with an optional tz, not both.
 type Schedule struct {
 	// Cron Cron expression for the expected pings.
@@ -3170,6 +3202,12 @@ type GetStateParams struct {
 
 // GetStateParamsStale defines parameters for GetState.
 type GetStateParamsStale string
+
+// StreamEventsParams defines parameters for StreamEvents.
+type StreamEventsParams struct {
+	// Heartbeat Seconds between keep-alive comments, clamped to 15 through 120. Default 25. Not a whole number gets 400.
+	Heartbeat *int `form:"heartbeat,omitempty" json:"heartbeat,omitempty"`
+}
 
 // NotifyLiveActivityUpsertJSONRequestBody defines body for NotifyLiveActivityUpsert for application/json ContentType.
 type NotifyLiveActivityUpsertJSONRequestBody = NotifyLiveActivityUpsertJSONBody

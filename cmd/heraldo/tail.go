@@ -70,8 +70,15 @@ func (a *app) tail(ctx context.Context, args []string) error {
 	}
 	backoff := time.Second
 	for {
-		err := c.Stream(ctx, func(string) error {
+		// A server since 0.10 pokes on every change, not only on a stored
+		// event: a poke whose cursor did not move has no new event to fetch.
+		last := ""
+		err := c.Stream(ctx, func(cursor string) error {
 			backoff = time.Second
+			if cursor == last {
+				return nil
+			}
+			last = cursor
 			return t.fetch(ctx)
 		})
 		if ctx.Err() != nil {

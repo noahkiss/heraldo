@@ -73,7 +73,7 @@ func (s *Store) AddHold(ctx context.Context, e HoldEntry) error {
 		e.ID, nullStr(e.EventID), fmtTime(e.TS), fmtTime(e.Deadline), nullStr(e.Tag), nullStr(e.Title),
 		nullStr(e.Body), nullStr(e.Client), nullStr(e.Source), string(input), e.Forwarded, e.Shadow,
 		e.Status, fmtTime(e.ClosedAt), nullStr(e.Verdict), nullStr(e.Reason))
-	return err
+	return s.bumpIf(err, DomainHeld)
 }
 
 // SetHoldEvent records the event stored for entry id on arrival.
@@ -81,7 +81,7 @@ func (s *Store) SetHoldEvent(ctx context.Context, id, eventID string) error {
 	s.wmu.Lock()
 	defer s.wmu.Unlock()
 	_, err := s.db.ExecContext(ctx, `UPDATE hold_entries SET event_id = ? WHERE id = ?`, eventID, id)
-	return err
+	return s.bumpIf(err, DomainHeld)
 }
 
 // GetHold returns one hold entry.
@@ -119,7 +119,7 @@ func (s *Store) SetHoldForwarded(ctx context.Context, id string) error {
 	s.wmu.Lock()
 	defer s.wmu.Unlock()
 	_, err := s.db.ExecContext(ctx, `UPDATE hold_entries SET forwarded = 1 WHERE id = ?`, id)
-	return err
+	return s.bumpIf(err, DomainHeld)
 }
 
 // SplitHolds sorts ids into the open entries and the rest (unknown or
@@ -163,7 +163,13 @@ func (s *Store) CloseHolds(ctx context.Context, ids []string, status, verdict, r
 			closed = append(closed, id)
 		}
 	}
-	return closed, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	if len(closed) > 0 {
+		s.changed(DomainHeld)
+	}
+	return closed, nil
 }
 
 // HoldLastPoll returns the time of the last triage poll, or the zero time.

@@ -42,7 +42,7 @@ func (s *Store) PutSetting(ctx context.Context, st Setting) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?)
 		ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at,
 		updated_by = excluded.updated_by`, st.Key, string(st.Value), fmtTime(st.UpdatedAt), st.UpdatedBy)
-	return err
+	return s.bumpIf(err, settingDomains...)
 }
 
 // DeleteSetting removes the key's row. It reports whether there was one.
@@ -54,5 +54,13 @@ func (s *Store) DeleteSetting(ctx context.Context, key string) (bool, error) {
 		return false, err
 	}
 	n, err := res.RowsAffected()
+	if n > 0 {
+		s.changed(settingDomains...)
+	}
 	return n > 0, err
 }
+
+// settingDomains are the domains a setting may change: the badge (state and
+// cursor), the LLM's status, the hold, and the flap and stale marks in the
+// state.
+var settingDomains = []Domain{DomainSettings, DomainState, DomainCursor, DomainLLM, DomainHeld}

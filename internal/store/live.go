@@ -156,6 +156,9 @@ func (s *Store) EndActivity(ctx context.Context, key, id, reason string) (bool, 
 		return false, err
 	}
 	n, _ := res.RowsAffected()
+	if n == 1 {
+		s.changed(DomainActivities, DomainState)
+	}
 	return n == 1, nil
 }
 
@@ -249,7 +252,7 @@ func (s *Store) SaveInstance(ctx context.Context, i Instance) error {
 		last_push_at = excluded.last_push_at`,
 		i.ID, i.ActivityID, i.Key, i.DeviceID, i.Chain, i.State, nullStr(i.EndReason), nullStr(i.UpdateToken),
 		i.RequestedAt.UTC().Format(timeFormat), fmtTime(i.ConfirmedAt), fmtTime(i.EndedAt), fmtTime(i.LastPushAt))
-	return err
+	return s.bumpIf(err, DomainActivities)
 }
 
 const instanceColsPlain = `id, activity_id, key, device_id, chain, state, end_reason, update_token, requested_at,

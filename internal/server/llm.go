@@ -39,6 +39,7 @@ func (s *server) newLLM() *llm.Client {
 	cfg := llm.Config{
 		Settings: s.Settings, Standby: s.Standby, Now: s.Now, Logger: s.Logger.With("component", "llm"),
 		NewProvider: s.LLMProvider, Notify: s.emit,
+		Changed: func() { s.revs.bump(store.DomainLLM) },
 	}
 	if s.Store != nil {
 		cfg.Log = s.Store

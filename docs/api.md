@@ -31,7 +31,8 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `GET /v1/digest/preview` | The daily digest as it would go out now. Stores and sends nothing. See "Digest". | served |
 | `POST /v1/digest/send` | Builds the digest and sends it now (write). It does not replace the scheduled one. A standby answers 409. | served |
 | `GET /v1/projects` | The projects the stored events name, with counts. See "Projects". | served |
-| `GET /v1/stream` | Server-sent events: one `poke` per stored event, with the newest cursor. | served |
+| `GET /v1/stream?heartbeat=` | Server-sent events: a `revisions` event on connect, then one `poke` per change, with the newest cursor and the revision vector. See "Event stream". | served |
+| `GET /v1/revisions` | The revision vector: one counter per domain, and the boot id. See "Revisions". | served |
 | `GET /v1/cursors/{name}`, `PUT /v1/cursors/{name}` | The read cursor called `name`, shared by every client, with its `unread` count. | served |
 | `GET /v1/devices`, `POST /v1/devices` | Lists devices; registers a device or refreshes the one with that APNs token. | served |
 | `GET`, `PUT`, `DELETE /v1/devices/{id}` | One device: read, replace its registration, retire it. | served |
@@ -55,8 +56,8 @@ Auth:
 
 - Every call except `/healthz` and `/p/{key}` takes a bearer token. Each
   token has a scope: `write` (post and send, and the mutes), `read` (list,
-  get, state, stream, the read cursors, devices, the icons and the settings),
-  or `admin` (both, and storing and removing icons and settings).
+  get, state, stream, revisions, the read cursors, devices, the icons and the
+  settings), or `admin` (both, and storing and removing icons and settings).
 - A `read` token may register, update and remove devices, as it may move the
   read cursors. The apps hold a token pair, like the CLI: a `read` token for
   history, cursors and device registration, and a `write` token for the
@@ -195,15 +196,60 @@ so every device shows the same number.
 
 Event stream:
 
-- `GET /v1/stream` is server-sent events. Each stored event sends
-  `event: poke` with `data: {"cursor": "<newest cursor>"}`. The first poke
-  comes on connect and carries the current newest cursor.
+- `GET /v1/stream` is server-sent events. On connect the server sends one
+  `event: revisions`, whose data is the vector as `GET /v1/revisions` answers
+  it. Then it sends one `event: poke` with the current newest cursor.
+- Every change sends `event: poke` with
+  `data: {"cursor": "<newest cursor>", "boot": "...", "rev": {...}}`. A change
+  is any write that bumps a revision ("Revisions"), not only a stored event. A
+  poke after a cursor PUT or a mute keeps the same cursor.
 - A poke carries no event. The client lists the events after its own cursor,
   so a missed poke loses nothing. Pokes coalesce: a slow client gets the newest
-  cursor, not every one.
-- A `: keep-alive` comment comes every 25 seconds. The server ends open streams
-  when it shuts down; a client reconnects and fetches what it missed.
+  vector, not every one.
+- A client that reads only `cursor` keeps working. `heraldo tail` fetches only
+  when the cursor moved.
+- A `: keep-alive` comment comes every 25 seconds. `?heartbeat=<seconds>` sets
+  the gap, clamped to 15 through 120; a value that is not a whole number gets
+  400. The server ends open streams when it shuts down; a client reconnects and
+  fetches what it missed.
 - An event that `import-tee` stores in another process sends no poke.
+- Servers before 0.10 send no `revisions` event and only `{"cursor"}` pokes,
+  one per stored event.
+
+Revisions:
+
+- `GET /v1/revisions` (read) answers
+  `{"boot": "<opaque>", "rev": {"events": N, "cursor": N, ...}}`: one counter
+  per domain. Compare counters for equality only.
+- `boot` changes on every server start; the counters are not stored. A client
+  that sees a new `boot` refreshes everything once.
+- A domain's counter changes whenever data its read calls return may have
+  changed:
+
+  | Domain | Read call | Bumped by |
+  |---|---|---|
+  | `events` | `GET /v1/events` (new events) | every stored event; `backfill-projects` |
+  | `cursor` | `GET /v1/cursors/{name}` | a cursor that moved; every stored event (the unread count); a check's state and the settings (the badge) |
+  | `state` | `GET /v1/state` | every stored event; a cursor that moved, a check's state, a mute and the settings (the badge); an activity that ended; an incident whose flap settled or that turned stale |
+  | `checks` | `GET /v1/checkins` | a check-in event, a check's incident, a check created, changed, paused, resumed or judged by the scheduler, a ping key |
+  | `projects` | `GET /v1/projects` | every stored event |
+  | `views` | `GET /v1/views` | a view saved, replaced or deleted |
+  | `held` | `GET /v1/hold` | an entry added, forwarded, released, suppressed or expired; the dead-man; a closed entry leaving the list. A triage poll does not bump it |
+  | `activities` | `GET /v1/activities` | a progress event; an activity ended; an instance reported or pushed |
+  | `llm` | `GET /v1/llm/status` | an LLM call; a failure, the circuit, the shadow until midnight; the settings |
+  | `mutes` | `GET /v1/mutes` | a mute made, ended, run out, or a snooze that reminded |
+  | `settings` | `GET /v1/settings` | a setting stored or removed |
+
+- Some answers change with time alone: a mute runs out, a flap settles, an
+  incident turns stale, a closed hold entry leaves the list. The server looks
+  for these every 30 seconds and bumps their domains.
+- A client ignores a domain it does not know. A domain the answer leaves out
+  is unknown: the client refreshes it on any poke.
+- A standby serves the same vector from its own state.
+- Servers before 0.10 answer 404: the client falls back to a full refresh on
+  each poke and on its own timer.
+- Counts that decay with time, such as `calls_last_minute` in the LLM status,
+  bump nothing.
 
 Dedup:
 
@@ -560,6 +606,7 @@ depend on APNs. It runs on its own queue, beside the push pipeline: with
 | `thread-id` | `thread`, else `source` |
 | `category` | `incident` for an incident `open`, `update` or no action; `event` for the rest. The app registers both: `incident` has Ack, Snooze 1 h, Mute 1 h and Open; `event` has Mute 1 h and Open. Mute 1 h on an incident mutes its key; on a check-in, its check's incident key `checkin:<key>`; on any other event, its source. |
 | `mutable-content` | Always 1, so the notification service extension runs. |
+| `content-available` | 1 on an alert to a device registered with `platform` `macOS`, so a running Mac app gets a callback and syncs. Left out for iOS. |
 | `interruption-level` | The table above. |
 | `relevance-score` | `relevance` |
 | `heraldo.icon` | The registry icon for the event: its `icon` when the registry has that name, else the icon named after its `source`. The extension fetches `GET /v1/icons/{name}` and attaches it as the thumbnail when the event has no `image`. |

@@ -419,17 +419,51 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
+  /v1/revisions:
+    get:
+      operationId: getRevisions
+      summary: The revision of each part of the read API.
+      description: |
+        One counter per domain. A domain's counter changes whenever data its read
+        calls return may have changed. Clients compare counters for equality only.
+        boot changes on every server start: a client that sees a new boot refreshes
+        everything once. A client ignores a domain it does not know. A domain the
+        answer leaves out is unknown: the client refreshes it on any poke. A standby
+        answers from its own state. Older servers answer 404.
+      tags: [events]
+      responses:
+        "200":
+          description: The revision vector.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Revisions"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
   /v1/stream:
     get:
       operationId: streamEvents
-      summary: Server-sent events, one poke per stored event.
+      summary: Server-sent events, one poke per change.
       description: |
-        Each poke is an SSE event named poke whose data is {"cursor": "..."}, the
-        cursor of the newest event. The first poke comes on connect. A poke carries
-        no event: the client lists the events after its own cursor. Pokes coalesce, so
-        a slow client gets the newest cursor, not every one. A comment line every
-        25 seconds keeps the connection alive.
+        On connect the server sends one event named revisions, whose data is the
+        Revisions object as GET /v1/revisions answers it, then one poke. Each change
+        sends an event named poke whose data is {"cursor": "...", "boot": "...",
+        "rev": {...}}: cursor is the cursor of the newest event; boot and rev are the
+        current revision vector. A poke carries no event: the client lists the events
+        after its own cursor. Pokes coalesce, so a slow client gets the newest vector,
+        not every one. A client that reads only cursor keeps working. Older servers
+        send only cursor, and only for a stored event. A comment line every heartbeat
+        (25 seconds by default) keeps the connection alive.
       tags: [events]
+      parameters:
+        - name: heartbeat
+          in: query
+          required: false
+          description: Seconds between keep-alive comments, clamped to 15 through 120. Default 25. Not a whole number gets 400.
+          schema:
+            type: integer
       responses:
         "200":
           description: The stream.
@@ -2788,6 +2822,58 @@ components:
           description: Status keys that are set.
           items:
             $ref: "#/components/schemas/Event"
+    Revisions:
+      type: object
+      required: [boot, rev]
+      properties:
+        boot:
+          type: string
+          description: Opaque. Changes on every server start.
+        rev:
+          $ref: "#/components/schemas/RevisionVector"
+    RevisionVector:
+      type: object
+      description: |
+        One counter per domain; compare for equality only. events: GET /v1/events
+        (new events); cursor: GET /v1/cursors; state: GET /v1/state; checks: GET
+        /v1/checkins; projects: GET /v1/projects; views: GET /v1/views; held: the
+        held entries; activities: GET /v1/activities; llm: GET /v1/llm/status; mutes:
+        GET /v1/mutes; settings: GET /v1/settings. A later server may add domains.
+      required: [events, cursor, state, checks, projects, views, held, activities, llm, mutes, settings]
+      properties:
+        events:
+          type: integer
+          format: int64
+        cursor:
+          type: integer
+          format: int64
+        state:
+          type: integer
+          format: int64
+        checks:
+          type: integer
+          format: int64
+        projects:
+          type: integer
+          format: int64
+        views:
+          type: integer
+          format: int64
+        held:
+          type: integer
+          format: int64
+        activities:
+          type: integer
+          format: int64
+        llm:
+          type: integer
+          format: int64
+        mutes:
+          type: integer
+          format: int64
+        settings:
+          type: integer
+          format: int64
     Cursor:
       type: object
       required: [cursor]

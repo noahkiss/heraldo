@@ -305,6 +305,9 @@ func serve(flags map[string]string, log *slog.Logger) error {
 	log.Info("llm", "mode", h.LLM().Mode(), "health", string(h.LLM().Health()), "host", h.LLM().BaseHost())
 	go h.RunHold(ctx, holdTick)
 	go h.RunAttachmentSweep(ctx, server.AttachmentSweepEvery)
+	// Both a primary and a standby: each serves /v1/revisions from its own
+	// state.
+	go h.RunTimeChanges(ctx, timeChangeTick)
 	if cfg.Standby {
 		// A standby judges no checks and sends no digest: the primary owns
 		// them, and a standby that ran them would raise a second copy of
@@ -370,6 +373,11 @@ const checkinTick = 15 * time.Second
 
 // holdTick is how often the hold checks its deadlines and the dead-man.
 const holdTick = 30 * time.Second
+
+// timeChangeTick is how often the server looks for read answers that time
+// alone changed (a flap settling, an incident turning stale, a mute running
+// out), to bump their revisions.
+const timeChangeTick = 30 * time.Second
 
 // startPush starts the APNs pusher and the Live Activity manager when
 // HERALDO_PUSH is on and a key loads. A missing or bad key logs an error and

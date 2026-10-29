@@ -351,7 +351,7 @@ and app that reads `inbox` shares it, as with email. A cursor only moves
 forward.
 
 `tail` is poke-then-fetch. The server sends a poke on `/v1/stream` for each
-stored event; the CLI then lists every event after its cursor. When the stream
+change; when the poke's cursor moved, the CLI lists every event after its cursor. When the stream
 breaks, the CLI reconnects and fetches what it missed. Against a server with no
 stream, it polls every second.
 

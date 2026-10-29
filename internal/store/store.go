@@ -42,6 +42,8 @@ type Store struct {
 	now func() time.Time
 	// flap is the flap policy source; SetFlapPolicy sets it.
 	flap atomic.Pointer[func() FlapPolicy]
+	// onChange gets the domains of every committed write; OnChange sets it.
+	onChange atomic.Pointer[func(...Domain)]
 }
 
 // Open opens or creates the database at path and applies migrations.
@@ -128,6 +130,7 @@ func (s *Store) Insert(ctx context.Context, ev NewEvent) (Record, bool, error) {
 	if err := tx.Commit(); err != nil {
 		return Record{}, false, err
 	}
+	s.changed(eventDomains(&ev.Typed)...)
 	return r, true, nil
 }
 
@@ -187,7 +190,11 @@ func (s *Store) Import(ctx context.Context, origin, originID string, ev NewEvent
 		origin, originID, ev.ID); err != nil {
 		return false, err
 	}
-	return true, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	s.changed(eventDomains(&ev.Typed)...)
+	return true, nil
 }
 
 func insert(ctx context.Context, tx *sql.Tx, ev NewEvent) (Record, error) {

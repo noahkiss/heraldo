@@ -97,6 +97,11 @@ type Pusher interface {
 type server struct {
 	Options
 	hub *hub
+	// revs is the revision vector (GET /v1/revisions); every committed
+	// store write bumps it through Store.OnChange.
+	revs *revisions
+	// tw is the clock's memory for changes no write marks (revisions.go).
+	tw timeWatch
 	// started is when the server started: no check goes down for a missed
 	// ping before started plus its grace.
 	started time.Time
@@ -167,6 +172,10 @@ func NewServer(o Options) *Server {
 		o.Settings = m
 	}
 	s := &server{Options: o, hub: newHub(), started: o.Now()}
+	s.revs = newRevisions(s.started, s.hub)
+	if o.Store != nil {
+		o.Store.OnChange(s.revs.bump)
+	}
 	s.digest = s.newDigest()
 	s.llm = s.newLLM()
 	s.decide = s.newDecider()
@@ -183,6 +192,7 @@ func NewServer(o Options) *Server {
 	mux.HandleFunc("GET /v1/events/{id}/why", s.auth(auth.ScopeRead, false, s.getEventWhy))
 	mux.HandleFunc("GET /v1/send", s.auth(auth.ScopeWrite, true, s.sendEvent))
 	mux.HandleFunc("GET /v1/stream", s.auth(auth.ScopeRead, false, s.stream))
+	mux.HandleFunc("GET /v1/revisions", s.auth(auth.ScopeRead, false, s.getRevisions))
 	mux.HandleFunc("GET /v1/state", s.auth(auth.ScopeRead, false, s.state))
 	mux.HandleFunc("GET /v1/digest/preview", s.auth(auth.ScopeRead, false, s.digestPreview))
 	mux.HandleFunc("POST /v1/digest/send", s.auth(auth.ScopeWrite, false, s.digestSend))
@@ -589,7 +599,8 @@ func (s *server) insert(ctx context.Context, in *validate.Input, hold map[string
 		return store.Record{}, false, err
 	}
 	if created {
-		s.hub.poke(rec.Seq)
+		// The store's OnChange hook has bumped the revisions and woken the
+		// streams.
 		if s.Pusher != nil {
 			s.Pusher.Enqueue(rec)
 		}

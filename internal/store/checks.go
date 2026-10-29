@@ -288,8 +288,16 @@ func (s *Store) PutCheck(ctx context.Context, key, host string, sched checkin.Sc
 	if err := saveCheck(ctx, tx, c); err != nil {
 		return false, err
 	}
-	return !found, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	s.changed(checkDomains...)
+	return !found, nil
 }
+
+// checkDomains are the domains a check's own row changes: the checks, and
+// the badge (state and cursor), which counts the checks that are down.
+var checkDomains = []Domain{DomainChecks, DomainState, DomainCursor}
 
 // SetPaused pauses or resumes a check. Resuming makes it new: a scheduled
 // check is due at its first slot after the resume. It returns ErrNotFound for an unknown key.
@@ -313,7 +321,7 @@ func (s *Store) SetPaused(ctx context.Context, key string, paused bool) error {
 	default:
 		return nil
 	}
-	return saveCheck(ctx, s.db, c)
+	return s.bumpIf(saveCheck(ctx, s.db, c), checkDomains...)
 }
 
 // JudgedChecks returns the checks whose state time can change, and every
@@ -366,7 +374,11 @@ func (s *Store) SaveTicked(ctx context.Context, was, c checkin.Check) (bool, err
 	if err := saveCheck(ctx, tx, c); err != nil {
 		return false, err
 	}
-	return true, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	s.changed(checkDomains...)
+	return true, nil
 }
 
 // SetReminded records when a check's incident opened or last reminded.
@@ -406,6 +418,7 @@ func (s *Store) SetPingKey(ctx context.Context, key, hash string) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
+	s.changed(DomainChecks)
 	return nil
 }
 

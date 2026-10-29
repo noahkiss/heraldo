@@ -127,7 +127,6 @@ func (s *server) importStandby(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var res api.StandbyImportResult
-	last := ""
 	for i, raw := range in.Events {
 		ev, err := s.importable(raw)
 		if err != nil {
@@ -150,16 +149,12 @@ func (s *server) importStandby(w http.ResponseWriter, r *http.Request) {
 		}
 		if created {
 			res.Imported++
-			last = ev.ID
 		} else {
 			res.Skipped++
 		}
 	}
-	if last != "" {
-		if rec, err := s.Store.Get(r.Context(), last); err == nil {
-			s.hub.poke(rec.Seq)
-		}
-	}
+	// Store.Import's OnChange hook has bumped the revisions and woken the
+	// streams.
 	s.Logger.Info("standby import", "imported", res.Imported, "skipped", res.Skipped, "rejected", res.Rejected)
 	writeJSON(w, http.StatusOK, res)
 }

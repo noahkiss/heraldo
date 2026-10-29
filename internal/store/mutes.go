@@ -60,7 +60,7 @@ func (s *Store) AddMute(ctx context.Context, m Mute) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO mutes (id, source, key, project, until, created_at, created_by, remind)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, m.ID, nullStr(m.Source), nullStr(m.Key), nullStr(m.Project), fmtTime(m.Until),
 		fmtTime(m.CreatedAt), m.CreatedBy, m.Remind)
-	return err
+	return s.bumpIf(err, DomainMutes, DomainState)
 }
 
 // GetMute returns the mute with id, active or not.
@@ -109,11 +109,15 @@ func (s *Store) MatchMute(ctx context.Context, source, key, project string, now 
 // expired is returned as it is.
 func (s *Store) EndMute(ctx context.Context, id, by string, now time.Time) (Mute, error) {
 	s.wmu.Lock()
-	if _, err := s.db.ExecContext(ctx, `UPDATE mutes SET ended_at = ?, ended_by = ?
+	res, err := s.db.ExecContext(ctx, `UPDATE mutes SET ended_at = ?, ended_by = ?
 		WHERE id = ? AND ended_at IS NULL AND until > ?`,
-		fmtTime(now), by, id, now.UTC().Format(timeFormat)); err != nil {
+		fmtTime(now), by, id, now.UTC().Format(timeFormat))
+	if err != nil {
 		s.wmu.Unlock()
 		return Mute{}, err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		s.changed(DomainMutes, DomainState)
 	}
 	s.wmu.Unlock()
 	return s.GetMute(ctx, id)
@@ -151,6 +155,9 @@ func (s *Store) ClaimReminder(ctx context.Context, id string, now time.Time) (bo
 		return false, err
 	}
 	n, err := res.RowsAffected()
+	if n == 1 {
+		s.changed(DomainMutes)
+	}
 	return n == 1, err
 }
 
