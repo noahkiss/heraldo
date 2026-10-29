@@ -495,7 +495,7 @@ public struct HeraldoClient: Sendable {
         s.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? s
     }
 
-    private func request(_ path: String, method: String, token: String?, query: [URLQueryItem] = []) -> URLRequest {
+    func request(_ path: String, method: String, token: String?, query: [URLQueryItem] = []) -> URLRequest {
         var url = baseURL
         for part in path.split(separator: "/") {
             url.append(path: String(part), directoryHint: .notDirectory)
@@ -520,7 +520,7 @@ public struct HeraldoClient: Sendable {
         try await sendWithResponse(request(path, method: "GET", token: readToken, query: query))
     }
 
-    private func send<T: Decodable>(_ r: URLRequest) async throws -> T {
+    func send<T: Decodable>(_ r: URLRequest) async throws -> T {
         try await sendWithResponse(r).0
     }
 

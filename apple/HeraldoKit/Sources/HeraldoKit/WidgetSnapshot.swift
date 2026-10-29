@@ -25,13 +25,18 @@ public struct WidgetSnapshot: Codable, Equatable, Sendable {
         public var project: String?
         public var date: Date?
         public var level: String?
+        /// An incident's key, so a later event of the incident can replace
+        /// or remove its line. Nil in snapshots written before it.
+        public var key: String?
 
-        public init(id: String, title: String, project: String? = nil, date: Date? = nil, level: String? = nil) {
+        public init(id: String, title: String, project: String? = nil, date: Date? = nil, level: String? = nil,
+                    key: String? = nil) {
             self.id = id
             self.title = title
             self.project = project
             self.date = date
             self.level = level
+            self.key = key
         }
     }
 
@@ -65,7 +70,7 @@ public struct WidgetSnapshot: Codable, Equatable, Sendable {
     public static func items(incidents: [Event]) -> [Item] {
         incidents.filter { !$0.isAcked && $0.action != "resolve" }
             .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
-            .map { Item(id: $0.id, title: $0.headline, project: $0.project, date: $0.date, level: $0.level) }
+            .map { Item(id: $0.id, title: $0.headline, project: $0.project, date: $0.date, level: $0.level, key: $0.key) }
     }
 
     /// The down checks as widget lines, the longest down first.
@@ -92,6 +97,68 @@ public struct WidgetSnapshot: Codable, Equatable, Sendable {
         s.incidents = Self.items(incidents: state.incidents)
         s.down = Self.items(checks: checks)
         return s
+    }
+
+    // MARK: One event
+
+    /// Takes one pushed event into the snapshot, as the notification
+    /// extension sees it, and returns the widget kinds whose content changed
+    /// (empty when nothing did). `updated` moves only on a change.
+    ///
+    /// - An open or updated incident, not acked: its line, newest first,
+    ///   replacing an older line of the same key. Acked or resolved: removed.
+    /// - The resolve of a check's incident (`checkin:<key>`): the check
+    ///   leaves the down list.
+    /// - A failing check-in: the check joins the down list.
+    /// - Any event that is not routine and names a project: a recent line.
+    @discardableResult
+    public mutating func apply(_ e: Event, at date: Date = .now) -> Set<String> {
+        let before = self
+        if e.kind == "incident", let key = e.key, !key.isEmpty {
+            incidents.removeAll { $0.key == key || $0.id == e.id }
+            if e.isOpenIncident && !e.isAcked {
+                incidents.insert(Item(id: e.id, title: e.headline, project: e.project, date: e.date,
+                                      level: e.level, key: key), at: 0)
+                incidents.sort { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+            }
+            if key.hasPrefix("checkin:"), e.action == "resolve" {
+                let check = String(key.dropFirst("checkin:".count))
+                down.removeAll { $0.id == check }
+            }
+        }
+        if e.isFailingCheckin, let key = e.key, !key.isEmpty, !down.contains(where: { $0.id == key }) {
+            down.append(Item(id: key, title: key, project: e.project, date: e.date))
+        }
+        if !e.isRoutine, let p = e.project, !p.isEmpty, !recent.contains(where: { $0.id == e.id }) {
+            recent.insert(Item(id: e.id, title: e.headline, project: p, date: e.date, level: e.level), at: 0)
+            var kept: [String: Int] = [:]
+            recent = recent.filter { item in
+                guard let ip = item.project else { return false }
+                kept[ip, default: 0] += 1
+                return kept[ip]! <= Self.recentLimit
+            }
+            if !projects.contains(p) {
+                projects.append(p)
+                projects.sort { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            }
+        }
+        let kinds = changedKinds(from: before)
+        if !kinds.isEmpty { updated = date }
+        return kinds
+    }
+
+    /// The widget kinds whose content differs from `old` (nil: all of
+    /// them). Needs attention shows the incidents and down checks; Project
+    /// shows all of it. `updated` does not count.
+    public func changedKinds(from old: WidgetSnapshot?) -> Set<String> {
+        guard let old else { return Set(WidgetKinds.all) }
+        var out = Set<String>()
+        if incidents != old.incidents || down != old.down {
+            out.insert(WidgetKinds.attention)
+            out.insert(WidgetKinds.project)
+        }
+        if recent != old.recent || projects != old.projects { out.insert(WidgetKinds.project) }
+        return out
     }
 
     // MARK: File
