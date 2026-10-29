@@ -38,13 +38,9 @@ APS_ENVIRONMENT[sdk=macosx*] = production
 // iOS-only for now.
 APP_WIDGETS_GROUP =
 APP_WIDGETS_GROUP[sdk=iphone*] = $(APP_GROUP_ID)
-// The notification extension on the Mac signals the running app. Reading
-// the credentials (to rewrite pushes) and the widget snapshot needs the app
-// group, so its own Developer ID profile; without one it has the sandbox only.
+// The notification extension (iOS only) reads the credentials and the
+// widget snapshot through the app group.
 APP_NSE_GROUP = $(APP_GROUP_ID)
-APP_NSE_GROUP[sdk=macosx*] =
-APP_NSE_MAC_ENTITLEMENTS = NotificationService/NotificationServiceMacUnsigned.entitlements
-APP_NSE_MAC_PROFILE =
 APP_IOS_PROFILE =
 APP_NSE_IOS_PROFILE =
 APP_WIDGETS_IOS_PROFILE =

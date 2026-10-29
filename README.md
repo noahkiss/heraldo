@@ -596,8 +596,8 @@ brew install --cask noahkiss/tap/heraldo-app
   window is open. A safety net asks `GET /v1/revisions` every 15 minutes (30
   in Low Power Mode or on such a network), at a moment macOS picks. Opening
   the menu or a window checks the vector when the last check is older than
-  30 seconds. A push (the server marks Mac alerts `content-available`) and
-  the notification extension's signal start a sync too. The stream closes
+  30 seconds. A push (the server marks Mac alerts `content-available`)
+  starts a sync too. The stream closes
   at sleep and returns after wake once the network is back. Sync now in the
   menu fetches everything. With no window on screen, the window's
   relative times stop updating.
@@ -613,11 +613,12 @@ brew install --cask noahkiss/tap/heraldo-app
   this Mac.
 - **Display**: the Inbox filters and Open on sync with the iPhone through
   iCloud (see "iOS app"). Open on can name a home or a saved view in the
-  sidebar. With Last used, the window opens on the home it showed last. Notification grouping by project, the full
-  text of a cut push and its thumbnail need the Mac notification extension's
-  own Developer ID profile with the app group
-  (`apple/Config/Local.example.xcconfig`). Without it the extension only
-  tells the running app to sync, and pushes show as sent.
+  sidebar. With Last used, the window opens on the home it showed last.
+- **Notifications**: the Mac app has no notification extension, since macOS
+  stops one at startup on every push. The server puts the full body in a
+  Mac's push instead. Pushes show as sent: no grouping by project and no
+  thumbnail. While the app runs, a push with a key removes the earlier
+  notifications of that key, so a resolve replaces its open alert.
 - **Widgets**: the Mac widgets are a placeholder for now. The Mac widget
   extension has no app group, so it cannot read the app's copy.
 
