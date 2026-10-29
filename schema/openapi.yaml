@@ -914,6 +914,12 @@ paths:
         counted as usual, and their delivery records outcome skipped. Re-alerts are
         held back too. A mute with source and key matches only events with both.
         Give until or for, not both. Needs a write token.
+
+        remind true makes the mute a snooze. It needs key. When the snooze ends,
+        at until or by DELETE, and the key's incident is still open (not acked or
+        resolved), the server pushes the key's last event again at its level, once.
+        The event's why trace (GET /v1/events/{id}/why) records the reminder in its
+        snooze stage. A server before 0.7 refuses remind with 400.
       tags: [mutes]
       requestBody:
         required: true
@@ -2927,6 +2933,9 @@ components:
         for:
           type: string
           description: How long the mute lasts, a Go duration such as 1h or 90m, instead of until.
+        remind:
+          type: boolean
+          description: Make the mute a snooze. When it ends and the key's incident is still open, the key's last event pushes again at its level. Needs key.
     Mute:
       type: object
       required: [id, until, created_at, active]
@@ -2954,6 +2963,13 @@ components:
         active:
           type: boolean
           description: The mute holds back pushes now.
+        remind:
+          type: boolean
+          description: The mute is a snooze. Missing from a server before 0.7.
+        reminded_at:
+          type: string
+          format: date-time
+          description: Set on a snooze once the server handled its end, whether or not the key was still open.
     MuteList:
       type: object
       required: [mutes]

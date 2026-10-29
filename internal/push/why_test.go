@@ -53,7 +53,7 @@ func TestWhyPushed(t *testing.T) {
 	r.register(t, sandboxToken, "sandbox")
 	id := r.post(t, writeTok, `{"source":"uptime","kind":"incident","key":"host:web-1","action":"open","title":"down"}`)
 	tr := r.why(t, id)
-	if got := stagesOf(tr); got != "hold:pass expiry:pass table:pass replace:pass devices:pass mute:pass inhibit:pass bundle:pass deliver:pass" {
+	if got := stagesOf(tr); got != "hold:pass expiry:pass table:pass snooze:pass flap:pass replace:pass devices:pass mute:pass inhibit:pass bundle:pass deliver:pass" {
 		t.Fatalf("stages %s", got)
 	}
 	if summary(tr) != "pushed active to 2 devices" || tr.EventId != id {
@@ -76,7 +76,7 @@ func TestWhyNotPushed(t *testing.T) {
 		{`{"source":"s","kind":"checkin","key":"backup","action":"success"}`, "hold:pass expiry:pass table:drop", "no push: checkin success"},
 		{`{"source":"s","title":"late","expires_at":"2001-01-01T00:00:00Z"}`, "hold:pass expiry:drop", "expired before push"},
 		{`{"source":"s","kind":"incident","key":"q","action":"resolve","title":"fine"}`,
-			"hold:pass expiry:pass table:pass replace:drop", "passive: inbox only (no visible push to replace)"},
+			"hold:pass expiry:pass table:pass snooze:pass flap:pass replace:drop", "passive: inbox only (no visible push to replace)"},
 	}
 	for _, c := range cases {
 		tr := r.why(t, r.post(t, writeTok, c.body))

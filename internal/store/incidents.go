@@ -27,6 +27,12 @@ type incidentRow struct {
 	realert    time.Duration
 	nextAlert  time.Time
 	alertEvent string
+	// Flap state (flap.go).
+	flapping  bool
+	flapCount int
+	flapSince time.Time
+	flapOpens []time.Time
+	flapLast  time.Time
 }
 
 // snapshot is the incident server field a stored incident event carries.
@@ -34,6 +40,11 @@ func (r *incidentRow) snapshot() map[string]any {
 	m := map[string]any{"state": r.state, "opened_at": r.openedAt.UTC().Format(time.RFC3339Nano)}
 	if !r.resolvedAt.IsZero() {
 		m["resolved_at"] = r.resolvedAt.UTC().Format(time.RFC3339Nano)
+	}
+	if r.flapping {
+		m["flapping"] = true
+		m["flap_count"] = r.flapCount
+		m["flap_since"] = r.flapSince.UTC().Format(time.RFC3339Nano)
 	}
 	return m
 }
@@ -89,15 +100,19 @@ func nextIncident(ctx context.Context, tx *sql.Tx, ev NewEvent) (*incidentRow, e
 	var prev *incidentRow
 	var opened, resolved, next sql.NullString
 	var realert sql.NullInt64
-	var alertEvent sql.NullString
+	var alertEvent, flapSince, flapOpens, flapLast sql.NullString
 	r := incidentRow{key: key}
-	err := tx.QueryRowContext(ctx, `SELECT state, opened_at, resolved_at, last_event, realert_s, next_alert_at, alert_event
-		FROM incidents WHERE key = ?`, key).Scan(&r.state, &opened, &resolved, &r.lastEvent, &realert, &next, &alertEvent)
+	err := tx.QueryRowContext(ctx, `SELECT state, opened_at, resolved_at, last_event, realert_s, next_alert_at, alert_event,
+		flapping, flap_count, flap_since, flap_opens, flap_last
+		FROM incidents WHERE key = ?`, key).Scan(&r.state, &opened, &resolved, &r.lastEvent, &realert, &next, &alertEvent,
+		&r.flapping, &r.flapCount, &flapSince, &flapOpens, &flapLast)
 	switch {
 	case err == nil:
 		r.openedAt, r.resolvedAt, r.nextAlert = parseNullTime(opened), parseNullTime(resolved), parseNullTime(next)
 		r.realert = time.Duration(realert.Int64) * time.Second
 		r.alertEvent = alertEvent.String
+		r.flapSince, r.flapLast = parseNullTime(flapSince), parseNullTime(flapLast)
+		r.flapOpens = decodeOpens(flapOpens.String)
 		p := r
 		prev = &p
 	case errors.Is(err, sql.ErrNoRows):
@@ -105,6 +120,14 @@ func nextIncident(ctx context.Context, tx *sql.Tx, ev NewEvent) (*incidentRow, e
 		return nil, err
 	}
 	unschedule := func() { r.realert, r.nextAlert, r.alertEvent = 0, time.Time{}, "" }
+	// fresh starts a new incident row at state. It keeps the key's flap
+	// history: flapping is about the key, across its incidents.
+	fresh := func(state string) {
+		f := r
+		r = incidentRow{key: key, state: state, openedAt: at,
+			flapping: f.flapping, flapCount: f.flapCount, flapSince: f.flapSince, flapOpens: f.flapOpens, flapLast: f.flapLast}
+	}
+	didOpen, resolvedNow := false, false
 	action := ""
 	if in.Action != nil {
 		action = string(*in.Action)
@@ -113,16 +136,18 @@ func nextIncident(ctx context.Context, tx *sql.Tx, ev NewEvent) (*incidentRow, e
 	case "resolve":
 		switch {
 		case prev == nil:
-			r = incidentRow{key: key, state: "resolved", openedAt: at, resolvedAt: at}
+			fresh("resolved")
+			r.resolvedAt = at
 		case prev.state == "resolved":
 		default:
 			r.state, r.resolvedAt = "resolved", at
+			resolvedNow = true
 		}
 		unschedule()
 	case "ack":
 		switch {
 		case prev == nil:
-			r = incidentRow{key: key, state: "acked", openedAt: at}
+			fresh("acked")
 		case prev.state == "resolved":
 		default:
 			r.state = "acked"
@@ -131,7 +156,8 @@ func nextIncident(ctx context.Context, tx *sql.Tx, ev NewEvent) (*incidentRow, e
 	default:
 		switch {
 		case prev == nil || prev.state == "resolved":
-			r = incidentRow{key: key, state: "open", openedAt: at}
+			fresh("open")
+			didOpen = true
 		case prev.state == "acked":
 		default:
 			r.state = "open"
@@ -145,6 +171,9 @@ func nextIncident(ctx context.Context, tx *sql.Tx, ev NewEvent) (*incidentRow, e
 			unschedule()
 		}
 	}
+	if !ev.imported {
+		flapStep(&r, ev.flap, at, didOpen, resolvedNow)
+	}
 	r.lastEvent = ev.ID
 	return &r, nil
 }
@@ -155,13 +184,17 @@ func writeIncident(ctx context.Context, tx *sql.Tx, key string, r *incidentRow) 
 		realert = int64(r.realert / time.Second)
 	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO incidents
-		(key, state, opened_at, resolved_at, last_event, realert_s, next_alert_at, alert_event)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		(key, state, opened_at, resolved_at, last_event, realert_s, next_alert_at, alert_event,
+		flapping, flap_count, flap_since, flap_opens, flap_last)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (key) DO UPDATE SET state = excluded.state, opened_at = excluded.opened_at,
 		resolved_at = excluded.resolved_at, last_event = excluded.last_event, realert_s = excluded.realert_s,
-		next_alert_at = excluded.next_alert_at, alert_event = excluded.alert_event`,
+		next_alert_at = excluded.next_alert_at, alert_event = excluded.alert_event,
+		flapping = excluded.flapping, flap_count = excluded.flap_count, flap_since = excluded.flap_since,
+		flap_opens = excluded.flap_opens, flap_last = excluded.flap_last`,
 		key, r.state, fmtTime(r.openedAt), fmtTime(r.resolvedAt), r.lastEvent, realert,
-		fmtTime(r.nextAlert), nullStr(r.alertEvent))
+		fmtTime(r.nextAlert), nullStr(r.alertEvent),
+		r.flapping, r.flapCount, fmtTime(r.flapSince), encodeOpens(r.flapOpens), fmtTime(r.flapLast))
 	return err
 }
 

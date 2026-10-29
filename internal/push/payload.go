@@ -216,6 +216,8 @@ type Extra struct {
 	Icon string
 	// OpenFor, on a re-alert, is how long the incident has been open.
 	OpenFor time.Duration
+	// Flap, on a flapping incident, leads the text with its opens.
+	Flap *FlapNote
 }
 
 // Build makes the payload and headers for ev with decision d. The payload
@@ -286,6 +288,17 @@ func Build(ev *api.Event, d Decision, x Extra) ([]byte, Headers, error) {
 	}
 	if x.OpenFor > 0 {
 		lead := "Still open after " + Duration(x.OpenFor)
+		if text == "" {
+			text = lead
+		} else {
+			text = lead + ". " + text
+		}
+	}
+	if x.Flap != nil && x.Flap.Count > 0 {
+		lead := fmt.Sprintf("Flapping: %d opens", x.Flap.Count)
+		if x.Flap.For > 0 {
+			lead += " in " + Duration(x.Flap.For)
+		}
 		if text == "" {
 			text = lead
 		} else {

@@ -242,6 +242,7 @@ func serve(flags map[string]string, log *slog.Logger) error {
 		return err
 	}
 	settings.SetDefault(sm)
+	st.SetFlapPolicy(flapPolicy)
 	tokens, err := cfg.LoadTokens()
 	if err != nil {
 		return err
@@ -543,4 +544,14 @@ func healthcheck() error {
 		return fmt.Errorf("healthz: %s", resp.Status)
 	}
 	return nil
+}
+
+// flapPolicy reads the flap.* settings for the store's flap grouping.
+func flapPolicy() store.FlapPolicy {
+	return store.FlapPolicy{
+		Enabled: settings.Get[bool]("flap.enabled"),
+		Opens:   settings.Get[int]("flap.opens"),
+		Window:  settings.Get[time.Duration]("flap.window"),
+		Settle:  settings.Get[time.Duration]("flap.settle"),
+	}
 }

@@ -28,6 +28,8 @@ var stages = []stage{
 	{"hold", (*Pusher).holdStage},
 	{"expiry", (*Pusher).expiryStage},
 	{"table", (*Pusher).tableStage},
+	{"snooze", (*Pusher).snoozeStage},
+	{"flap", (*Pusher).flapStage},
 	{"replace", (*Pusher).replaceStage},
 	{"devices", (*Pusher).devicesStage},
 	{"mute", (*Pusher).muteStage},
@@ -118,6 +120,11 @@ type Run struct {
 	// CollapseID replaces the push's apns-collapse-id when set; the bundle
 	// stage sets it.
 	CollapseID string
+	// Reminder is the snooze (a mute id) whose end pushes this event
+	// again; "" otherwise. A reminder also sets OpenFor.
+	Reminder string
+	// Flap is the flap state the push shows; the flap stage sets it.
+	Flap *FlapNote
 
 	// skipInhibit is set when the mute lookup failed: as before stages, the
 	// push then goes out without an inhibit check.

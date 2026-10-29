@@ -1471,6 +1471,15 @@ type Event struct {
 
 	// Incident On an incident event: the incident as it stood after this event.
 	Incident *struct {
+		// FlapCount Set while flapping: the opens counted from flap_since.
+		FlapCount *int `json:"flap_count,omitempty"`
+
+		// FlapSince Set while flapping: the first open of the run that made the key flap, RFC 3339.
+		FlapSince *time.Time `json:"flap_since,omitempty"`
+
+		// Flapping Set, and true, while the key is flapping: it opened flap.opens times within flap.window, and it has not been quiet for flap.settle. Its opens and resolves then update one notification in place and do not page. Off unless the server setting flap.enabled is on. In GET /v1/state it is live: a key that settled since its last event shows no flap fields.
+		Flapping *bool `json:"flapping,omitempty"`
+
 		// OpenedAt When the incident opened, RFC 3339. A resolve with no earlier open opens and resolves at once.
 		OpenedAt time.Time `json:"opened_at"`
 
@@ -1800,9 +1809,15 @@ type Mute struct {
 	Key *string `json:"key,omitempty"`
 
 	// Project The project the mute matches, after aliases.
-	Project *string   `json:"project,omitempty"`
-	Source  *string   `json:"source,omitempty"`
-	Until   time.Time `json:"until"`
+	Project *string `json:"project,omitempty"`
+
+	// Remind The mute is a snooze. Missing from a server before 0.7.
+	Remind *bool `json:"remind,omitempty"`
+
+	// RemindedAt Set on a snooze once the server handled its end, whether or not the key was still open.
+	RemindedAt *time.Time `json:"reminded_at,omitempty"`
+	Source     *string    `json:"source,omitempty"`
+	Until      time.Time  `json:"until"`
 }
 
 // MuteInput A new mute. Give source, key, project, or a mix; an event must match every field given. Give until or for.
@@ -1815,6 +1830,9 @@ type MuteInput struct {
 
 	// Project Mute every event filed under this project, or under a name the aliases map to it. Folded to lower case. A server before project mutes refuses the field with 400.
 	Project *string `json:"project,omitempty"`
+
+	// Remind Make the mute a snooze. When it ends and the key's incident is still open, the key's last event pushes again at its level. Needs key.
+	Remind *bool `json:"remind,omitempty"`
 
 	// Source Mute events from this source.
 	Source *string `json:"source,omitempty"`

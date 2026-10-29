@@ -147,6 +147,7 @@ type muteIn struct {
 	Key       string `json:"key,omitempty" jsonschema:"create: mute events with this key. checkin:<slug> mutes one check both ways."`
 	Project   string `json:"project,omitempty" jsonschema:"create: mute every event filed under this project."`
 	For       string `json:"for,omitempty" jsonschema:"create: Go duration, 1m to 8784h. Default 1h."`
+	Remind    bool   `json:"remind,omitempty" jsonschema:"create: snooze. Needs key. When the mute ends and the incident is still open, its last event pushes again."`
 	MuteID    string `json:"mute_id,omitempty" jsonschema:"end: the id from overview."`
 }
 
@@ -155,6 +156,7 @@ const muteDesc = `Mute a heraldo source, key or project for a while, or end a mu
 Best for: the owner asks to silence a noisy source, one incident, one check, or one project for a time.
 A mute holds back pushes and re-alerts only. Events are still stored and listed.
 create needs source, key, project, or a mix (a mix: an event must match every one). To mute one check both ways, use key checkin:<slug>.
+remind=true makes it a snooze of one incident key: when it ends, at for or by end, and the incident is still open (not acked or resolved), heraldo pushes its last event again at its level, once. Use it when the owner says "remind me in an hour".
 Returns: the mute, and created=false when a mute in force already covered it. overview lists the mutes in force.`
 
 func (t *tools) addMute(s *mcp.Server) {
@@ -173,6 +175,7 @@ func (t *tools) addMute(s *mcp.Server) {
 			"created": boolean("create: false when a mute in force already covered this."),
 			"mute": obj("", map[string]*jsonschema.Schema{
 				"id": str(""), "source": str(""), "key": str(""), "until": str(""), "active": boolean(""), "ended_at": str(""),
+				"remind": boolean("A snooze."), "reminded_at": str("When the snooze's end was handled."),
 			}),
 		},
 		t.mute)
@@ -192,6 +195,12 @@ func muteOut(m api.Mute) map[string]any {
 	if m.EndedAt != nil {
 		o["ended_at"] = rfc(*m.EndedAt)
 	}
+	if m.Remind != nil && *m.Remind {
+		o["remind"] = true
+	}
+	if m.RemindedAt != nil {
+		o["reminded_at"] = rfc(*m.RemindedAt)
+	}
 	return o
 }
 
@@ -205,6 +214,9 @@ func muteText(verb string, m api.Mute) string {
 	}
 	if m.Project != nil {
 		s += " project=" + *m.Project
+	}
+	if m.Remind != nil && *m.Remind {
+		s += " (snooze: reminds at the end if still open)"
 	}
 	return s + " until " + rfc(m.Until)
 }
@@ -228,6 +240,9 @@ func (t *tools) mute(ctx context.Context, _ *mcp.CallToolRequest, in muteIn) (re
 	if in.Source == "" && in.Key == "" && in.Project == "" {
 		return result{}, toolErr("invalid", "create needs source, key, project, or a mix", "")
 	}
+	if in.Remind && in.Key == "" {
+		return result{}, toolErr("invalid", "remind needs key: a snooze reminds of one incident", "overview lists the open incidents with their keys")
+	}
 	f := in.For
 	if f == "" {
 		f = "1h"
@@ -245,7 +260,8 @@ func (t *tools) mute(ctx context.Context, _ *mcp.CallToolRequest, in muteIn) (re
 	end := time.Now().Add(d)
 	for _, m := range mutes {
 		if m.Active && deref(m.Source) == in.Source && deref(m.Key) == in.Key &&
-			deref(m.Project) == strings.ToLower(in.Project) && !m.Until.Before(end.Add(-time.Minute)) {
+			deref(m.Project) == strings.ToLower(in.Project) && !m.Until.Before(end.Add(-time.Minute)) &&
+			(m.Remind != nil && *m.Remind) == in.Remind {
 			return result{out: map[string]any{"created": false, "mute": muteOut(m)}, text: muteText("already muted:", m)}, nil
 		}
 	}
@@ -259,6 +275,9 @@ func (t *tools) mute(ctx context.Context, _ *mcp.CallToolRequest, in muteIn) (re
 	if in.Project != "" {
 		mi.Project = &in.Project
 	}
+	if in.Remind {
+		mi.Remind = &in.Remind
+	}
 	m, err := t.API.Mute(ctx, mi)
 	if err != nil {
 		var ce *client.Error
@@ -266,6 +285,10 @@ func (t *tools) mute(ctx context.Context, _ *mcp.CallToolRequest, in muteIn) (re
 		if in.Project != "" && asStatus(err, &ce, http.StatusBadRequest) && strings.Contains(ce.Message, `unknown field "project"`) {
 			return result{}, toolErr("unsupported_filter", "this heraldo server has no project mutes yet: it refused project",
 				"mute by source or key, or upgrade the server")
+		}
+		if in.Remind && asStatus(err, &ce, http.StatusBadRequest) && strings.Contains(ce.Message, `unknown field "remind"`) {
+			return result{}, toolErr("unsupported_filter", "this heraldo server has no snooze yet: it refused remind",
+				"mute the key without remind, or upgrade the server to 0.7")
 		}
 		return result{}, t.apiErr(err, w)
 	}

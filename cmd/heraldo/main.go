@@ -58,6 +58,8 @@ writing:
                    save a view, or replace the one with that name; --bundle 15m
                    folds a burst of its pushes into one notification (HERALDO_WRITE_TOKEN)
   views rm <name>  remove a saved view (HERALDO_WRITE_TOKEN)
+  snooze <key|id>  mute one incident for a while (--for 1h), then push it again if
+                   it is still open (HERALDO_WRITE_TOKEN)
   hold release|suppress <id>...
                    close held entries with one diagnosis, or with none
   send             send a notification through HERALDO_SEND_URL or APPRISE_URL
@@ -137,7 +139,7 @@ func (a *app) run(ctx context.Context, args []string) int {
 		"peek": a.peek, "show": a.show, "ls": a.ls, "held": a.held, "checkins": a.checkins,
 		"tail": a.tail, "ack": a.ack, "resolve": a.resolve, "send": a.send, "attachment": a.attachment,
 		"mcp": a.mcp, "settings": a.settings, "why": a.why,
-		"mute": a.mute, "mutes": a.mutes, "hold": a.hold, "devices": a.devices,
+		"mute": a.mute, "mutes": a.mutes, "snooze": a.snooze, "hold": a.hold, "devices": a.devices,
 		"projects": a.projects, "state": a.state, "activities": a.activities, "views": a.views,
 		"digest": a.digest,
 	}

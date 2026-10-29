@@ -320,6 +320,8 @@ a bundle). Every stage that runs writes one row of the event's trace.
 | `hold` | The event is store-only, or held and not forwarded. |
 | `expiry` | The event is past `expires_at`. |
 | `table` | The push table says no, or the event is passive without a key. Records the `critical` downgrade. |
+| `snooze` | Never; it marks a snooze reminder (see "Snooze"). Its detail has the mute id. |
+| `flap` | A re-alert of a flapping incident. Downgrades a flapping incident's later pushes to passive (see "Flap grouping"). |
 | `replace` | A passive push has no visible push of its key to replace. |
 | `devices` | No device is active. |
 | `mute` | A mute matches. Records `skipped` on each device. |
@@ -779,7 +781,32 @@ Re-alerts:
 - The server checks every 30 seconds. After downtime it sends one re-alert,
   not one per missed interval. Only a server with push on sends re-alerts.
 - A mute or an inhibit rule holds a re-alert back, and the schedule moves on.
+- A flapping incident does not re-alert (see "Flap grouping").
 - An imported event (`import-tee`) never schedules a re-alert: it is history.
+
+### Flap grouping
+
+An incident key that opens and resolves again and again is flapping. It
+then updates one notification and does not page each time. Off by default:
+the server setting `flap.enabled` turns it on (see "Settings").
+
+- A key is flapping once it opens `flap.opens` times (default 3) within
+  `flap.window` (default 1 h). An open counts when the key had no incident or
+  a resolved one. An update, an ack or a second open does not count.
+- The open that makes it flap pushes at its level, with
+  `Flapping: 3 opens in 20 min.` before the text.
+- From then on, the key's opens, updates and resolves push `passive` under
+  the key's collapse id. They update that one notification in place, with no
+  sound, and the text keeps the count. Re-alerts stop.
+- A key quiet for `flap.settle` (default 30 min) since its last open or
+  resolve is not flapping. Its next open pages again, and the count starts
+  over.
+- An event that asked for `critical` is never quieted by flap grouping.
+- The incident snapshot carries `flapping: true`, `flap_count` (the opens
+  from `flap_since`) and `flap_since` while the key flaps. In
+  `GET /v1/state` these fields are live: a key that settled since its last
+  event shows none of them.
+- The `flap` stage records each decision in the event's trace.
 
 ### Stale incidents
 
@@ -849,7 +876,6 @@ Schedule:
 - The digest has a hook for a summary paragraph from a model (`prose` in the
   preview). No model writes one yet; without one the digest is the plain
   list above.
-
 ## Mutes
 
 A mute holds back pushes for a while. Matching events are stored, listed and
@@ -865,6 +891,7 @@ and so does its Mute project for 1 h menu action.
 | `project` | Mute every event filed under this project (see "Projects"). Folded to lower case; a name the aliases map to another is stored as that other, so events under either name match. |
 | `until` | When the mute ends, RFC 3339. |
 | `for` | How long the mute lasts, a Go duration such as `1h` or `90m`, instead of `until`. |
+| `remind` | `true` makes the mute a snooze (see "Snooze"). Needs `key`. |
 
 - Give `source`, `key`, `project`, or a mix. With more than one, an event
   must match every one. A server before project mutes (0.5.0 and older)
@@ -872,7 +899,8 @@ and so does its Mute project for 1 h menu action.
 - Give `until` or `for`, not both. The end is in the future, at most 366 days
   ahead. Otherwise 400.
 - The answer, 201, is a `Mute`: `id` (`mute_` plus a ULID), `source`, `key`,
-  `project`, `until`, `created_at`, `ended_at` and `active`.
+  `project`, `until`, `created_at`, `ended_at` and `active`, plus `remind`
+  and `reminded_at` on a snooze.
 - `GET /v1/mutes` takes a write token and lists the mutes in force, soonest
   to end first.
 - `DELETE /v1/mutes/{id}` takes a write token and ends the mute now. A mute
@@ -885,6 +913,27 @@ and so does its Mute project for 1 h menu action.
   `muted by mute_01J... (project)`.
 - Mutes hold back pushes and re-alerts, not storage, the event stream, or the
   read cursors.
+
+### Snooze
+
+A snooze is a mute with `remind: true` on one incident key: "remind me in an
+hour". The app's Snooze 1 h action makes one, and so do
+`heraldo snooze <key|id> --for 1h` and the MCP tool `mute` with `remind`.
+
+- While it lasts, it holds the key's pushes and re-alerts back, as any mute
+  does.
+- When it ends, at `until` or by `DELETE /v1/mutes/{id}`, and the key's
+  incident is still open (not acked and not resolved), the server pushes the
+  key's last event again at its level. The text starts `Still open after
+  1 h 5 min.`, with the key's collapse id.
+- It reminds once. `reminded_at` records when the server handled the end,
+  whether or not the key was still open. After downtime it sends one
+  reminder, not one per missed check.
+- The reminder's trace replaces the event's trace. Its `snooze` stage names
+  the mute: `snooze mute_01J... ended; host:web-1 is still open`. Another
+  mute in force still holds the reminder back.
+- `remind` without `key` answers 400. A server before 0.7 refuses `remind`
+  with 400 (unknown field).
 
 ## Saved views
 
@@ -937,7 +986,6 @@ A view with `bundle` folds a burst of its pushes into one notification. The
   with the view, count and window in its detail.
 - The window lives in the server's memory. After a restart, the next push
   opens a new window.
-
 ## Settings
 
 Server settings switch features on and tune them. Every feature is off by

@@ -552,6 +552,20 @@ func TestMute(t *testing.T) {
 		t.Fatalf("end: %v", out)
 	}
 	s.fail("mute", map[string]any{"operation": "end", "mute_id": "mute_01JBA6Y8Q2K9M3T4V5W6X7Y8Z9"}, "not_found")
+	// remind makes a snooze; it needs a key, and a plain mute does not
+	// answer for it.
+	s.fail("mute", map[string]any{"operation": "create", "source": "noisy", "remind": true}, "invalid")
+	out, _ = s.ok("mute", map[string]any{"operation": "create", "key": "web:down", "for": "1h"})
+	plain := out["mute"].(map[string]any)["id"]
+	out, text := s.ok("mute", map[string]any{"operation": "create", "key": "web:down", "for": "1h", "remind": true})
+	m := out["mute"].(map[string]any)
+	if out["created"] != true || m["id"] == plain || m["remind"] != true || !strings.Contains(text, "snooze") {
+		t.Fatalf("snooze: %v %q", out, text)
+	}
+	ov, ovText := s.ok("overview", map[string]any{"sections": []string{"mutes"}})
+	if !strings.Contains(fmt.Sprint(ov["mutes"]), "remind:true") {
+		t.Fatalf("overview mutes: %v %s", ov["mutes"], ovText)
+	}
 }
 
 func TestSend(t *testing.T) {

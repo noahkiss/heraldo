@@ -53,6 +53,9 @@ func (s *Store) State(ctx context.Context, projects []string) (State, error) {
 			return State{}, err
 		}
 	}
+	if err := s.unflap(ctx, st.Incidents, s.now()); err != nil {
+		return State{}, err
+	}
 	return st, nil
 }
 

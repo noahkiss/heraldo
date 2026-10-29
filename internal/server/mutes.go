@@ -33,6 +33,14 @@ func (s *server) muteJSON(m store.Mute) api.Mute {
 		t := m.EndedAt
 		out.EndedAt = &t
 	}
+	if m.Remind {
+		yes := true
+		out.Remind = &yes
+	}
+	if !m.RemindedAt.IsZero() {
+		t := m.RemindedAt
+		out.RemindedAt = &t
+	}
 	return out
 }
 
@@ -81,6 +89,12 @@ func (s *server) createMute(w http.ResponseWriter, r *http.Request) {
 	if m.Source == "" && m.Key == "" && m.Project == "" {
 		problems = append(problems, "give source, key, project, or a mix")
 	}
+	if in.Remind != nil && *in.Remind {
+		m.Remind = true
+		if m.Key == "" {
+			problems = append(problems, "remind needs key: a snooze reminds of one incident")
+		}
+	}
 	if len(m.Source) > 128 || len(m.Key) > 255 {
 		problems = append(problems, "source is at most 128 bytes and key at most 255")
 	}
@@ -111,7 +125,7 @@ func (s *server) createMute(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	s.Logger.Info("mute", "id", m.ID, "source", m.Source, "key", m.Key, "project", m.Project, "until", m.Until, "token", m.CreatedBy)
+	s.Logger.Info("mute", "id", m.ID, "source", m.Source, "key", m.Key, "project", m.Project, "until", m.Until, "remind", m.Remind, "token", m.CreatedBy)
 	writeJSON(w, http.StatusCreated, s.muteJSON(m))
 }
 

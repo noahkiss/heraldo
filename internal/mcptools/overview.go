@@ -55,7 +55,7 @@ func (t *tools) addOverview(s *mcp.Server) {
 			}),
 			"unread": obj("", map[string]*jsonschema.Schema{"cursor_name": str(""), "count": integer(""), "cursor": str("")}),
 			"incidents": obj("Not resolved: open before acked, oldest first.", map[string]*jsonschema.Schema{
-				"total": integer(""), "items": arr("", anyObj("key, state, opened_at, level, source, title, project, event_id")),
+				"total": integer(""), "items": arr("", anyObj("key, state, opened_at, level, source, title, project, event_id; flapping, flap_count, flap_since while the key flaps")),
 			}),
 			"checkins": obj("items: only down, late or overdue checks.", map[string]*jsonschema.Schema{
 				"total": integer(""), "by_state": anyObj("Counts per state."), "items": arr("", anyObj("slug, state, down_reason, state_since, next_due, incident")),
@@ -63,7 +63,7 @@ func (t *tools) addOverview(s *mcp.Server) {
 			"activities": obj("", map[string]*jsonschema.Schema{
 				"running": integer(""), "items": arr("", anyObj("key, title, status, progress, updated_at, devices")),
 			}),
-			"mutes": obj("", map[string]*jsonschema.Schema{"items": arr("", anyObj("id, source, key, project, until"))}),
+			"mutes": obj("", map[string]*jsonschema.Schema{"items": arr("", anyObj("id, source, key, project, until; remind on a snooze"))}),
 			"stale": obj("Open with no update for stale.after, oldest update first.", map[string]*jsonschema.Schema{
 				"total": integer(""), "items": arr("", anyObj("key, state, opened_at, last_at, level, source, title, project, event_id")),
 			}),
@@ -93,6 +93,10 @@ type incidentItem struct {
 	// LastAt is when the incident's last event arrived; set in stale.
 	LastAt string `json:"last_at,omitempty"`
 	Stale  bool   `json:"stale,omitempty"`
+	// Flapping is set while the key opens and resolves again and again.
+	Flapping  bool   `json:"flapping,omitempty"`
+	FlapCount int    `json:"flap_count,omitempty"`
+	FlapSince string `json:"flap_since,omitempty"`
 
 	opened time.Time
 	last   time.Time
@@ -122,6 +126,7 @@ type muteItem struct {
 	Key     string `json:"key,omitempty"`
 	Project string `json:"project,omitempty"`
 	Until   string `json:"until"`
+	Remind  bool   `json:"remind,omitempty"`
 }
 
 func rfc(t time.Time) string { return t.UTC().Format(time.RFC3339) }
@@ -262,6 +267,12 @@ func (t *tools) overview(ctx context.Context, req *mcp.CallToolRequest, in overv
 			if e.Incident != nil {
 				it.opened = e.Incident.OpenedAt
 				it.OpenedAt = rfc(it.opened)
+				if f := e.Incident.Flapping; f != nil && *f {
+					it.Flapping, it.FlapSince = true, rfcp(e.Incident.FlapSince)
+					if e.Incident.FlapCount != nil {
+						it.FlapCount = *e.Incident.FlapCount
+					}
+				}
 			}
 			items = append(items, it)
 		}
@@ -280,7 +291,14 @@ func (t *tools) overview(ctx context.Context, req *mcp.CallToolRequest, in overv
 			if it.OpenedAt != "" {
 				since = " since " + it.OpenedAt
 			}
-			lines = append(lines, fmt.Sprintf("  %s [%s]%s, %s: %s (event %s)", it.Key, it.State, since, it.Source, it.Title, it.EventID))
+			state := it.State
+			if it.Flapping {
+				state += ", flapping"
+				if it.FlapCount > 0 {
+					state += fmt.Sprintf(" (%d opens)", it.FlapCount)
+				}
+			}
+			lines = append(lines, fmt.Sprintf("  %s [%s]%s, %s: %s (event %s)", it.Key, state, since, it.Source, it.Title, it.EventID))
 		}
 	}
 	if want["stale"] && serr == nil {
@@ -381,7 +399,8 @@ func (t *tools) overview(ctx context.Context, req *mcp.CallToolRequest, in overv
 		} else if section("mutes", merr) {
 			var items []muteItem
 			for _, m := range mutes {
-				items = append(items, muteItem{ID: m.Id, Source: deref(m.Source), Key: deref(m.Key), Project: deref(m.Project), Until: rfc(m.Until)})
+				items = append(items, muteItem{ID: m.Id, Source: deref(m.Source), Key: deref(m.Key), Project: deref(m.Project), Until: rfc(m.Until),
+					Remind: m.Remind != nil && *m.Remind})
 			}
 			items = items[:min(len(items), sectionCap)]
 			out["mutes"] = map[string]any{"items": nonNil(items)}

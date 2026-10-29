@@ -45,7 +45,7 @@ heraldo mcp [--read-only]
 
 | Tool | Does | Token |
 |---|---|---|
-| `overview` | Unread count, open incidents, checks that are down or late, running Live Activities, mutes in force, stale incidents. On request: statuses, projects, devices | read (mutes: write) |
+| `overview` | Unread count, open incidents (flapping ones marked), checks that are down or late, running Live Activities, mutes and snoozes in force, stale incidents. On request: statuses, projects, devices | read (mutes: write) |
 | `events_search` | List or search events: filters, full text, unread, cursor paging | read |
 | `event_read` | One event in full: body (paged), details, delivery, why it did or did not push (`why`, `decisions`), attachment list; `markdown: true` adds the shareable text | read |
 | `checkin_read` | One check: schedule, state, due times, the end of the last log | read |
@@ -55,7 +55,7 @@ heraldo mcp [--read-only]
 | `digest_preview` | The daily digest as it would go out now: incidents, stale incidents, check-ins, finished jobs, held entries, counts per project. Sends nothing | read |
 | `incident_act` | Ack or resolve an open incident | write |
 | `checkin_update` | Pause, resume, or replace a check's schedule | write |
-| `mute` | Mute a source, key or project for a while, or end a mute | write |
+| `mute` | Mute a source, key or project for a while, snooze one incident (`remind`), or end a mute | write |
 | `send` | Post a plain message to the owner, with optional base64 attachments | write |
 | `settings_read` | Server settings: value, type, default, source and lock; a secret shows only `set` | read |
 | `settings_write` | Change one server setting, or put it back to its default | admin |
@@ -79,6 +79,14 @@ not for, and which tool follows it. Two short notes on the newer ones:
 - `digest_preview`. Best for: "what happened overnight", one call that sums
   up the window since the last digest. Not for: the state of one thing;
   `overview`, `checkin_read` or `events_search key=<key>` answer that.
+- `mute` with `remind: true`. Snoozes one incident key. Best for: "remind me
+  in an hour". When the snooze ends and the incident is still open, heraldo
+  pushes its last event again. Needs `key`. Not for: silencing a source or
+  project for good; use `mute` without `remind`.
+- `overview` marks a flapping incident: `flapping`, `flap_count` and
+  `flap_since` on the item, and `[open, flapping (4 opens)]` in the text. Its
+  opens update one notification and do not page (docs/api.md, "Flap
+  grouping").
 
 `overview` takes `sections`. The default is `unread`, `incidents`,
 `checkins`, `activities`, `mutes` and `stale`. `stale` lists the incidents
@@ -145,7 +153,7 @@ to do>.`, and `structuredContent.error` with `code`, `status`, `message` and
 | `nothing_open` | `hold_act` with no id that names an open entry (409) |
 | `unreachable` | No answer from `HERALDO_URL` |
 | `server_too_old` | The server cannot list newest first; pass `order: oldest` |
-| `unsupported_filter` | The server has no `project` field yet, or no project mutes |
+| `unsupported_filter` | The server has no `project` field yet, no project mutes, or no snooze (`remind`) |
 | `locked_by_env` | `settings_write` on a key a server flag or env var sets |
 | `no_secret_key` | The server has no `HERALDO_SECRET_KEY_FILE` for a secret write |
 | `secret` | `settings_write` on a secret key |

@@ -105,6 +105,9 @@ func muteWhat(m api.Mute) string {
 			parts = append(parts, f.k+"="+oneLine(*f.v))
 		}
 	}
+	if m.Remind != nil && *m.Remind {
+		parts = append(parts, "(snooze)")
+	}
 	return strings.Join(parts, " ")
 }
 

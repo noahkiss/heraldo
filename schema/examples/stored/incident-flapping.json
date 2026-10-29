@@ -1,0 +1,23 @@
+{
+  "id": "01JBA7C3D4E5F6G7H8J9K0M1N2",
+  "received_at": "2026-10-26T12:40:01Z",
+  "ts": "2026-10-26T12:40:00Z",
+  "source": "uptime",
+  "project": "web",
+  "kind": "incident",
+  "key": "host:web-1",
+  "action": "open",
+  "title": "web-1 is down",
+  "level": "time-sensitive",
+  "incident": {
+    "state": "open",
+    "opened_at": "2026-10-26T12:40:01Z",
+    "flapping": true,
+    "flap_count": 4,
+    "flap_since": "2026-10-26T12:00:01Z"
+  },
+  "delivery": [
+    { "device": "dev_01", "outcome": "sent", "level": "passive", "at": "2026-10-26T12:40:02Z" }
+  ],
+  "why": "pushed passive to 1 device"
+}

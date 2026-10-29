@@ -72,6 +72,9 @@ func line(w io.Writer, e client.Event) {
 			held = "(" + s + ") "
 		}
 	}
+	if inc := e.Incident; inc != nil && inc.Flapping != nil && *inc.Flapping {
+		held += "(flapping) "
+	}
 	fmt.Fprintf(w, "%s  %s  %-14s %-16s %s%s%s\n", e.Id, when(e).Local().Format("01-02 15:04"),
 		level(e), e.Source, held, tag(e), oneLine(headline(e)))
 }

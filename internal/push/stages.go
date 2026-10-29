@@ -177,7 +177,7 @@ func (p *Pusher) holdBack(ctx context.Context, r *Run, why string) Verdict {
 // outcome. A re-alert overwrites the event's delivery with its own.
 func (p *Pusher) deliverStage(ctx context.Context, r *Run) Verdict {
 	ev, d := r.Event, r.Decision
-	x := Extra{Icon: p.icon(ctx, ev), OpenFor: r.OpenFor}
+	x := Extra{Icon: p.icon(ctx, ev), OpenFor: r.OpenFor, Flap: r.Flap}
 	if n, err := p.cfg.Store.Unread(ctx, BadgeCursor); err != nil {
 		r.Log.Error("push: badge", "err", err)
 	} else {

@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"modernc.org/sqlite"
@@ -39,6 +40,8 @@ type Store struct {
 	// wmu serialises writes, so the dedup check and the insert are atomic.
 	wmu sync.Mutex
 	now func() time.Time
+	// flap is the flap policy source; SetFlapPolicy sets it.
+	flap atomic.Pointer[func() FlapPolicy]
 }
 
 // Open opens or creates the database at path and applies migrations.
@@ -91,6 +94,9 @@ type NewEvent struct {
 	// imported is set by Import: the event is history, so it never
 	// schedules a re-alert.
 	imported bool
+	// flap is the flap policy in force; Insert sets it. An import tracks
+	// no flapping.
+	flap FlapPolicy
 }
 
 // Record is one stored event.
@@ -114,6 +120,7 @@ func (s *Store) Insert(ctx context.Context, ev NewEvent) (Record, bool, error) {
 	if r, found, err := s.findDedup(ctx, tx, ev); err != nil || found {
 		return r, false, err
 	}
+	ev.flap = s.FlapPolicy()
 	r, err := insert(ctx, tx, ev)
 	if err != nil {
 		return Record{}, false, err

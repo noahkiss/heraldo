@@ -177,6 +177,7 @@ func (p *Pusher) Run(ctx context.Context) {
 				return
 			case <-t.C:
 				p.Realert(ctx)
+				p.Remind(ctx)
 			}
 		}
 	}()
