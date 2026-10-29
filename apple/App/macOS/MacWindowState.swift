@@ -32,10 +32,11 @@ enum MacHome: String, CaseIterable, Hashable, Codable {
     }
 }
 
-/// A sidebar row: a home, or one project.
+/// A sidebar row: a home, one project or one saved view, by id.
 enum MacSidebarItem: Hashable, Codable {
     case home(MacHome)
     case project(String)
+    case view(String)
 }
 
 /// What the detail column shows. Ids, not values, so a selection survives
@@ -63,11 +64,13 @@ final class MacWindowState {
     private var selections: [MacSidebarItem: MacDetailItem] = [:]
     /// The search field's text. It applies to the list on screen.
     var query = "" {
-        didSet { inbox.query = query; projectFeed.query = query }
+        didSet { inbox.query = query; projectFeed.query = query; viewFeed.query = query }
     }
     let inbox = InboxFeed()
     /// The events of the project the sidebar has chosen.
     let projectFeed = InboxFeed()
+    /// The events of the saved view the sidebar has chosen.
+    let viewFeed = InboxFeed()
     /// Events fetched by id, for a selection no list holds yet.
     private(set) var fetched: [String: Event] = [:]
     /// Bumped by ⌘F; the window focuses the search field.
@@ -97,6 +100,7 @@ final class MacWindowState {
         switch sidebar {
         case .home(.inbox): return inbox
         case .project: return projectFeed
+        case .view: return viewFeed
         default: return nil
         }
     }
@@ -105,6 +109,8 @@ final class MacWindowState {
         query = ""
         projectFeed.project = project
         if project != nil { projectFeed.clearMenuFilters() }
+        viewFeed.viewID = viewID
+        if viewID != nil { viewFeed.clearMenuFilters() }
     }
 
     func show(_ home: MacHome) { sidebar = .home(home) }
@@ -121,7 +127,7 @@ final class MacWindowState {
     /// The event with this id from any list the window holds.
     func event(_ id: String) -> Event? {
         if let e = fetched[id] { return e }
-        for list in [inbox.events(model), projectFeed.events(model), model.incidents, model.resolvedToday,
+        for list in [inbox.events(model), projectFeed.events(model), viewFeed.events(model), model.incidents, model.resolvedToday,
                      model.cache.events] {
             if let e = list.first(where: { $0.id == id }) { return e }
         }

@@ -23,6 +23,7 @@ struct MacContentList: View {
         switch state.sidebar {
         case .home(let h): return h.title
         case .project(let p): return p
+        case .view: return state.savedView?.name ?? "View"
         case nil: return AppInfo.displayName()
         }
     }
@@ -49,6 +50,7 @@ struct MacContentList: View {
         case .home(.activities): MacActivityList(state: state)
         case .home(.held): MacHeldList(state: state)
         case .project(let p): MacProjectList(state: state, project: p)
+        case .view: MacEventList(state: state, feed: state.viewFeed)
         }
     }
 }

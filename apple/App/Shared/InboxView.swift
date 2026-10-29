@@ -12,7 +12,7 @@ struct InboxView: View {
     var body: some View {
         NavigationStack(path: $path) {
             list
-                .navigationTitle("Inbox")
+                .navigationTitle(model.views.first { $0.id == feed.viewID }?.name ?? "Inbox")
                 .navigationDestination(for: Event.self) { EventDetailView(event: $0) }
                 .searchable(text: $feed.query, prompt: "Search title and body")
                 .onSubmit(of: .search) { Task { await feed.search(model) } }
@@ -30,6 +30,10 @@ struct InboxView: View {
                 .overlay { InboxEmptyView(feed: feed, isEmpty: events.isEmpty) }
         }
         .onChange(of: model.openEventID) { _, id in Task { await open(id) } }
+        // A view deleted elsewhere leaves the filter.
+        .onChange(of: model.views.map(\.id)) { _, ids in
+            if let id = feed.viewID, !ids.contains(id) { feed.viewID = nil }
+        }
         .task { await open(model.openEventID) }
     }
 
@@ -103,7 +107,10 @@ struct InboxEmptyView: View {
                 ContentUnavailableView("Not set up", systemImage: "gearshape",
                                        description: Text("Enter the server URL and tokens in Settings."))
             } else if feed.filtering {
-                if feed.searching {
+                if feed.viewUnsupported {
+                    ContentUnavailableView("Views not available", systemImage: SavedView.defaultSymbol,
+                                           description: Text("The server does not support views."))
+                } else if feed.searching {
                     ProgressView()
                 } else {
                     #if os(macOS)

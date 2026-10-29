@@ -140,10 +140,10 @@ public struct HistorySync: Sendable {
     /// A server-side search or filter, newest first. Not cached.
     public func search(q: String?, kind: String?, source: String?, hold: String? = nil,
                        project: String? = nil, key: String? = nil, routine: EventQuery.Routine? = nil,
-                       before: String? = nil) async throws -> EventPage {
+                       view: String? = nil, before: String? = nil) async throws -> EventPage {
         try await client.listEvents(EventQuery(before: before, order: .desc, limit: pageSize,
                                                source: source, kind: kind, key: key, q: q, hold: hold,
-                                               project: project.map { [$0] }, routine: routine))
+                                               project: project.map { [$0] }, routine: routine, view: view))
     }
 
     /// The read cursor and the events after it, up to `maxPages` pages. A

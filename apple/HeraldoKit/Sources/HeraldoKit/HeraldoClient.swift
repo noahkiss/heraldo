@@ -6,6 +6,8 @@ public enum HeraldoError: Error, Equatable, LocalizedError {
     case badURL(String)
     case http(status: Int, message: String)
     case badAnswer(String)
+    /// The server is too old for a feature, such as views.
+    case unsupported(String)
 
     public var errorDescription: String? {
         switch self {
@@ -13,6 +15,7 @@ public enum HeraldoError: Error, Equatable, LocalizedError {
         case .badURL(let url): return "Not a server URL: \(url)"
         case .http(let status, let message): return "HTTP \(status): \(message)"
         case .badAnswer(let what): return "Unexpected answer: \(what)"
+        case .unsupported(let what): return "The server does not support \(what)."
         }
     }
 
@@ -43,12 +46,16 @@ public struct EventQuery: Hashable, Sendable {
     /// before the filter ignores it; `HeraldoClient.listEvents` then drops
     /// the rows itself.
     public var routine: Routine?
+    /// A saved view's id or name: the server applies its filter, and the
+    /// other fields set here override the view's field of the same name.
+    public var view: String?
 
     public enum Routine: String, Sendable { case exclude, only }
 
     public init(after: String? = nil, before: String? = nil, order: Order? = nil, limit: Int? = nil,
                 source: String? = nil, kind: String? = nil, key: String? = nil, q: String? = nil,
-                hold: String? = nil, project: [String]? = nil, routine: Routine? = nil) {
+                hold: String? = nil, project: [String]? = nil, routine: Routine? = nil,
+                view: String? = nil) {
         self.after = after
         self.before = before
         self.order = order
@@ -60,6 +67,7 @@ public struct EventQuery: Hashable, Sendable {
         self.hold = hold
         self.project = project
         self.routine = routine
+        self.view = view
     }
 
     var items: [URLQueryItem] {
@@ -67,6 +75,7 @@ public struct EventQuery: Hashable, Sendable {
             ("after", after), ("before", before), ("order", order?.rawValue),
             ("limit", limit.map(String.init)), ("source", source), ("kind", kind),
             ("key", key), ("q", q), ("hold", hold), ("routine", routine?.rawValue),
+            ("view", view),
         ]
         let items = pairs.compactMap { name, value -> URLQueryItem? in
             guard let value, !value.isEmpty else { return nil }
@@ -112,6 +121,10 @@ public struct HeraldoClient: Sendable {
 
     public func listEvents(_ query: EventQuery = EventQuery()) async throws -> EventPage {
         let (page, response): (EventPage, HTTPURLResponse?) = try await getWithResponse("v1/events", query: query.items)
+        // A server before views ignores the parameter and lists everything.
+        if query.view != nil, response?.value(forHTTPHeaderField: "Heraldo-View") == nil {
+            throw HeraldoError.unsupported("views")
+        }
         guard let routine = query.routine,
               response?.value(forHTTPHeaderField: "Heraldo-Routine") != routine.rawValue else { return page }
         // A server before the filter ignored it. The page may come up short;
@@ -335,6 +348,48 @@ public struct HeraldoClient: Sendable {
         return try await send(r)
     }
 
+    // MARK: Views
+
+    /// The saved views, by position then name. Nil from a server before views.
+    public func views() async throws -> [SavedView]? {
+        do {
+            let list: ViewList = try await get("v1/views")
+            return list.views
+        } catch let e as HeraldoError where e.status == 404 || e.status == 405 {
+            return nil
+        }
+    }
+
+    /// One view, by id or exact name.
+    public func view(id: String) async throws -> SavedView {
+        try await get("v1/views/\(escape(id))")
+    }
+
+    /// Stores a new view with the write token.
+    @discardableResult
+    public func createView(_ input: ViewInput) async throws -> SavedView {
+        guard let writeToken else { throw HeraldoError.notConfigured("The write token") }
+        var r = request("v1/views", method: "POST", token: writeToken)
+        r.httpBody = try JSON.encoder.encode(input)
+        return try await send(r)
+    }
+
+    /// Replaces a view with the write token.
+    @discardableResult
+    public func updateView(id: String, _ input: ViewInput) async throws -> SavedView {
+        guard let writeToken else { throw HeraldoError.notConfigured("The write token") }
+        var r = request("v1/views/\(escape(id))", method: "PUT", token: writeToken)
+        r.httpBody = try JSON.encoder.encode(input)
+        return try await send(r)
+    }
+
+    /// Deletes a view with the write token.
+    public func deleteView(id: String) async throws {
+        guard let writeToken else { throw HeraldoError.notConfigured("The write token") }
+        let (data, response) = try await session.data(for: request("v1/views/\(escape(id))", method: "DELETE", token: writeToken))
+        try check(data, response)
+    }
+
     // MARK: Plumbing
 
 
@@ -373,17 +428,24 @@ public struct HeraldoClient: Sendable {
 
     private func sendWithResponse<T: Decodable>(_ r: URLRequest) async throws -> (T, HTTPURLResponse?) {
         let (data, response) = try await session.data(for: r)
+        let http = try check(data, response)
+        do {
+            return (try JSON.decoder.decode(T.self, from: data), http)
+        } catch {
+            throw HeraldoError.badAnswer("\(T.self): \(error)")
+        }
+    }
+
+    /// The HTTP answer, or the error of a non-2xx status.
+    @discardableResult
+    private func check(_ data: Data, _ response: URLResponse) throws -> HTTPURLResponse {
         guard let http = response as? HTTPURLResponse else { throw HeraldoError.badAnswer("not HTTP") }
         guard (200..<300).contains(http.statusCode) else {
             let message = (try? JSONDecoder().decode(ErrorBody.self, from: data).error)
                 ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
             throw HeraldoError.http(status: http.statusCode, message: message)
         }
-        do {
-            return (try JSON.decoder.decode(T.self, from: data), http)
-        } catch {
-            throw HeraldoError.badAnswer("\(T.self): \(error)")
-        }
+        return http
     }
 
     private struct ErrorBody: Decodable { var error: String }

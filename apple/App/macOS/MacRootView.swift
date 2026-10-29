@@ -41,6 +41,10 @@ struct MacRootView: View {
         .onChange(of: model.held.isEmpty) { _, empty in
             if empty && state.home == .held { state.show(.inbox) }
         }
+        // A view deleted elsewhere leaves the sidebar.
+        .onChange(of: model.views.map(\.id)) { _, ids in
+            if let id = state.viewID, model.viewsSupported, !ids.contains(id) { state.show(.inbox) }
+        }
         .onAppear {
             if let h = MacHome(rawValue: savedHome), h != .held { state.show(h) }
             open(model.openEventID)
@@ -56,6 +60,7 @@ struct MacRootView: View {
         case .home(.activities): return "Search activities"
         case .home(.held): return "Search held alerts"
         case .project(let p): return "Search \(p)"
+        case .view: return "Search \(state.savedView?.name ?? "view")"
         default: return "Search title and body"
         }
     }
@@ -64,7 +69,7 @@ struct MacRootView: View {
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
             if let feed = state.feed {
-                InboxFilterMenu(feed: feed, showsProject: false)
+                InboxFilterMenu(feed: feed, showsProject: false, showsViews: false)
                     .help("Filter")
             }
             Button {
@@ -106,6 +111,7 @@ struct MacSidebar: View {
                     }
                 }
             }
+            MacViewsSection(state: state)
         }
         .listStyle(.sidebar)
         .overlay(alignment: .bottom) { status }

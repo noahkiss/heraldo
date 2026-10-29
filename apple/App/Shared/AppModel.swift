@@ -21,6 +21,11 @@ final class AppModel {
     /// The projects the server's events name, from `GET /v1/projects`.
     /// Empty on a server before projects.
     private(set) var projects: [String] = []
+    /// The saved views, by position then name, from `GET /v1/views`.
+    private(set) var views: [SavedView] = []
+    /// The server answers `/v1/views`. Off on a server before views: the
+    /// Views UI hides.
+    private(set) var viewsSupported = false
     /// The running Live Activities. The Mac app's home; empty on iOS and
     /// on a server before Live Activities.
     private(set) var activities: [ActivitySummary] = []
@@ -142,6 +147,7 @@ final class AppModel {
             incidents = try await sync.client.state().sortedIncidents
             checks = try await sync.client.checks() ?? []
             projects = (try? await sync.client.projects())?.projects.map(\.name) ?? []
+            await reloadViews()
             #if os(macOS)
             activities = (try? await sync.client.activities()) ?? []
             held = (try? await sync.client.heldEntries())?.held.filter(\.isOpen) ?? []
@@ -212,6 +218,14 @@ final class AppModel {
     func setPaused(_ check: Check, _ paused: Bool) async throws {
         try await client().setPaused(check.key, paused)
         await refresh()
+    }
+
+    /// Fetches the saved views. A failed fetch keeps the ones shown.
+    func reloadViews() async {
+        let list: [SavedView]?
+        do { list = try await client().views() } catch { return }
+        views = list ?? []
+        viewsSupported = list != nil
     }
 
     // MARK: Cache file
