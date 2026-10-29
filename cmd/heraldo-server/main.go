@@ -272,6 +272,7 @@ func serve(flags map[string]string, log *slog.Logger) error {
 		Version: version.String(), Store: st, Tokens: tokens, Validator: v, Rules: rw, Logger: log,
 		Done: ctx.Done(), Pusher: pusher, PushState: pushState, Live: lm,
 		TrustedNets: cfg.NotifyTrustedNets, Settings: sm,
+		Standby:     cfg.Standby,
 		Hold: server.HoldOptions{
 			Mode: cfg.HoldMode, Bypass: bypass, Deadline: cfg.HoldDeadline, Deadman: cfg.HoldDeadman,
 		},
@@ -282,6 +283,7 @@ func serve(flags map[string]string, log *slog.Logger) error {
 	}
 	log.Info("hold", "mode", cfg.HoldMode, "deadline", cfg.HoldDeadline.String(), "deadman", cfg.HoldDeadman.String())
 	go h.RunHold(ctx, holdTick)
+	go h.RunAttachmentSweep(ctx, server.AttachmentSweepEvery)
 	if cfg.Standby {
 		// A standby judges no checks: the primary owns them, and a standby
 		// that judged them would raise a second copy of every incident.

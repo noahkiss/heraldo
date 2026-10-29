@@ -190,6 +190,11 @@ func insert(ctx context.Context, tx *sql.Tx, ev NewEvent) (Record, error) {
 	if in.Kind == nil {
 		return Record{}, errors.New("store: event has no kind")
 	}
+	if in.Attachments != nil {
+		if err := linkAttachments(ctx, tx, ev.ID, *in.Attachments); err != nil {
+			return Record{}, err
+		}
+	}
 	// An event with a key and no project files under its key's project,
 	// so an ack or a resolve from a sender that does not know it lands
 	// beside the open.

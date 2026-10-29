@@ -26,7 +26,7 @@ func TestMigrateFromEmpty(t *testing.T) {
 	s := open(t, path)
 	// schemaVersion is the newest migration's number. Bump it with each new
 	// migration, so a merge that drops or renumbers one fails here.
-	const schemaVersion = 13
+	const schemaVersion = 14
 	if newest := embeddedVersion(t); newest != schemaVersion {
 		t.Fatalf("newest migration is %d, want %d", newest, schemaVersion)
 	}
@@ -34,7 +34,7 @@ func TestMigrateFromEmpty(t *testing.T) {
 	if err != nil || v != schemaVersion {
 		t.Fatalf("version = %d, %v; want %d", v, err, schemaVersion)
 	}
-	for _, table := range []string{"events", "events_fts", "incidents", "checkins", "activities", "status", "imports", "cursors", "devices", "deliveries", "mutes", "icons", "hold_entries", "hold_meta", "standby_state", "push_decisions"} {
+	for _, table := range []string{"events", "events_fts", "incidents", "checkins", "activities", "status", "imports", "cursors", "devices", "deliveries", "mutes", "icons", "hold_entries", "hold_meta", "standby_state", "push_decisions", "attachments"} {
 		var n int
 		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM `+table).Scan(&n); err != nil {
 			t.Fatalf("%s: %v", table, err)

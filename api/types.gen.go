@@ -937,6 +937,36 @@ type AppriseNotify struct {
 	Url  *string `json:"url,omitempty"`
 }
 
+// AttachmentCreated defines model for AttachmentCreated.
+type AttachmentCreated struct {
+	Bytes       int    `json:"bytes"`
+	ContentType string `json:"content_type"`
+
+	// Id att_ and a ULID. Name it in an event's attachments array.
+	Id string `json:"id"`
+
+	// Sha256 Hex SHA-256 of the body.
+	Sha256 string `json:"sha256"`
+
+	// Url attachment:<id>, a reference other fields and clients can carry.
+	Url string `json:"url"`
+}
+
+// AttachmentId An attachment's id: att_ and a ULID, as POST /v1/attachments returns it.
+type AttachmentId = string
+
+// AttachmentInfo One stored attachment, without its bytes. GET /v1/attachments/{id} returns the bytes.
+type AttachmentInfo struct {
+	// Bytes The size of the body in bytes.
+	Bytes int `json:"bytes"`
+
+	// ContentType The media type, such as image/png or text/plain.
+	ContentType string `json:"content_type"`
+
+	// Id An attachment's id: att_ and a ULID, as POST /v1/attachments returns it.
+	Id AttachmentId `json:"id"`
+}
+
 // Check defines model for Check.
 type Check struct {
 	CreatedAt time.Time `json:"created_at"`
@@ -1156,13 +1186,19 @@ type Error struct {
 	Error string `json:"error"`
 }
 
-// Event One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery, why and, on an incident, incident.
+// Event One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery, why, attachment_info and, on an incident, incident.
 type Event struct {
 	// Action Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none.
 	Action *EventAction `json:"action,omitempty"`
 
 	// Actions Buttons on the notification.
 	Actions *[]Action `json:"actions,omitempty"`
+
+	// AttachmentInfo On an event with attachments: each attachment's id, type and size, in the order of attachments. An id the server no longer holds is left out.
+	AttachmentInfo *[]AttachmentInfo `json:"attachment_info,omitempty"`
+
+	// Attachments Files stored with the event: ids from POST /v1/attachments. Upload first, then name the ids here. The server refuses an id it does not hold. The stored event keeps the ids; the read API adds attachment_info with each file's type and size.
+	Attachments *[]AttachmentId `json:"attachments,omitempty"`
 
 	// Body Markdown. The server stores the full text; a push carries the summary or a truncated copy. The limit is 256 KiB; the server counts bytes, this schema counts characters.
 	Body *string `json:"body,omitempty"`
@@ -1267,13 +1303,16 @@ type EventIncidentState string
 // EventAction Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none.
 type EventAction string
 
-// EventInput One heraldo event as a sender posts it, envelope v1. The kind field picks the meaning of key and action. An input without kind is untyped: the server's ingest rules may type it, and it is stored as kind message when no rule matches. An explicit kind, message included, is final. The server owns id, received_at, cursor, hold, delivery and why: an input that sets any of them is rejected. The stored form, with those fields, is $defs/Event.
+// EventInput One heraldo event as a sender posts it, envelope v1. The kind field picks the meaning of key and action. An input without kind is untyped: the server's ingest rules may type it, and it is stored as kind message when no rule matches. An explicit kind, message included, is final. The server owns id, received_at, cursor, hold, delivery, why and attachment_info: an input that sets any of them is rejected. The stored form, with those fields, is $defs/Event.
 type EventInput struct {
 	// Action Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none.
 	Action *EventAction `json:"action,omitempty"`
 
 	// Actions Buttons on the notification.
 	Actions *[]Action `json:"actions,omitempty"`
+
+	// Attachments Files stored with the event: ids from POST /v1/attachments. Upload first, then name the ids here. The server refuses an id it does not hold. The stored event keeps the ids; the read API adds attachment_info with each file's type and size.
+	Attachments *[]AttachmentId `json:"attachments,omitempty"`
 
 	// Body Markdown. The server stores the full text; a push carries the summary or a truncated copy. The limit is 256 KiB; the server counts bytes, this schema counts characters.
 	Body *string `json:"body,omitempty"`
@@ -1831,13 +1870,13 @@ type Slug = string
 // AppriseSent defines model for AppriseSent.
 type AppriseSent = AppriseAnswer
 
-// Repeat One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery, why and, on an incident, incident.
+// Repeat One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery, why, attachment_info and, on an incident, incident.
 type Repeat = Event
 
 // SettingConflict defines model for SettingConflict.
 type SettingConflict = SettingError
 
-// Stored One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery, why and, on an incident, incident.
+// Stored One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery, why, attachment_info and, on an incident, incident.
 type Stored = Event
 
 // NotifyLiveActivityEndParams defines parameters for NotifyLiveActivityEnd.
@@ -2265,6 +2304,12 @@ type ListActivitiesParams struct {
 // ListActivitiesParamsAll defines parameters for ListActivities.
 type ListActivitiesParamsAll int
 
+// CreateAttachmentMultipartBody defines parameters for CreateAttachment.
+type CreateAttachmentMultipartBody struct {
+	// File The file's bytes. Its part Content-Type is the type to store.
+	File string `json:"file"`
+}
+
 // ListCheckinsParams defines parameters for ListCheckins.
 type ListCheckinsParams struct {
 	// Project Only these projects. Give a comma-separated list, or repeat the parameter; any
@@ -2432,6 +2477,9 @@ type PingExitCodeWithLogTextRequestBody = PingExitCodeWithLogTextBody
 
 // ReportInstanceJSONRequestBody defines body for ReportInstance for application/json ContentType.
 type ReportInstanceJSONRequestBody = InstanceReport
+
+// CreateAttachmentMultipartRequestBody defines body for CreateAttachment for multipart/form-data ContentType.
+type CreateAttachmentMultipartRequestBody CreateAttachmentMultipartBody
 
 // PutCheckinJSONRequestBody defines body for PutCheckin for application/json ContentType.
 type PutCheckinJSONRequestBody = CheckConfig

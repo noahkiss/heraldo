@@ -1,0 +1,8 @@
+{
+  "source": "share:phone",
+  "kind": "message",
+  "level": "passive",
+  "project": "home",
+  "title": "Screenshot of the error",
+  "attachments": ["att_01JBA6Z0000000000000000010", "att_01JBA6Z0000000000000000011"]
+}

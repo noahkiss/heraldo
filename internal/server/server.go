@@ -65,6 +65,9 @@ type Options struct {
 	// Settings is the settings store. nil means one over Store with only
 	// the built-in defaults, no flags, env aliases or secret key.
 	Settings *settings.Manager
+	// Standby is set on a standby server. It refuses attachment uploads:
+	// its events go back to the primary without bytes.
+	Standby bool
 }
 
 // Pusher queues stored events for push. Enqueue must not block.
@@ -168,6 +171,8 @@ func NewServer(o Options) *Server {
 	mux.HandleFunc("GET /v1/mutes", s.auth(auth.ScopeWrite, false, s.listMutes))
 	mux.HandleFunc("POST /v1/mutes", s.auth(auth.ScopeWrite, false, s.createMute))
 	mux.HandleFunc("DELETE /v1/mutes/{id}", s.auth(auth.ScopeWrite, false, s.endMute))
+	mux.HandleFunc("POST /v1/attachments", s.auth(auth.ScopeWrite, false, s.createAttachment))
+	mux.HandleFunc("GET /v1/attachments/{id}", s.auth(auth.ScopeRead, false, s.getAttachment))
 	mux.HandleFunc("GET /v1/icons", s.auth(auth.ScopeRead, false, s.listIcons))
 	mux.HandleFunc("GET /v1/icons/{name}", s.auth(auth.ScopeRead, false, s.getIcon))
 	mux.HandleFunc("PUT /v1/icons/{name}", s.auth(auth.ScopeAdmin, false, s.putIcon))
@@ -437,6 +442,10 @@ func (s *server) badInput(w http.ResponseWriter, err error) {
 
 func (s *server) store(w http.ResponseWriter, r *http.Request, in *validate.Input) {
 	rec, created, err := s.ingest(r.Context(), in, tokenFrom(r).Has(auth.CapTrustedIngest))
+	if errors.Is(err, store.ErrUnknownAttachment) {
+		writeError(w, http.StatusBadRequest, "attachments: %v", err)
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not store the event")
 		return
@@ -446,7 +455,11 @@ func (s *server) store(w http.ResponseWriter, r *http.Request, in *validate.Inpu
 		status = http.StatusOK
 	}
 	recs := []store.Record{rec}
-	if err := store.WithCursors(recs); err != nil {
+	err = s.Store.WithAttachments(r.Context(), recs)
+	if err == nil {
+		err = store.WithCursors(recs)
+	}
+	if err != nil {
 		s.Logger.Error("cursor", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -512,6 +525,10 @@ func (s *server) insert(ctx context.Context, in *validate.Input, hold map[string
 		ID: id, ReceivedAt: now, Fields: f, Typed: in.Typed, DedupAnyAge: trusted,
 	})
 	if err != nil {
+		if errors.Is(err, store.ErrUnknownAttachment) {
+			s.Logger.Warn("store: refused", "err", err)
+			return store.Record{}, false, err
+		}
 		s.Logger.Error("store", "err", err)
 		return store.Record{}, false, err
 	}
@@ -583,6 +600,9 @@ func (s *server) getEvent(w http.ResponseWriter, r *http.Request) {
 		err = s.Store.WithDeliveries(r.Context(), recs)
 		if err == nil {
 			err = s.Store.WithWhy(r.Context(), recs)
+		}
+		if err == nil {
+			err = s.Store.WithAttachments(r.Context(), recs)
 		}
 		if err == nil {
 			err = store.WithCursors(recs)
@@ -686,6 +706,9 @@ func (s *server) listEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	if err == nil {
 		err = s.Store.WithWhy(r.Context(), recs)
+	}
+	if err == nil {
+		err = s.Store.WithAttachments(r.Context(), recs)
 	}
 	if err == nil {
 		err = store.WithCursors(recs)

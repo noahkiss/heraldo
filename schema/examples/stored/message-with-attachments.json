@@ -1,0 +1,16 @@
+{
+  "id": "01JBA6Z0000000000000000012",
+  "received_at": "2026-10-26T12:06:00Z",
+  "cursor": "s2",
+  "ts": "2026-10-26T12:06:00Z",
+  "source": "share:phone",
+  "kind": "message",
+  "level": "passive",
+  "project": "home",
+  "title": "Screenshot of the error",
+  "attachments": ["att_01JBA6Z0000000000000000010", "att_01JBA6Z0000000000000000011"],
+  "attachment_info": [
+    {"id": "att_01JBA6Z0000000000000000010", "content_type": "image/png", "bytes": 48213},
+    {"id": "att_01JBA6Z0000000000000000011", "content_type": "text/plain", "bytes": 912}
+  ]
+}

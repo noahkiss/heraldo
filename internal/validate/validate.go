@@ -24,7 +24,7 @@ import (
 const MaxBodyBytes = 256 * 1024
 
 // ServerFields are the readOnly fields a sender may not set.
-var ServerFields = []string{"id", "received_at", "cursor", "hold", "delivery", "why", "incident"}
+var ServerFields = []string{"id", "received_at", "cursor", "hold", "delivery", "why", "attachment_info", "incident"}
 
 // projectName is the envelope's rule for a project name.
 var projectName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)

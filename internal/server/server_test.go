@@ -58,6 +58,12 @@ func newEnv(t *testing.T) *env {
 // newEnvRules is newEnv with ingest rules.
 func newEnvRules(t *testing.T, rw *rules.Watcher) *env {
 	t.Helper()
+	return newEnvWith(t, func(o *Options) { o.Rules = rw })
+}
+
+// newEnvWith is newEnv with options changed by set.
+func newEnvWith(t *testing.T, set func(*Options)) *env {
+	t.Helper()
 	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -75,10 +81,12 @@ func newEnvRules(t *testing.T, rw *rules.Watcher) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := New(Options{
-		Version: "v-test", Store: st, Tokens: tokens, Validator: v, Now: c.now, Rules: rw,
+	o := Options{
+		Version: "v-test", Store: st, Tokens: tokens, Validator: v, Now: c.now,
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-	})
+	}
+	set(&o)
+	h := New(o)
 	return &env{h: h, st: st, clock: c}
 }
 
@@ -255,6 +263,13 @@ func examples(t *testing.T, dir string) []string {
 
 func TestPostValidExamples(t *testing.T) {
 	e := newEnv(t)
+	// message-with-attachments.json names these ids.
+	for i, id := range []string{"att_01JBA6Z0000000000000000010", "att_01JBA6Z0000000000000000011"} {
+		a := store.Attachment{ID: id, ContentType: "text/plain", Body: []byte(fmt.Sprint("example ", i)), CreatedBy: "test"}
+		if _, err := e.st.PutAttachment(context.Background(), &a); err != nil {
+			t.Fatal(err)
+		}
+	}
 	s := storedSchema(t)
 	for _, path := range examples(t, "valid") {
 		t.Run(filepath.Base(path), func(t *testing.T) {
@@ -324,6 +339,7 @@ func TestPostRefusesServerFields(t *testing.T) {
 		`"received_at":"2026-10-26T12:00:00Z"`,
 		`"hold":{}`,
 		`"delivery":[]`,
+		`"attachment_info":[]`,
 	} {
 		rec := e.post(t, `{"source":"s","kind":"message",`+f+`}`)
 		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "set by the server") {

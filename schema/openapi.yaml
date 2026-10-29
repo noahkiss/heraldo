@@ -33,6 +33,8 @@ tags:
     description: Checks that expect pings on a schedule, and the ping API.
   - name: hold
     description: The alert hold, where alert-rung posts wait for triage.
+  - name: attachments
+    description: Files stored with events, such as a screenshot shared from a phone.
   - name: standby
     description: A standby server copies the devices and hands back what it stored.
   - name: settings
@@ -970,6 +972,92 @@ paths:
       responses:
         "204":
           description: Removed.
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/attachments:
+    post:
+      operationId: createAttachment
+      summary: Store a file that an event can then name. Needs a write token.
+      description: |
+        The body is the file, up to 5 MiB: either the raw bytes with their Content-Type,
+        or multipart/form-data with the file in the part called file. Allowed types are
+        image/*, text/plain, application/pdf and application/json. A body without a
+        type, or sent as application/octet-stream, is typed by its bytes.
+
+        Name the returned id in an event's attachments array. The same bytes uploaded
+        twice return the first id. An attachment that no event names within 24 hours
+        is deleted. A standby server refuses uploads with 503: an attachment lives on
+        the primary only.
+      tags: [attachments]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  description: The file's bytes. Its part Content-Type is the type to store.
+          "*/*":
+            schema:
+              type: string
+              format: binary
+      responses:
+        "201":
+          description: A new attachment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentCreated"
+        "200":
+          description: These bytes were stored before; the first attachment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentCreated"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "413":
+          $ref: "#/components/responses/Error"
+        "415":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /v1/attachments/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: "^att_[0-9A-HJKMNP-TV-Z]{26}$"
+    get:
+      operationId: getAttachment
+      summary: The attachment's bytes.
+      description: |
+        Served with the stored Content-Type, its SHA-256 as the ETag, and headers that
+        keep a browser from running it: nosniff and a sandbox CSP.
+      tags: [attachments]
+      responses:
+        "200":
+          description: The file.
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "304":
+          description: The file has not changed.
         "401":
           $ref: "#/components/responses/Error"
         "403":
@@ -2452,6 +2540,25 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Mute"
+    AttachmentCreated:
+      type: object
+      required: [id, url, content_type, bytes, sha256]
+      properties:
+        id:
+          type: string
+          description: att_ and a ULID. Name it in an event's attachments array.
+        url:
+          type: string
+          description: attachment:<id>, a reference other fields and clients can carry.
+        content_type:
+          type: string
+        bytes:
+          type: integer
+        sha256:
+          type: string
+          description: Hex SHA-256 of the body.
+    AttachmentInfo:
+      $ref: "envelope.v1.schema.json#/$defs/AttachmentInfo"
     IconInfo:
       type: object
       required: [name, content_type, bytes, sha256, updated_at]

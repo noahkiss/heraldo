@@ -132,6 +132,13 @@ func (s *server) importStandby(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		created, err := s.Store.Import(r.Context(), StandbyOrigin, ev.ID, ev)
+		if errors.Is(err, store.ErrUnknownAttachment) {
+			// A standby takes no uploads, so this is an event from another
+			// server that names bytes this one never got.
+			s.Logger.Warn("standby import: event rejected", "index", i, "err", err)
+			res.Rejected++
+			continue
+		}
 		if err != nil {
 			s.Logger.Error("standby import", "err", err)
 			writeError(w, http.StatusInternalServerError, "could not store the events")
@@ -173,7 +180,7 @@ func (s *server) importable(raw json.RawMessage) (store.NewEvent, error) {
 		return store.NewEvent{}, errors.New("received_at: not a time")
 	}
 	hold := f["hold"]
-	for _, k := range []string{"id", "received_at", "cursor", "hold", "delivery", "why", "incident"} {
+	for _, k := range []string{"id", "received_at", "cursor", "hold", "delivery", "why", "attachment_info", "incident"} {
 		delete(f, k)
 	}
 	in, err := s.Validator.Fields(f)
