@@ -12,7 +12,7 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 
 | Method and path | Does | Stage |
 |---|---|---|
-| `GET /healthz` | Liveness, with `db`, the event count and, with push on, `unsent` ("Push"). 503 when the database does not answer. No auth. | served |
+| `GET /healthz` | Liveness, with `db`, the event count, `llm` (`off`, `on` or `degraded`; see "LLM") and, with push on, `unsent` ("Push"). 503 when the database does not answer. No auth. | served |
 | `POST /v1/events` | Stores one `EventInput`. Returns the stored `Event` (201), or the first event for a repeated `dedup` (200). | served |
 | `GET /v1/events?after=&before=&order=&limit=&source=&kind=&host=&key=&tag=&q=&hold=&project=&routine=&level=&view=` | Lists events after a cursor, in arrival order. `q` is full-text search over title, summary and body. `order=desc` lists newest first. `hold` keeps events whose `hold.state` matches. `project` takes a list (see "Projects"). `routine=exclude` or `only` filters routine events (see "Routine events"). `level` takes a list of levels. `view` applies a saved view (see "Saved views"). | served |
 | `GET /v1/events/{id}` | Returns one event with its full body and its `attachment_info`. | served |
@@ -42,6 +42,9 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `GET /v1/mutes`, `POST /v1/mutes`, `DELETE /v1/mutes/{id}` | Mutes in force; mute a source, key or project for a while; end a mute. | served |
 | `GET /v1/views`, `POST /v1/views`, `GET`, `PUT`, `DELETE /v1/views/{id}` | Saved views: list (read), save, read one, replace, delete (write). See "Saved views". | served |
 | `GET /v1/icons`, `GET`, `PUT`, `DELETE /v1/icons/{name}` | The icon registry: list, fetch an image, store one, remove one. | served |
+| `GET /v1/guidance?scope=`, `POST /v1/guidance`, `GET`, `PUT`, `DELETE /v1/guidance/{id}` | Guidance for the LLM: list and read (read), add, edit, delete (write). See "LLM". | served |
+| `GET /v1/llm/status`, `POST /v1/llm/test` | The LLM's mode, circuit, budget and last error (read); a trivial question to the endpoint (admin). See "LLM". | served |
+| `POST /v1/ask` | A question to the chat model, answered from the stored events (read). See "LLM". | served |
 | `GET /v1/settings`, `GET`, `PUT`, `DELETE /v1/settings/{key}` | Server settings: every key with its value and source, one key, store a value (admin), back to the default (admin). See "Settings". | served |
 | `POST /v1/attachments`, `GET /v1/attachments/{id}` | Store a file an event can name (write), and fetch its bytes (read). See "Attachments". | served |
 | `GET /v1/standby/devices` | Every device with its full push tokens, for a standby. Admin, or a `read` token with the `standby` capability. See "Standby". | served |
@@ -1266,6 +1269,149 @@ heraldo settings get quiet.start          # 22:00, then "source default" on stde
 curl -X PUT -H "Authorization: Bearer $ADMIN_TOKEN" -d '{"value":"21:30"}' \
   "$HERALDO_URL/v1/settings/quiet.start"
 ```
+
+## LLM
+
+heraldo can use an LLM through any OpenAI-compatible endpoint, a local one
+included. It is optional and off by default (`llm.mode` `off`). Everything
+works without it.
+
+- It runs on the primary only. A standby never calls it: its status reports
+  `effective_mode` `off`, and `/v1/ask` and `/v1/llm/test` refuse.
+- It never decides a push alone. Floors are code, not prompt: it never raises
+  a level, never touches `time-sensitive` or `critical`, a failed check-in or
+  heraldo's own events, and never overrides an ingest rule or a mute. (The
+  decisions role that acts on pushes comes in a later release; this release
+  ships the provider, guidance and chat.)
+- Every output is checked. Ids must come from the input; a failed check falls
+  back to the deterministic path.
+
+### Setup
+
+Set these keys ("Settings"; env vars, launch flags or `heraldo settings set`):
+
+| Key | What to set |
+|---|---|
+| `llm.base_url` | The API root, such as `https://llm.example.net/v1` or `http://localhost:11434/v1`. heraldo posts to `<base>/chat/completions` (or `<base>/responses` with `llm.api` `openai-responses`). |
+| `llm.token` | The endpoint's token, a secret ("Secrets"). Leave it unset for a local endpoint with no auth. |
+| `llm.chat_model`, `llm.decisions_model` | The model names. Either falls back to the other. |
+| `llm.structured` | `json_schema` (default) sends a JSON Schema as `response_format`. `json_object` sends JSON mode and puts the schema in the prompt. `prompt` sends neither, and no tool definitions, for endpoints without them. |
+| `llm.mode` | `off`, `shadow`, `advise` or `enforce`. Any value but `off` turns the LLM on. |
+| `llm.chat` | `true` allows `/v1/ask`. |
+
+Then `heraldo llm test` (admin) asks the endpoint a trivial question, with
+`llm.mode` off too, and `heraldo llm status` shows the result.
+
+### Guards
+
+Every call goes through one place in `internal/llm` that applies these:
+
+- **Timeouts**: `llm.chat_timeout` (60 s) per chat round,
+  `llm.decisions_timeout` (20 s) per other call.
+- **Circuit breaker**: 3 failures in a row (an error, a timeout or an output
+  that fails its check) open the circuit for 10 minutes. While it is open,
+  calls fail at once and send nothing. After 10 minutes, one call may try
+  again.
+- **Budgets**: `llm.tokens_per_day` (tokens in and out since midnight,
+  server time) and `llm.calls_per_minute`. A call past a budget is refused,
+  and the effective mode is at most `shadow` until midnight. `0` stops every
+  call.
+- **Outage notice**: when the circuit opens or a budget is passed, the server
+  stores one passive message, source `heraldo`, thread `llm`, title
+  "Assistant unavailable". It stores no other until a call succeeds again.
+- **Privacy**: before anything leaves the server, `llm.redact` removes its
+  matches from every message (bearer tokens, `op://` references and long hex
+  by default). Event bodies go only up to `llm.send_body_chars` characters
+  (default 0: none), and a summary taken from the body counts as body.
+  `details`, image, icon and link URLs, attachments and devices never go.
+  Events in `llm.exclude_projects` never go. The token is never logged,
+  stored in the call log or returned.
+- **Cache**: a call may ask for the cache. Its key is sha256 of the role,
+  model, prompt version, guidance versions and normalized input. A status
+  `ok` answer to the same key from the last 24 hours is served without a
+  call. Chat does not use the cache: its answers follow live data.
+- **Call log**: each call is a row in `llm_calls`: id, role, model, host,
+  time, latency, tokens in and out, input hash, prompt version, status (`ok`,
+  `error`, `timeout`, `invalid` or `cached`), the output as JSON and the
+  error. It keeps the output, never the prompt. Rows older than 30 days go.
+
+Prompts are files in `internal/llm/prompts/`. A prompt's version is its name
+and the start of its sha256, such as `chat-1a2b3c4d5e6f`, so an edit changes
+the cache key and shows in the call log.
+
+### Status and test
+
+`GET /v1/llm/status` (read) returns an `LlmStatus`: `mode`, `effective_mode`,
+`chat` (questions are allowed now), `configured`, `token_set`, `api`,
+`base_host`, the models, `standby`, `circuit` (`closed` or `open`) with
+`circuit_until` and `failures`, `tokens_today` and `tokens_per_day`,
+`calls_last_minute` and `calls_per_minute`, `shadow_until` after a budget
+was passed, and `last_error` with `last_error_at`.
+
+`POST /v1/llm/test` (admin) asks the endpoint a trivial question. It answers
+200 with an `LlmTest`: `ok`, `model`, `answer`, `latency_ms`, `call_id`, or
+`error` when the endpoint failed.
+
+`/healthz` reports `llm`: `off` (mode off, or a standby), `on`, or `degraded`
+(the circuit is open, a budget was passed, or no base URL or model is set).
+
+### Guidance
+
+Guidance is free text that informs the LLM's wording and grouping, such as
+"backup alerts from one host are one story". It never sets a floor, changes
+a level or overrides an ingest rule; the rules file stays the deterministic
+source.
+
+- A line's `scope` is `global`, `project:<p>`, `source:<s>` or
+  `key:<regex>` (a Go regular expression over the event key). `text` is 1 to
+  1000 characters.
+- `POST /v1/guidance` (write) takes a `GuidanceInput` (`scope`, `text`,
+  `enabled`, default true) and answers 201 with a `Guidance`: `id` (`gd_`
+  plus a ULID), the fields, `version` (1), `created_by`, `created_at` and
+  `updated_at`.
+- `GET /v1/guidance` (read) lists every line, oldest first; `?scope=` keeps
+  one scope. `GET /v1/guidance/{id}` (read) returns one.
+- `PUT /v1/guidance/{id}` (write) takes a `GuidancePatch`: the fields given
+  replace the stored ones, and `version` goes up by one.
+  `DELETE /v1/guidance/{id}` (write) answers 204.
+- A call gets every enabled line that matches its event or question, least
+  specific first: global, source, project, then key. Their ids and versions
+  are part of the cache key.
+
+### Ask
+
+`POST /v1/ask` (read) asks the chat model a question about the stored
+events. It needs `llm.chat` on and `llm.mode` not `off`, on the primary;
+otherwise it answers 409.
+
+```json
+{"question": "What happened overnight?", "scope": {"project": "home", "since": "12h"}}
+```
+
+- `scope` is optional: `view` (a saved view's id or name), `project`, `key`
+  (one incident or job), and `since` (RFC 3339, or a duration back from now).
+- The server first runs `events_search` for the scope (30 events, newest
+  first). The model may then call `events_search`, `event_read`, `overview`
+  and `checkin_read`, for up to 4 rounds. These are the MCP tools, run in
+  the server's process under a read grant: they read only, and each call is
+  checked as a read token's would be. Every result passes the privacy guards
+  first; one result is cut at 16 KiB, and all of them at 64 KiB.
+- The answer is an `AskAnswer`: `answer`, `cited_ids`, an optional
+  `proposal`, `call_ids` (the `llm_calls` rows) and `model`. Every cited id
+  came back from a tool; the server drops the rest.
+- Chat never writes. A `proposal` has a `type` (`filter`, `view`, `guidance`
+  or `mute`), a one-line `summary`, and the body of the write call that
+  applies it: `filter` (a `ViewFilter`, as `GET /v1/events` parameters),
+  `view` (a `ViewInput` for `POST /v1/views`), `guidance` (a `GuidanceInput`
+  for `POST /v1/guidance`) or `mute` (a `MuteInput` for `POST /v1/mutes`).
+  The server checks it as that call would and drops one that fails. The
+  client shows it, and applies it with the ordinary write call only when the
+  owner agrees.
+- The model may take several rounds, so the answer can take a while. A
+  provider failure answers 503 with the cause; the circuit and the budgets
+  apply.
+- A question scoped to a project in `llm.exclude_projects` gets a fixed
+  answer and calls nothing.
 
 ## Icons
 

@@ -53,6 +53,9 @@ Three principles follow, and every feature is judged against them:
   no update. Both are off by default.
 - Attachments: screenshots, logs and PDFs stored with an event. The apps show
   images and text inline; agents read them over MCP.
+- An optional assistant on any OpenAI-compatible endpoint, a local one
+  included: ask about your events from the apps, the CLI or MCP, with
+  guidance on how to word and group them. Off by default.
 
 ## Layout
 
@@ -168,8 +171,8 @@ With no tokens, the server refuses every call except `/healthz`.
 
 ### Server settings
 
-Quiet hours, the badge scope and features that later stages switch on (the LLM, the digest, the
-stale sweep, flap grouping) are server settings. Every feature is off by default; the badge counts what needs attention.
+Quiet hours, the badge scope and features such as the LLM, the digest, the
+stale sweep and flap grouping are server settings. Every feature is off by default; the badge counts what needs attention.
 `GET /v1/settings` and `heraldo settings ls` list every key with its value,
 default and source.
 
@@ -206,6 +209,43 @@ that sets `level: critical`, or send it with a `write` token that has the
   `heraldo settings set escalation.pushover.token - < token.txt`.
 
 [docs/api.md](docs/api.md#critical-alerts) has the details.
+
+### The assistant (LLM)
+
+heraldo can use an LLM through any OpenAI-compatible endpoint: a hosted API or
+a local server such as Ollama, llama.cpp or vLLM. It is off by default, and
+everything works without it. It runs on the primary only; a standby never
+calls it. It never raises a level, never touches time-sensitive or critical
+alerts, and writes nothing.
+
+Set it up with an admin token:
+
+```sh
+heraldo settings set llm.base_url https://llm.example.net/v1
+heraldo settings set llm.token - < token.txt      # stdin, never argv; needs HERALDO_SECRET_KEY_FILE
+heraldo settings set llm.chat_model <model>
+heraldo llm test                                  # works with llm.mode off
+heraldo settings set llm.mode shadow
+heraldo settings set llm.chat true
+heraldo ask "what happened overnight?"
+```
+
+- For a local endpoint, use its root, such as `http://localhost:11434/v1`,
+  and skip the token. An endpoint without JSON mode or tool calls takes
+  `llm.structured prompt`.
+- Or set the keys as env vars: `HERALDO_LLM_BASE_URL`, `HERALDO_LLM_TOKEN_FILE`
+  (a file with the token), `HERALDO_LLM_CHAT_MODEL`, `HERALDO_LLM_MODE`,
+  `HERALDO_LLM_CHAT`.
+- Event bodies do not go to the endpoint by default (`llm.send_body_chars`
+  0). `llm.redact` removes tokens and secrets from what does go, and
+  `llm.exclude_projects` keeps whole projects out.
+- `llm.tokens_per_day` and `llm.calls_per_minute` cap the cost. After 3
+  failures in a row, the server stops calling for 10 minutes and stores one
+  passive notice.
+- Guidance lines (`heraldo guidance add global "Be brief."`) tell the
+  assistant how to word and group things. They never change a level.
+
+[docs/api.md](docs/api.md#llm) has the details.
 
 Set a key (`HERALDO_APNS_KEY_FILE` or `HERALDO_APNS_KEY`), its id and the team
 id, or none; a partial set stops the server. With `HERALDO_PUSH=on` and no key,
@@ -265,6 +305,9 @@ any `-wal` and `-shm` files left beside the old database first.
 | `heraldo ack <key>`, `heraldo resolve <key>` | Posts an `ack` or `resolve` event for an open incident. `-m` adds a note; `--force` posts for a key with no open incident. |
 | `heraldo send` | Posts a notification to an Apprise-compatible notify URL, with an optional heraldo fallback. `--attach <file>` posts to the heraldo API instead. |
 | `heraldo mcp [--read-only]` | Serves the MCP tools for coding agents on stdio. The server can serve them over HTTP too (`HERALDO_MCP_HTTP`). See [docs/mcp.md](docs/mcp.md). |
+| `heraldo ask [--project p] [--key k] [--view v] [--since 12h] "question"` | Asks the server's assistant about the stored events. Prints the answer, the cited event ids, and any suggested change with the command that applies it. Needs `llm.chat` on. |
+| `heraldo llm status`, `llm test` | Prints the assistant's mode (as set and in force), endpoint host, models, circuit, budget and last error; `test` asks the endpoint a trivial question and needs `HERALDO_ADMIN_TOKEN`. |
+| `heraldo guidance [ls]`, `add <scope> <text>`, `edit <id>`, `rm <id>` | Lists, adds, edits or removes guidance lines. A scope is `global`, `project:<p>`, `source:<s>` or `key:<regex>`. `edit` takes `--scope`, `--text`, `--enable` and `--disable`. Writes need `HERALDO_WRITE_TOKEN`. |
 | `heraldo settings [ls]`, `get <key>` | Lists the server settings, or prints one value. The source and any lock go to stderr. |
 | `heraldo settings set <key> <value>`, `unset <key>` | Stores a value, or puts the key back to its default. A secret key takes `-` and reads stdin, never argv. Needs `HERALDO_ADMIN_TOKEN`. |
 

@@ -62,6 +62,10 @@ heraldo mcp [--read-only]
 | `hold_act` | Release held entries as one diagnosis, or suppress them | write |
 | `views_read` | The saved views: filter and bundle | read |
 | `views_write` | Save a view (replacing one with the same name), or delete one | write |
+| `guidance_read` | The guidance lines that inform the LLM's wording and grouping: scope, text, enabled, version | read |
+| `guidance_write` | Add, edit or delete a guidance line | write |
+| `llm_status` | The LLM assistant: mode as set and in force, chat on or off, circuit, budget, last error | read |
+| `ask` | Ask the server's LLM assistant about the stored events; an answer with cited ids and an optional proposal it never applies | read |
 
 Each tool's description says what it is best for, what it returns, what it is
 not for, and which tool follows it. Two short notes on the newer ones:
@@ -83,6 +87,20 @@ not for, and which tool follows it. Two short notes on the newer ones:
   in an hour". When the snooze ends and the incident is still open, heraldo
   pushes its last event again. Needs `key`. Not for: silencing a source or
   project for good; use `mute` without `remind`.
+- `guidance_read`. Best for: what the assistant was told, before adding a
+  line. Not for: rules or floors; guidance never changes a level.
+- `guidance_write`. Best for: the owner says how the assistant should word
+  or group something, such as "backup alerts from one host are one story".
+  Not for: muting or routing (`mute`, or the owner's rules file).
+- `llm_status`. Best for: whether the assistant is on, and why `ask`
+  failed. Not for: changing it; `settings_write` with `llm.*` keys (admin).
+- `ask`. Best for: a summary in the owner's words when the server's assistant
+  is on. It reads only, through the same read tools, cites event ids and may
+  suggest one change (`filter`, `view`, `guidance` or `mute`). Not for:
+  anything you can read yourself; `events_search` and `event_read` are faster
+  and spend no LLM budget. Apply a proposal with `views_write`,
+  `guidance_write` or `mute` only when the owner agrees. The LLM is off by
+  default; `ask` then fails with `llm_off`.
 - `overview` marks a flapping incident: `flapping`, `flap_count` and
   `flap_since` on the item, and `[open, flapping (4 opens)]` in the text. Its
   opens update one notification and do not page (docs/api.md, "Flap
@@ -153,11 +171,12 @@ to do>.`, and `structuredContent.error` with `code`, `status`, `message` and
 | `no_open_incident` | `incident_act` on a key with no open incident |
 | `nothing_open` | `hold_act` with no id that names an open entry (409) |
 | `unreachable` | No answer from `HERALDO_URL` |
-| `server_too_old` | The server cannot list newest first; pass `order: oldest` |
+| `server_too_old` | The server cannot list newest first (pass `order: oldest`), or has no saved views, or no LLM or guidance |
 | `unsupported_filter` | The server has no `project` field yet, no project mutes, or no snooze (`remind`) |
 | `locked_by_env` | `settings_write` on a key a server flag or env var sets |
 | `no_secret_key` | The server has no `HERALDO_SECRET_KEY_FILE` for a secret write |
 | `secret` | `settings_write` on a secret key |
+| `llm_off` | `ask` while the server's assistant is off (`llm.chat`, `llm.mode`, or a standby) |
 
 ## Routine events
 
