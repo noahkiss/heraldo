@@ -31,6 +31,12 @@ reading (HERALDO_URL, HERALDO_TOKEN):
   ls               the newest events, without routine ones; --kind --source --host
                    --key --tag --project -q --open --routine
   held             events held for triage
+  hold             the alert hold's queue (a look, not a triage poll; --poll for one)
+  state            open incidents, running jobs, checks and statuses; --project
+  projects         the projects stored events name, with counts
+  activities [--all]
+                   running Live Activities; activities show <key> for one
+  devices          registered devices; devices retire <id> stops pushes to one
   checkins         every check: state, next due, last run, last log
   checkins show <slug>
                    one check with its full last log
@@ -43,6 +49,10 @@ writing:
                    add or change a check, pause or resume it (HERALDO_WRITE_TOKEN)
   checkins key [--remove] <slug>
                    print a new ping URL for a check; the old one stops working
+  mute             mute a source, key or project for a while (HERALDO_WRITE_TOKEN)
+  mutes [end <id>] the mutes in force, or end one (HERALDO_WRITE_TOKEN)
+  hold release|suppress <id>...
+                   close held entries with one diagnosis, or with none
   send             send a notification through HERALDO_SEND_URL or APPRISE_URL
                    --attach <file> (repeatable) posts to the heraldo API instead
 
@@ -120,6 +130,8 @@ func (a *app) run(ctx context.Context, args []string) int {
 		"peek": a.peek, "show": a.show, "ls": a.ls, "held": a.held, "checkins": a.checkins,
 		"tail": a.tail, "ack": a.ack, "resolve": a.resolve, "send": a.send, "attachment": a.attachment,
 		"mcp": a.mcp, "settings": a.settings, "why": a.why,
+		"mute": a.mute, "mutes": a.mutes, "hold": a.hold, "devices": a.devices,
+		"projects": a.projects, "state": a.state, "activities": a.activities,
 	}
 	name := args[0]
 	switch name {

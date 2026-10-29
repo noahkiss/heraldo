@@ -20,17 +20,19 @@ import (
 // sectionCap caps each overview list.
 const sectionCap = 20
 
-var allSections = []string{"unread", "incidents", "checkins", "activities", "mutes", "statuses"}
+// allSections lists overview's sections; the first five are the default.
+var allSections = []string{"unread", "incidents", "checkins", "activities", "mutes", "statuses", "projects", "devices"}
 
 type overviewIn struct {
 	Project  []string `json:"project,omitempty" jsonschema:"Only incidents, checks and statuses of these projects."`
-	Sections []string `json:"sections,omitempty" jsonschema:"Default: all but statuses."`
+	Sections []string `json:"sections,omitempty" jsonschema:"Default: unread, incidents, checkins, activities, mutes. Ask for statuses, projects or devices by name."`
 }
 
 const overviewDesc = `Show what needs attention in heraldo now: unread count, open incidents, checks that are down or late, running Live Activities, mutes in force.
 
 Best for: the first call in a session, and "is anything wrong / what happened".
 Returns: counts plus short lists (at most 20 per section, most urgent first). No event bodies.
+Ask for more by name in sections: statuses (set status widgets), projects (the project names events use, with counts; use them as project filters), devices (the owner's registered phones and Macs, and whether each gets pushes).
 Not for: history or search; use events_search.
 Follow up with event_read for an incident's full text, checkin_read for a check, activity_read for an activity, events_search with key=<key> for an incident's history.`
 
@@ -59,7 +61,15 @@ func (t *tools) addOverview(s *mcp.Server) {
 			}),
 			"mutes":    obj("", map[string]*jsonschema.Schema{"items": arr("", anyObj("id, source, key, project, until"))}),
 			"statuses": obj("", map[string]*jsonschema.Schema{"total": integer(""), "items": arr("", eventSummarySchema)}),
-			"notes":    arr("", str("")),
+			"projects": obj("Newest first.", map[string]*jsonschema.Schema{
+				"total": integer(""), "unfiled": integer("Events with no project."),
+				"items": arr("", anyObj("name, events, last_at")),
+			}),
+			"devices": obj("Active first.", map[string]*jsonschema.Schema{
+				"total": integer(""), "active": integer(""),
+				"items": arr("", anyObj("id, name, platform, environment, active, token_suffix, permissions, retired_reason, updated_at")),
+			}),
+			"notes": arr("", str("")),
 		},
 		t.overview)
 }
@@ -151,6 +161,10 @@ func (t *tools) overview(ctx context.Context, req *mcp.CallToolRequest, in overv
 		aerr    error
 		mutes   []api.Mute
 		merr    error
+		projs   api.ProjectList
+		perr    error
+		devs    []api.Device
+		derr    error
 		needSt  = want["incidents"] || want["statuses"]
 		goFetch = func(on bool, f func()) {
 			if on {
@@ -165,6 +179,8 @@ func (t *tools) overview(ctx context.Context, req *mcp.CallToolRequest, in overv
 	goFetch(want["checkins"], func() { checks, ckerr = t.API.ChecksIn(ctx, in.Project) })
 	goFetch(want["activities"], func() { acts, aerr = t.API.Activities(ctx, false) })
 	goFetch(want["mutes"] && t.Write, func() { mutes, merr = t.API.Mutes(ctx) })
+	goFetch(want["projects"], func() { projs, perr = t.API.Projects(ctx) })
+	goFetch(want["devices"], func() { devs, derr = t.API.Devices(ctx) })
 	wg.Wait()
 
 	// A failure every call shares (a bad token, a server that is down) is
@@ -340,6 +356,44 @@ func (t *tools) overview(ctx context.Context, req *mcp.CallToolRequest, in overv
 				lines = append(lines, line+" until "+m.Until)
 			}
 		}
+	}
+	if want["projects"] && section("projects", perr) {
+		pl := projs.Projects
+		sort.SliceStable(pl, func(i, j int) bool { return pl[i].LastAt.After(pl[j].LastAt) })
+		items := make([]map[string]any, 0, min(len(pl), sectionCap))
+		lines = append(lines, fmt.Sprintf("projects: %d, plus %d events with none", len(pl), projs.Unfiled))
+		for _, p := range pl[:min(len(pl), sectionCap)] {
+			items = append(items, map[string]any{"name": p.Name, "events": p.Events, "last_at": rfc(p.LastAt)})
+			lines = append(lines, fmt.Sprintf("  %s: %d events, last %s", p.Name, p.Events, rfc(p.LastAt)))
+		}
+		out["projects"] = map[string]any{"total": len(pl), "unfiled": projs.Unfiled, "items": items}
+	}
+	if want["devices"] && section("devices", derr) {
+		sort.SliceStable(devs, func(i, j int) bool { return devs[i].Active && !devs[j].Active })
+		active := 0
+		for _, d := range devs {
+			if d.Active {
+				active++
+			}
+		}
+		lines = append(lines, fmt.Sprintf("devices: %d, %d active", len(devs), active))
+		items := make([]map[string]any, 0, min(len(devs), sectionCap))
+		for _, d := range devs[:min(len(devs), sectionCap)] {
+			it := map[string]any{"id": d.Id, "environment": string(d.Environment), "active": d.Active,
+				"token_suffix": d.TokenSuffix, "permissions": d.Permissions, "updated_at": rfc(d.UpdatedAt)}
+			for k, v := range map[string]*string{"name": d.Name, "platform": d.Platform, "retired_reason": d.RetiredReason} {
+				if v != nil {
+					it[k] = *v
+				}
+			}
+			items = append(items, it)
+			state := "active"
+			if !d.Active {
+				state = "retired: " + deref(d.RetiredReason)
+			}
+			lines = append(lines, fmt.Sprintf("  %s %s (%s) %s", d.Id, deref(d.Name), deref(d.Platform), state))
+		}
+		out["devices"] = map[string]any{"total": len(devs), "active": active, "items": items}
 	}
 	if len(notes) > 0 {
 		out["notes"] = notes

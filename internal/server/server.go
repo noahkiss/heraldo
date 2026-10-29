@@ -68,6 +68,12 @@ type Options struct {
 	// Standby is set on a standby server. It refuses attachment uploads:
 	// its events go back to the primary without bytes.
 	Standby bool
+	// MCP, when set, serves POST /v1/mcp: it gets the API handler, to call
+	// in process with an auth grant (auth.WithGrant), and a function that
+	// returns the token that authenticated a request. Any scope may call
+	// the endpoint; the handler decides what the token may do. nil means
+	// no MCP endpoint (HERALDO_MCP_HTTP off).
+	MCP func(api http.Handler, tokenOf func(*http.Request) auth.Token) http.Handler
 }
 
 // Pusher queues stored events for push. Enqueue must not block.
@@ -191,6 +197,9 @@ func NewServer(o Options) *Server {
 	mux.HandleFunc("POST /v1/checkins/{slug}/resume", s.auth(auth.ScopeWrite, false, s.resumeCheck))
 	mux.HandleFunc("POST /v1/checkins/{slug}/key", s.auth(auth.ScopeWrite, false, s.mintPingKey))
 	mux.HandleFunc("DELETE /v1/checkins/{slug}/key", s.auth(auth.ScopeWrite, false, s.removePingKey))
+	if o.MCP != nil {
+		mux.Handle("POST /v1/mcp", s.auth("", false, o.MCP(mux, tokenFrom).ServeHTTP))
+	}
 	return &Server{Handler: s.logRequests(mux), s: s}
 }
 
@@ -284,10 +293,19 @@ func redactPath(p string) string {
 	return "/p/<key>"
 }
 
-// auth requires a token with scope need. queryToken allows the token
-// parameter as well as the Authorization header.
+// auth requires a token with scope need; an empty need takes any scope.
+// queryToken allows the token parameter as well as the Authorization
+// header. An in-process grant (auth.WithGrant) stands in for the header.
 func (s *server) auth(need auth.Scope, queryToken bool, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if g, ok := auth.GrantFrom(r.Context()); ok {
+			if !auth.GrantAllows(g, need) {
+				writeError(w, http.StatusForbidden, "token %q has scope %s; this call needs %s", g.Name, g.Scope, need)
+				return
+			}
+			h(w, r.WithContext(context.WithValue(r.Context(), tokenKey{}, g)))
+			return
+		}
 		presented := ""
 		if v := r.Header.Get("Authorization"); v != "" {
 			scheme, tok, ok := strings.Cut(v, " ")
@@ -315,7 +333,7 @@ func (s *server) auth(need auth.Scope, queryToken bool, h http.HandlerFunc) http
 		if who, _ := r.Context().Value(ctxKey{}).(*string); who != nil {
 			*who = t.Name
 		}
-		if !t.Scope.Allows(need) {
+		if need != "" && !t.Scope.Allows(need) {
 			writeError(w, http.StatusForbidden, "token %q has scope %s; this call needs %s", t.Name, t.Scope, need)
 			return
 		}

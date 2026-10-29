@@ -65,6 +65,9 @@ type Config struct {
 	// HoldDeadman is how long the hold waits for a triage poll before it
 	// stops holding. HERALDO_HOLD_DEADMAN.
 	HoldDeadman time.Duration
+	// MCPHTTP serves the MCP tools at POST /v1/mcp. HERALDO_MCP_HTTP,
+	// default off.
+	MCPHTTP bool
 
 	// Standby runs the server as the standby of PrimaryURL.
 	// HERALDO_ROLE=standby; the default role is primary.
@@ -130,6 +133,13 @@ func FromEnv(getenv func(string) string) (Config, error) {
 			return Config{}, fmt.Errorf("HERALDO_NOTIFY_TRUSTED_NETS: %q is not a CIDR such as 192.0.2.0/24", f)
 		}
 		c.NotifyTrustedNets = append(c.NotifyTrustedNets, p.Masked())
+	}
+	switch strings.ToLower(getenv("HERALDO_MCP_HTTP")) {
+	case "", "off", "false", "0":
+	case "on", "true", "1":
+		c.MCPHTTP = true
+	default:
+		return Config{}, fmt.Errorf("HERALDO_MCP_HTTP %q: want on or off", getenv("HERALDO_MCP_HTTP"))
 	}
 	switch strings.ToLower(getenv("HERALDO_PUSH")) {
 	case "", "off", "false", "0":

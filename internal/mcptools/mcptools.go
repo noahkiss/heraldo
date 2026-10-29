@@ -1,6 +1,7 @@
 // Package mcptools is heraldo's MCP tool layer: the tools over the heraldo
 // API, for coding agents. It knows nothing of the transport. heraldo mcp
-// serves it on stdio; a later HTTP transport can mount the same server.
+// serves it on stdio; internal/mcphttp serves it on the server at
+// POST /v1/mcp.
 package mcptools
 
 import (
@@ -38,6 +39,11 @@ type API interface {
 	DeleteSetting(ctx context.Context, key string) (api.Setting, error)
 	UploadAttachment(ctx context.Context, contentType string, data []byte) (api.AttachmentCreated, error)
 	Attachment(ctx context.Context, id string) ([]byte, string, error)
+	Projects(ctx context.Context) (api.ProjectList, error)
+	Devices(ctx context.Context) ([]api.Device, error)
+	Hold(ctx context.Context, q client.HoldQuery) (api.HoldQueue, error)
+	HoldRelease(ctx context.Context, in api.HoldReleaseJSONBody) (client.HoldResult, error)
+	HoldSuppress(ctx context.Context, in api.HoldSuppressJSONBody) (client.HoldResult, error)
 }
 
 var _ API = (*client.Client)(nil)
@@ -99,11 +105,13 @@ func New(o Options) *mcp.Server {
 	t.addActivityRead(s)
 	t.addSettingsRead(s)
 	t.addAttachmentRead(s)
+	t.addHoldRead(s)
 	if o.Write {
 		t.addIncidentAct(s)
 		t.addCheckinUpdate(s)
 		t.addMute(s)
 		t.addSend(s)
+		t.addHoldAct(s)
 	}
 	if o.Admin {
 		t.addSettingsWrite(s)
@@ -113,8 +121,8 @@ func New(o Options) *mcp.Server {
 
 // ReadTools, WriteTools and AdminTools name the tools New registers.
 var (
-	ReadTools  = []string{"overview", "events_search", "event_read", "checkin_read", "activity_read", "settings_read", "attachment_read"}
-	WriteTools = []string{"incident_act", "checkin_update", "mute", "send"}
+	ReadTools  = []string{"overview", "events_search", "event_read", "checkin_read", "activity_read", "settings_read", "attachment_read", "hold_read"}
+	WriteTools = []string{"incident_act", "checkin_update", "mute", "send", "hold_act"}
 	AdminTools = []string{"settings_write"}
 )
 
@@ -126,6 +134,8 @@ const instructionsWrite = `Writes reach the owner's devices. Act on incidents, c
 
 const instructionsIDs = `Event ids are ULIDs. Incident and progress events share a key; events_search key=<key> gives one incident's or one job's history. A check's incident key is checkin:<slug>.`
 
+const instructionsHold = `The alert hold keeps alerts off the owner's phone until triage reads them. hold_read shows it; hold_act closes entries with one diagnosis. hold_read is not a triage poll unless you pass poll=true.`
+
 func (t *tools) instructions() string {
 	parts := []string{instructionsRead}
 	if t.Write && t.API != nil {
@@ -133,7 +143,7 @@ func (t *tools) instructions() string {
 	} else {
 		parts = append(parts, "This server is read-only: it has no write token, so it cannot ack, mute, send or change checks.")
 	}
-	parts = append(parts, instructionsIDs)
+	parts = append(parts, instructionsIDs, instructionsHold)
 	return strings.Join(parts, "\n\n")
 }
 

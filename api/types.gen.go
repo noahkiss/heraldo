@@ -1424,8 +1424,8 @@ type HealthStatus string
 type HoldEntry struct {
 	Body       *string         `json:"body,omitempty"`
 	Client     *string         `json:"client,omitempty"`
-	ClosedTs   *float32        `json:"closed_ts,omitempty"`
-	DeadlineTs float32         `json:"deadline_ts"`
+	ClosedTs   *float64        `json:"closed_ts,omitempty"`
+	DeadlineTs float64         `json:"deadline_ts"`
 	EventId    *string         `json:"event_id,omitempty"`
 	Forwarded  bool            `json:"forwarded"`
 	Id         string          `json:"id"`
@@ -1435,7 +1435,7 @@ type HoldEntry struct {
 	Status     HoldEntryStatus `json:"status"`
 	Tag        *string         `json:"tag,omitempty"`
 	Title      *string         `json:"title,omitempty"`
-	Ts         float32         `json:"ts"`
+	Ts         float64         `json:"ts"`
 	Verdict    *string         `json:"verdict,omitempty"`
 }
 
@@ -1448,11 +1448,11 @@ type HoldQueue struct {
 	Held          []HoldEntry `json:"held"`
 
 	// LastPollTs Epoch seconds.
-	LastPollTs nullable.Nullable[float32] `json:"last_poll_ts,omitempty"`
+	LastPollTs nullable.Nullable[float64] `json:"last_poll_ts,omitempty"`
 	Mode       HoldQueueMode              `json:"mode"`
 
 	// OldestUnforwardedTs Epoch seconds of the oldest entry that no pushing event carries yet; null when none.
-	OldestUnforwardedTs nullable.Nullable[float32] `json:"oldest_unforwarded_ts,omitempty"`
+	OldestUnforwardedTs nullable.Nullable[float64] `json:"oldest_unforwarded_ts,omitempty"`
 }
 
 // HoldQueueMode defines model for HoldQueue.Mode.
@@ -2396,6 +2396,9 @@ type HoldSuppressJSONBody struct {
 	Reason *string  `json:"reason,omitempty"`
 }
 
+// McpJSONBody defines parameters for Mcp.
+type McpJSONBody map[string]interface{}
+
 // SendEventParams defines parameters for SendEvent.
 type SendEventParams struct {
 	Source  string       `form:"source" json:"source"`
@@ -2501,6 +2504,9 @@ type HoldReleaseJSONRequestBody HoldReleaseJSONBody
 
 // HoldSuppressJSONRequestBody defines body for HoldSuppress for application/json ContentType.
 type HoldSuppressJSONRequestBody HoldSuppressJSONBody
+
+// McpJSONRequestBody defines body for Mcp for application/json ContentType.
+type McpJSONRequestBody McpJSONBody
 
 // CreateMuteJSONRequestBody defines body for CreateMute for application/json ContentType.
 type CreateMuteJSONRequestBody = MuteInput

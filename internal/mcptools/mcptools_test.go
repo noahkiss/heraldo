@@ -40,6 +40,12 @@ type fixture struct {
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
+	return newFixtureWith(t, nil)
+}
+
+// newFixtureWith is newFixture with the server options changed by opt.
+func newFixtureWith(t *testing.T, opt func(*server.Options)) *fixture {
+	t.Helper()
 	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "h.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -55,10 +61,14 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	done := make(chan struct{})
-	srv := httptest.NewServer(server.New(server.Options{
+	o := server.Options{
 		Store: st, Tokens: tokens, Validator: v, Done: done, Version: "test",
 		Logger: slog.New(slog.DiscardHandler),
-	}))
+	}
+	if opt != nil {
+		opt(&o)
+	}
+	srv := httptest.NewServer(server.New(o))
 	t.Cleanup(func() { close(done); srv.Close() })
 	return &fixture{t: t, url: srv.URL, st: st}
 }

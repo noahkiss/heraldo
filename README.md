@@ -153,6 +153,7 @@ The server reads its configuration from the environment.
 | `HERALDO_HOLD_BYPASS_FILE` | none | The hold's bypass list, a JSON file, reloaded when it changes. Example: `deploy/hold-bypass.example.json`. |
 | `HERALDO_HOLD_DEADLINE` | `30m` | How long an alert waits for triage before it is forwarded as it is. |
 | `HERALDO_HOLD_DEADMAN` | `20m` | How long the hold waits for a triage poll before it stops holding. |
+| `HERALDO_MCP_HTTP` | `off` | `on` serves the MCP tools at `POST /v1/mcp`, for agents that reach the server over HTTP. A read token gets the read tools; a write token gets the write tools too. See [docs/mcp.md](docs/mcp.md#over-http). |
 | `HERALDO_ROLE` | `primary` | `standby` runs a standby that copies the primary's devices and pushes when the primary is down. It also needs `HERALDO_PRIMARY_URL` and `HERALDO_PRIMARY_TOKEN`. See [docs/api.md](docs/api.md#standby). |
 
 | `HERALDO_SECRET_KEY_FILE` | none | A 32-byte key (`openssl rand -hex 32 > secret.key`) that encrypts secrets written through the settings API. Without it, the server refuses such writes; a secret can still come from its env var. Mount it read-only. |
@@ -219,6 +220,15 @@ any `-wal` and `-shm` files left beside the old database first.
 | `heraldo attachment get [-o file] <id>` | Writes an attachment's bytes to a new file, or to stdout. It never overwrites a file. |
 | `heraldo ls` | Lists the newest events (20 by default, oldest first). Filters: `--kind`, `--source`, `--host`, `--key`, `--tag`, `--project` (a comma-separated list; `-` for none), `-q` (full text). `--open` lists the incidents that are not resolved. Routine events (passing check-ins, progress, status) stay out unless `--routine` is given, or `--kind` or `--key` names them. |
 | `heraldo held` | Lists events held for triage (`hold.state` is `held`). |
+| `heraldo hold` | Shows the alert hold's queue: mode, dead-man, and each entry. `--pending` lists open entries only. The call is a look, not a triage poll; `--poll` makes it a poll, for a triage job. |
+| `heraldo hold release --verdict V --title t --body b --tag t <id>...` | Closes held entries with one diagnosis. In mode `on` it stores one message. Needs `HERALDO_WRITE_TOKEN`. |
+| `heraldo hold suppress [--reason r] <id>...` | Closes held entries and sends nothing. Needs `HERALDO_WRITE_TOKEN`. |
+| `heraldo state` | Prints the incidents not resolved, the progress not ended, the check-ins and the statuses. `--project` keeps those projects. |
+| `heraldo projects` | Lists the projects the stored events name, with counts, and the events with none (`-`). |
+| `heraldo activities [--all]` | Lists the running Live Activities; `--all` adds ended ones. `activities show <key>` prints one with its devices and timeline. |
+| `heraldo devices` | Lists the registered devices: name, platform, token suffix, active or retired. `devices retire <id>` stops pushes to one. |
+| `heraldo mute` | Mutes a source, key or project for a while: `--source`, `--key`, `--project`, and `--for` (default `1h`) or `--until`. Needs `HERALDO_WRITE_TOKEN`. |
+| `heraldo mutes`, `mutes end <id>` | Lists the mutes in force, or ends one now. Needs `HERALDO_WRITE_TOKEN`. |
 | `heraldo checkins` | Lists every check: state, next due time, last run length, first line of the last log. `--project` keeps the checks in those projects. `checkins show <slug>` prints one check with its full last log. |
 | `heraldo checkins create <slug>` | Creates a check, or replaces a known check's schedule: `--period` or `--cron` with `--tz`, `--grace`, `--max-runtime`, `--reminder`, `--host`. Needs `HERALDO_WRITE_TOKEN`. |
 | `heraldo checkins pause <slug>`, `resume <slug>` | Pauses or resumes a check. Needs `HERALDO_WRITE_TOKEN`. |
@@ -226,7 +236,7 @@ any `-wal` and `-shm` files left beside the old database first.
 | `heraldo tail` | Prints new events as they arrive. It takes the `ls` filters, `--unread` (start at the read cursor), `--mark` (move the cursor; not with filters) and `--exec <command>`. |
 | `heraldo ack <key>`, `heraldo resolve <key>` | Posts an `ack` or `resolve` event for an open incident. `-m` adds a note; `--force` posts for a key with no open incident. |
 | `heraldo send` | Posts a notification to an Apprise-compatible notify URL, with an optional heraldo fallback. `--attach <file>` posts to the heraldo API instead. |
-| `heraldo mcp [--read-only]` | Serves the MCP tools for coding agents on stdio. See [docs/mcp.md](docs/mcp.md). |
+| `heraldo mcp [--read-only]` | Serves the MCP tools for coding agents on stdio. The server can serve them over HTTP too (`HERALDO_MCP_HTTP`). See [docs/mcp.md](docs/mcp.md). |
 | `heraldo settings [ls]`, `get <key>` | Lists the server settings, or prints one value. The source and any lock go to stderr. |
 | `heraldo settings set <key> <value>`, `unset <key>` | Stores a value, or puts the key back to its default. A secret key takes `-` and reads stdin, never argv. Needs `HERALDO_ADMIN_TOKEN`. |
 

@@ -43,6 +43,7 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `POST /v1/attachments`, `GET /v1/attachments/{id}` | Store a file an event can name (write), and fetch its bytes (read). See "Attachments". | served |
 | `GET /v1/standby/devices` | Every device with its full push tokens, for a standby. Admin, or a `read` token with the `standby` capability. See "Standby". | served |
 | `POST /v1/standby/import` | Stores the events a standby stored, by their ids, and pushes none of them. Same token as above. | served |
+| `POST /v1/mcp` | The MCP tools for coding agents, over streamable HTTP, with `HERALDO_MCP_HTTP=on`; 404 when off. Any token scope; the scope picks the tools. See [mcp.md](mcp.md#over-http). | served |
 
 Auth:
 
@@ -83,6 +84,11 @@ Auth:
     those is dropped.
   - Its `dedup` id matches every earlier event, not only the last 24 hours.
     The tee sends its catalogue id as `dedup`.
+- `POST /v1/mcp` takes a token of any scope. Its tools call the API in the
+  server's own process with that token. There, and only there, a `write`
+  token may also read: an HTTP MCP client sends one token, and a write tool
+  reads before it writes. The same `write` token on `GET /v1/events` still
+  gets 403.
 - A `read` token with the `standby` capability is a standby's token on its
   primary. It may read the full push tokens and import events (see
   "Standby"). A plain `read` token sees token suffixes only.

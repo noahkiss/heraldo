@@ -111,6 +111,18 @@ func TestFromEnvPush(t *testing.T) {
 	}
 }
 
+func TestFromEnvMCPHTTP(t *testing.T) {
+	if c, err := FromEnv(env(nil)); err != nil || c.MCPHTTP {
+		t.Fatalf("default: %v %v", c.MCPHTTP, err)
+	}
+	if c, err := FromEnv(env(map[string]string{"HERALDO_MCP_HTTP": "on"})); err != nil || !c.MCPHTTP {
+		t.Fatalf("on: %v %v", c.MCPHTTP, err)
+	}
+	if _, err := FromEnv(env(map[string]string{"HERALDO_MCP_HTTP": "maybe"})); err == nil {
+		t.Fatal("accepted HERALDO_MCP_HTTP=maybe")
+	}
+}
+
 func TestFromEnvAPNsKeyInline(t *testing.T) {
 	ids := map[string]string{"HERALDO_APNS_KEY_ID": "KEYID00001", "HERALDO_APNS_TEAM_ID": "TEAMID0001"}
 	with := func(kv ...string) map[string]string {

@@ -67,6 +67,7 @@ import (
 	"github.com/noahkiss/heraldo/internal/config"
 	"github.com/noahkiss/heraldo/internal/hold"
 	"github.com/noahkiss/heraldo/internal/live"
+	"github.com/noahkiss/heraldo/internal/mcphttp"
 	"github.com/noahkiss/heraldo/internal/push"
 	"github.com/noahkiss/heraldo/internal/replay"
 	"github.com/noahkiss/heraldo/internal/rules"
@@ -268,7 +269,7 @@ func serve(flags map[string]string, log *slog.Logger) error {
 	pushCtx, stopPush := context.WithCancel(context.Background())
 	defer stopPush()
 	pusher, lm, pushState := startPush(ctx, pushCtx, cfg, st, rw, log)
-	h := server.NewServer(server.Options{
+	so := server.Options{
 		Version: version.String(), Store: st, Tokens: tokens, Validator: v, Rules: rw, Logger: log,
 		Done: ctx.Done(), Pusher: pusher, PushState: pushState, Live: lm,
 		TrustedNets: cfg.NotifyTrustedNets, Settings: sm,
@@ -276,7 +277,12 @@ func serve(flags map[string]string, log *slog.Logger) error {
 		Hold: server.HoldOptions{
 			Mode: cfg.HoldMode, Bypass: bypass, Deadline: cfg.HoldDeadline, Deadman: cfg.HoldDeadman,
 		},
-	})
+	}
+	if cfg.MCPHTTP {
+		so.MCP = mcphttp.New(mcphttp.Options{Version: version.String(), Logger: log.With("component", "mcp")})
+		log.Info("mcp: serving the MCP tools at POST /v1/mcp")
+	}
+	h := server.NewServer(so)
 	if len(cfg.NotifyTrustedNets) > 0 {
 		log.Warn("notify: senders in these networks post to the Apprise paths with no credential",
 			"nets", fmt.Sprint(cfg.NotifyTrustedNets))

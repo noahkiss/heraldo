@@ -39,6 +39,8 @@ tags:
     description: A standby server copies the devices and hands back what it stored.
   - name: settings
     description: Server settings. A launch flag or env var wins over a stored value and locks the key.
+  - name: mcp
+    description: The MCP tools for coding agents, over streamable HTTP. docs/mcp.md.
 paths:
   /healthz:
     get:
@@ -1939,6 +1941,36 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/SettingConflict"
+  /v1/mcp:
+    post:
+      operationId: mcp
+      summary: The MCP tools, over streamable HTTP.
+      description: |
+        Served only with HERALDO_MCP_HTTP=on; otherwise 404. One JSON-RPC message per
+        POST, answered as JSON. Stateless: no Mcp-Session-Id, and GET and DELETE get 405.
+        A read token gets the read tools. A write or admin token gets the write tools
+        too, and its tools may also read. The tools are the ones `heraldo mcp` serves on
+        stdio; docs/mcp.md lists them.
+      tags: [mcp]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true, description: A JSON-RPC 2.0 message.}
+      responses:
+        "200":
+          description: The JSON-RPC answer.
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        "202":
+          description: A notification or a response from the client; no body.
+        "400":
+          description: Not a JSON-RPC message.
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          description: HERALDO_MCP_HTTP is off.
 components:
   securitySchemes:
     bearerAuth:
@@ -2794,8 +2826,8 @@ components:
       required: [mode, held]
       properties:
         mode: {type: string, enum: ["off", shadow, "on"]}
-        last_poll_ts: {type: [number, "null"], description: Epoch seconds.}
-        oldest_unforwarded_ts: {type: [number, "null"], description: "Epoch seconds of the oldest entry that no pushing event carries yet; null when none."}
+        last_poll_ts: {type: [number, "null"], format: double, description: Epoch seconds.}
+        oldest_unforwarded_ts: {type: [number, "null"], format: double, description: "Epoch seconds of the oldest entry that no pushing event carries yet; null when none."}
         deadman_active: {type: boolean}
         held:
           type: array
@@ -2807,9 +2839,9 @@ components:
       properties:
         id: {type: string}
         event_id: {type: string}
-        ts: {type: number}
-        deadline_ts: {type: number}
-        closed_ts: {type: number}
+        ts: {type: number, format: double}
+        deadline_ts: {type: number, format: double}
+        closed_ts: {type: number, format: double}
         tag: {type: string}
         title: {type: string}
         body: {type: string}

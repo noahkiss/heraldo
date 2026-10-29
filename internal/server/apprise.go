@@ -53,7 +53,7 @@ func (s *server) appriseRoutes(mux *http.ServeMux) {
 func (s *server) notifyAuth(need auth.Scope, pathKey bool, h http.HandlerFunc) http.HandlerFunc {
 	bearer := s.auth(need, false, h)
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "" || r.URL.Query().Has("token") {
+		if _, grant := auth.GrantFrom(r.Context()); grant || r.Header.Get("Authorization") != "" || r.URL.Query().Has("token") {
 			bearer(w, r)
 			return
 		}
