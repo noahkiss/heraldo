@@ -576,14 +576,18 @@ public enum JSON {
             return d
         }
         if let d = try? Date(s, strategy: .iso8601) { return d }
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f.date(from: s)
+        return fractional.date(from: s)
     }
 
     public static func formatDate(_ d: Date) -> String {
+        fractional.string(from: d)
+    }
+
+    /// One shared formatter: making one per date cost most of a sync's CPU.
+    /// ISO8601DateFormatter is thread-safe.
+    nonisolated(unsafe) private static let fractional: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f.string(from: d)
-    }
+        return f
+    }()
 }

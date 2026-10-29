@@ -129,15 +129,24 @@ struct DisplaySection: View {
 /// Tells the widgets that the app synced.
 @MainActor
 enum Widgets {
-    static func reload(_ model: AppModel) {
+    /// The last snapshot written, with `updated` cleared.
+    @MainActor private static var last: WidgetSnapshot?
+
+    /// Writes the snapshot and reloads the widgets when what they show
+    /// changed. A reload wakes every widget extension.
+    @MainActor static func reload(_ model: AppModel) {
+        DisplayPrefs.shared.syncFromExtensions()
         let snapshot = WidgetSnapshot(incidents: model.incidents, checks: model.checks,
                                       projects: model.projectChoices, events: model.cache.events)
+        var content = snapshot
+        content.updated = .distantPast
+        guard content != last else { return }
         do {
             try snapshot.save()
         } catch {
             log.error("widgets: \(error.localizedDescription, privacy: .public)")
         }
+        last = content
         WidgetCenter.shared.reloadAllTimelines()
-        DisplayPrefs.shared.syncFromExtensions()
     }
 }

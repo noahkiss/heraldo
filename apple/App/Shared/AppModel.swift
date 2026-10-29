@@ -144,21 +144,26 @@ final class AppModel {
         defer { isSyncing = false }
         do {
             let sync = try sync()
-            cache = try await sync.sync(cache)
-            saveCache()
-            unread = try await sync.unread()
+            // Each value is set only when it changed: a set redraws every
+            // view that reads it, and most syncs bring nothing new.
+            let synced = try await sync.sync(cache)
+            if synced != cache {
+                cache = synced
+                saveCache()
+            }
+            update(\.unread, try await sync.unread())
             // Open incidents before acknowledged ones, newest first in each.
-            incidents = try await sync.client.state().sortedIncidents
-            checks = try await sync.client.checks() ?? []
-            projects = (try? await sync.client.projects())?.projects.map(\.name) ?? []
+            update(\.incidents, try await sync.client.state().sortedIncidents)
+            update(\.checks, try await sync.client.checks() ?? [])
+            update(\.projects, (try? await sync.client.projects())?.projects.map(\.name) ?? [])
             await reloadViews()
-            chatAvailable = (try? await sync.client.llmStatus())?.chat ?? false
+            update(\.chatAvailable, (try? await sync.client.llmStatus())?.chat ?? false)
             #if os(macOS)
-            activities = (try? await sync.client.activities()) ?? []
-            held = (try? await sync.client.heldEntries())?.held.filter(\.isOpen) ?? []
+            update(\.activities, (try? await sync.client.activities()) ?? [])
+            update(\.held, (try? await sync.client.heldEntries())?.held.filter(\.isOpen) ?? [])
             #endif
             lastSync = .now
-            lastError = nil
+            if lastError != nil { lastError = nil }
             onBadge?(unread.badge)
             Widgets.reload(self)
         } catch {
@@ -230,8 +235,13 @@ final class AppModel {
     func reloadViews() async {
         let list: [SavedView]?
         do { list = try await client().views() } catch { return }
-        views = list ?? []
-        viewsSupported = list != nil
+        update(\.views, list ?? [])
+        update(\.viewsSupported, list != nil)
+    }
+
+    /// Sets a property only when the value differs.
+    private func update<T: Equatable>(_ key: ReferenceWritableKeyPath<AppModel, T>, _ value: T) {
+        if self[keyPath: key] != value { self[keyPath: key] = value }
     }
 
     // MARK: Cache file
