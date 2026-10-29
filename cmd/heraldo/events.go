@@ -266,13 +266,14 @@ func stateErr(err error) error {
 // ---- show --------------------------------------------------------------
 
 func (a *app) show(ctx context.Context, args []string) error {
-	fs := a.flags("show", "[--json] <id>")
+	fs := a.flags("show", "[--json | --md] <id>")
 	asJSON := fs.Bool("json", false, "print the stored JSON")
+	asMD := fs.Bool("md", false, "print the event as markdown to share, ending with its heraldo:// link")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
-	if len(pos) != 1 {
+	if len(pos) != 1 || (*asJSON && *asMD) {
 		fs.Usage()
 		return errUsage
 	}
@@ -286,6 +287,10 @@ func (a *app) show(ctx context.Context, args []string) error {
 	}
 	if *asJSON {
 		fmt.Fprintf(a.stdout, "%s\n", e.Raw)
+		return nil
+	}
+	if *asMD {
+		fmt.Fprint(a.stdout, clean(client.Markdown(e)))
 		return nil
 	}
 	detail(a.stdout, e)

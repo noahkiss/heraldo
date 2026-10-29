@@ -268,6 +268,7 @@ var ulidRe = regexp.MustCompile(`^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$`)
 type readIn struct {
 	ID         string `json:"id" jsonschema:"The event id, a 26-character ULID."`
 	BodyOffset int    `json:"body_offset,omitempty" jsonschema:"Byte offset into the body, from body_page.next_offset."`
+	Markdown   bool   `json:"markdown,omitempty" jsonschema:"Also return the event as markdown to share, ending with its heraldo:// link."`
 }
 
 const readDesc = `Read one heraldo event in full: body, details, delivery outcome per device, and why it did or did not push.
@@ -275,6 +276,7 @@ const readDesc = `Read one heraldo event in full: body, details, delivery outcom
 Best for: an id from events_search or overview.
 Returns: the stored event. Bodies over 16 KiB come back in pages; pass body_page.next_offset as body_offset to read on. details over 4 KiB is left out with its size.
 Attachments: attachment_info lists the event's files; read one with attachment_read.
+Sharing: markdown=true adds the text the apps' Share button sends (heraldo show --md).
 Not for: finding events; use events_search.`
 
 func (t *tools) addEventRead(s *mcp.Server) {
@@ -292,6 +294,7 @@ func (t *tools) addEventRead(s *mcp.Server) {
 			"attachment_info": arr("Files stored with the event: id, content_type, bytes. Read one with attachment_read.", anyObj("")),
 			"delivery":        obj("Push outcome per device.", map[string]*jsonschema.Schema{"sent": integer(""), "skipped": integer(""), "failed": integer(""), "items": arr("At most 10.", anyObj(""))}),
 			"why":             str("One line on the push decision, such as \"muted by mute_... (project)\". Absent when the server has not decided the event."),
+			"markdown":        str("With markdown: the event as shareable markdown, at most 16 KiB."),
 			"decisions":       arr("The push pipeline's stages in order, the last one ended it: stage, outcome (pass, downgrade, delay, merge, drop), reason, detail.", anyObj("")),
 		},
 		t.eventRead)
@@ -370,6 +373,18 @@ func (t *tools) eventRead(ctx context.Context, _ *mcp.CallToolRequest, in readIn
 			}
 			m["decisions"] = ds
 		}
+	}
+	if in.Markdown {
+		md := client.Markdown(e)
+		if len(md) > bodyPage {
+			end := bodyPage
+			for end > 0 && !utf8.RuneStart(md[end]) {
+				end--
+			}
+			md = md[:end]
+			notes = append(notes, fmt.Sprintf("markdown cut at %d bytes", end))
+		}
+		m["markdown"] = md
 	}
 	if len(notes) > 0 {
 		m["notes"] = notes

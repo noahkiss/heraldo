@@ -205,6 +205,13 @@ func TestLsShowAndFilters(t *testing.T) {
 	if r := f.run("show", "--json", id); !strings.HasPrefix(r.stdout, "{") {
 		t.Fatalf("show --json: %+v", r)
 	}
+	if r := f.run("show", "--md", id); r.code != 0 || !strings.HasPrefix(r.stdout, "# first\n\nline one\nline two\n") ||
+		!strings.Contains(r.stdout, "- Source: backup\n") || !strings.HasSuffix(r.stdout, "\nheraldo://event/"+id+"\n") {
+		t.Fatalf("show --md: %+v", r)
+	}
+	if r := f.run("show", "--md", "--json", id); r.code != 2 {
+		t.Fatalf("show --md --json is a usage error: %+v", r)
+	}
 	if r := f.run("show", "nope"); r.code != 1 || !strings.Contains(r.stderr, "404") {
 		t.Fatalf("show unknown: %+v", r)
 	}

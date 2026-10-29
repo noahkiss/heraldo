@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -450,6 +451,14 @@ func TestEventReadPages(t *testing.T) {
 	}
 	if calls != 13 {
 		t.Fatalf("%d calls, want 13", calls)
+	}
+	if out, _ := s.ok("event_read", map[string]any{"id": id}); out["markdown"] != nil {
+		t.Fatalf("markdown without asking: %v", out["markdown"])
+	}
+	out, _ := s.ok("event_read", map[string]any{"id": id, "markdown": true})
+	md, _ := out["markdown"].(string)
+	if !strings.HasPrefix(md, "# big\n") || len(md) > 16<<10 || !utf8.ValidString(md) {
+		t.Fatalf("markdown: %d bytes, starts %q", len(md), md[:min(len(md), 20)])
 	}
 	s.fail("event_read", map[string]any{"id": "01JBA6Y8Q2K9M3T4V5W6X7Y8Z9"}, "not_found")
 }

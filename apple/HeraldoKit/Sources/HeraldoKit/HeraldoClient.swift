@@ -305,6 +305,19 @@ public struct HeraldoClient: Sendable {
         return (data, http.mimeType)
     }
 
+    /// Stores one file with the write token, for an event's `attachments`.
+    /// The server takes up to 5 MiB of `image/*`, `text/plain`,
+    /// `application/pdf` or `application/json`; the same bytes again return
+    /// the first id. A standby answers 503.
+    public func upload(_ data: Data, contentType: String) async throws -> AttachmentUpload {
+        guard let writeToken else { throw HeraldoError.notConfigured("The write token") }
+        var r = request("v1/attachments", method: "POST", token: writeToken)
+        r.timeoutInterval = 120
+        r.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        r.httpBody = data
+        return try await send(r)
+    }
+
     // MARK: Live Activities
 
     /// The activity on a progress key, with its instances.

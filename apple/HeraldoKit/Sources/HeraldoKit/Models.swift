@@ -406,6 +406,20 @@ public struct ProjectInfo: Codable, Hashable, Identifiable, Sendable {
 }
 
 /// `GET /v1/projects`: the projects events name, and the count with none.
+/// `POST /v1/attachments`: one stored file.
+public struct AttachmentUpload: Codable, Hashable, Sendable {
+    public var id: String
+    public var url: String
+    public var contentType: String
+    public var bytes: Int
+    public var sha256: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, url, bytes, sha256
+        case contentType = "content_type"
+    }
+}
+
 public struct ProjectList: Codable, Sendable {
     public var projects: [ProjectInfo]
     public var unfiled: Int
@@ -608,10 +622,16 @@ public struct EventInput: Codable, Hashable, Sendable {
     public var level: String?
     /// Live Activity content, for kind progress.
     public var content: LivePatch?
+    public var project: String?
+    public var url: String?
+    /// Ids from `HeraldoClient.upload`, at most `ShareLimits.maxFiles`.
+    public var attachments: [String]?
+    public var dedup: String?
 
     public init(source: String, kind: String? = nil, key: String? = nil, action: String? = nil,
                 host: String? = nil, title: String? = nil, body: String? = nil, level: String? = nil,
-                content: LivePatch? = nil) {
+                content: LivePatch? = nil, project: String? = nil, url: String? = nil,
+                attachments: [String]? = nil, dedup: String? = nil) {
         self.source = source
         self.kind = kind
         self.key = key
@@ -621,10 +641,16 @@ public struct EventInput: Codable, Hashable, Sendable {
         self.body = body
         self.level = level
         self.content = content
+        self.project = project
+        self.url = url
+        self.attachments = attachments
+        self.dedup = dedup
     }
 
     // Encode only: LivePatch has no decoder.
-    enum CodingKeys: String, CodingKey { case source, kind, key, action, host, title, body, level, content }
+    enum CodingKeys: String, CodingKey {
+        case source, kind, key, action, host, title, body, level, content, project, url, attachments, dedup
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -635,7 +661,11 @@ public struct EventInput: Codable, Hashable, Sendable {
                   host: try c.decodeIfPresent(String.self, forKey: .host),
                   title: try c.decodeIfPresent(String.self, forKey: .title),
                   body: try c.decodeIfPresent(String.self, forKey: .body),
-                  level: try c.decodeIfPresent(String.self, forKey: .level))
+                  level: try c.decodeIfPresent(String.self, forKey: .level),
+                  project: try c.decodeIfPresent(String.self, forKey: .project),
+                  url: try c.decodeIfPresent(String.self, forKey: .url),
+                  attachments: try c.decodeIfPresent([String].self, forKey: .attachments),
+                  dedup: try c.decodeIfPresent(String.self, forKey: .dedup))
     }
 }
 
