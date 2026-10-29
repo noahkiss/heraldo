@@ -14,7 +14,7 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 |---|---|---|
 | `GET /healthz` | Liveness, with `db`, the event count and, with push on, `unsent` ("Push"). 503 when the database does not answer. No auth. | served |
 | `POST /v1/events` | Stores one `EventInput`. Returns the stored `Event` (201), or the first event for a repeated `dedup` (200). | served |
-| `GET /v1/events?after=&before=&order=&limit=&source=&kind=&host=&key=&tag=&q=&hold=&project=&routine=` | Lists events after a cursor, in arrival order. `q` is full-text search over title, summary and body. `order=desc` lists newest first. `hold` keeps events whose `hold.state` matches. `project` takes a list (see "Projects"). `routine=exclude` or `only` filters routine events (see "Routine events"). | served |
+| `GET /v1/events?after=&before=&order=&limit=&source=&kind=&host=&key=&tag=&q=&hold=&project=&routine=&level=&view=` | Lists events after a cursor, in arrival order. `q` is full-text search over title, summary and body. `order=desc` lists newest first. `hold` keeps events whose `hold.state` matches. `project` takes a list (see "Projects"). `routine=exclude` or `only` filters routine events (see "Routine events"). `level` takes a list of levels. `view` applies a saved view (see "Saved views"). | served |
 | `GET /v1/events/{id}` | Returns one event with its full body and its `attachment_info`. | served |
 | `GET /v1/events/{id}/why` | Why the event did or did not push: one row per push pipeline stage. See "Why it pushed". | served |
 | `GET /v1/send?source=&kind=&...` | Same as `POST /v1/events` for GET-only clients. Scalar fields and `tags` (repeat the parameter) only. | served |
@@ -38,6 +38,7 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `PUT /v1/activity-instances/{id}` | The app reports an activity's update token, or that it was dismissed or ended. | served |
 | `POST`, `DELETE`, `GET /live-activity/{id}`, `GET /link`, `POST /notify-json/{id}` | Notify! compatibility, for senders written for Notify!. Write token as `?token=`. | served |
 | `GET /v1/mutes`, `POST /v1/mutes`, `DELETE /v1/mutes/{id}` | Mutes in force; mute a source, key or project for a while; end a mute. | served |
+| `GET /v1/views`, `POST /v1/views`, `GET`, `PUT`, `DELETE /v1/views/{id}` | Saved views: list (read), save, read one, replace, delete (write). See "Saved views". | served |
 | `GET /v1/icons`, `GET`, `PUT`, `DELETE /v1/icons/{name}` | The icon registry: list, fetch an image, store one, remove one. | served |
 | `GET /v1/settings`, `GET`, `PUT`, `DELETE /v1/settings/{key}` | Server settings: every key with its value and source, one key, store a value (admin), back to the default (admin). See "Settings". | served |
 | `POST /v1/attachments`, `GET /v1/attachments/{id}` | Store a file an event can name (write), and fetch its bytes (read). See "Attachments". | served |
@@ -321,6 +322,7 @@ a bundle). Every stage that runs writes one row of the event's trace.
 | `devices` | No device is active. |
 | `mute` | A mute matches. Records `skipped` on each device. |
 | `inhibit` | An inhibit rule's parent is open. Records `skipped` on each device. |
+| `bundle` | Never. A saved view's bundle turns the push into the view's collapsed notification, and quiets it after the first ("Saved views"). Its detail names the view, the count and the window. |
 | `deliver` | APNs refused every device. Its detail lists each device's outcome. |
 
 - `why` on an event, from `GET /v1/events` and `GET /v1/events/{id}`, is one
@@ -812,6 +814,58 @@ and so does its Mute project for 1 h menu action.
   `muted by mute_01J... (project)`.
 - Mutes hold back pushes and re-alerts, not storage, the event stream, or the
   read cursors.
+
+## Saved views
+
+A saved view is a named event filter. Every client shares it: the apps show
+it in their sidebars and filter menus, the CLI takes `ls --view`, and agents
+take `events_search view=`.
+
+`POST /v1/views` takes a write token and a `ViewInput`:
+
+| Field | Meaning |
+|---|---|
+| `name` | 1 to 64 bytes, unique without regard to case. It must not start with `view_`. |
+| `filter` | A `ViewFilter`: `project` (a list; `-` for none; aliases match), `source`, `kind`, `host`, `tag`, `level` (a list), `q` (full text) and `routine` (`exclude` or `only`; absent keeps both). Every field is optional; fields combine with AND. |
+| `bundle` | Optional: `{window, max_visible}`. See below. |
+| `position` | Sort order in the apps, low first. Default 0. |
+| `icon` | An SF Symbol name the apps show. |
+
+- The answer, 201, is a `View`: `id` (`view_` plus a ULID), the fields above,
+  `created_at` and `updated_at`. A taken name answers 409.
+- `GET /v1/views` (read) lists the views by position, then name.
+  `GET /v1/views/{id}` (read) takes the id or the name.
+- `PUT /v1/views/{id}` (write) replaces every field; a field left out goes
+  back to its default. `DELETE /v1/views/{id}` (write) answers 204.
+- `GET /v1/events?view=<id or name>` applies the view's filter. A parameter
+  given with it replaces the view's field of the same name, so
+  `view=backups&project=lab` lists the view's events in project `lab`. The
+  answer's `Heraldo-View` header names the view. A server before views
+  ignores the parameter and sends no header; the CLI and the apps then refuse
+  to show the list as the view. An unknown view answers 404.
+
+### Bundles
+
+A view with `bundle` folds a burst of its pushes into one notification. The
+`bundle` push stage runs after mutes and inhibit rules, before delivery.
+
+- The first view, by position, whose filter matches the event and that has a
+  bundle decides.
+- The window opens at the first push the view matches and lasts `window`
+  (1m to 24h). The first `max_visible` pushes in it (default 1) go out as
+  usual.
+- Each later push in the window goes out as the view's notification: one
+  `apns-collapse-id` per view, thread `view:<id>`, title the view's name, and
+  body "N new in <view>: <latest title>". N counts every push in the window.
+  The first bundled push alerts; the later ones replace it at level passive,
+  with no sound.
+- Only pushes at level `active` bundle. `time-sensitive` and `critical`
+  always push on their own and do not count. A passive replace, such as a
+  resolve, keeps its own collapse id. A re-alert never bundles.
+- The why trace records the stage: `bundled into view Backups (3 in 4 min)`,
+  with the view, count and window in its detail.
+- The window lives in the server's memory. After a restart, the next push
+  opens a new window.
 
 ## Settings
 

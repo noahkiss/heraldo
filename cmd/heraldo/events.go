@@ -178,6 +178,7 @@ func (a *app) ls(ctx context.Context, args []string) error {
 	q := fs.String("q", "", "full-text search over title, summary and body")
 	open := fs.Bool("open", false, "open incidents only: those not resolved, newest event per key")
 	withRoutine := fs.Bool("routine", false, "include routine events: passing check-ins, progress and status")
+	view := fs.String("view", "", "apply a saved view, by name or id; other flags replace its fields")
 	limit := fs.Int("limit", 20, "how many events, 1 to 500")
 	asJSON := fs.Bool("json", false, "print each event's JSON on one line")
 	if pos, err := parse(fs, args); err != nil {
@@ -216,10 +217,18 @@ func (a *app) ls(ctx context.Context, args []string) error {
 		}
 		return nil
 	}
+	rt := routineFilter(f, *withRoutine)
+	if *view != "" {
+		// The view's own routine filter applies.
+		rt = ""
+	}
 	evs, err := newest(ctx, c, client.Query{
 		Kind: f.kind, Source: f.source, Host: f.host, Key: f.key, Tag: f.tag, Q: *q, Project: projectList(f.project),
-		Routine: routineFilter(f, *withRoutine),
+		Routine: rt, View: *view,
 	}, *limit)
+	if client.IsStatus(err, http.StatusNotFound) && *view != "" {
+		return fmt.Errorf("no view %q (heraldo views lists them)", *view)
+	}
 	if err != nil {
 		return listErr(err)
 	}

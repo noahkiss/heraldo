@@ -44,6 +44,11 @@ type API interface {
 	Hold(ctx context.Context, q client.HoldQuery) (api.HoldQueue, error)
 	HoldRelease(ctx context.Context, in api.HoldReleaseJSONBody) (client.HoldResult, error)
 	HoldSuppress(ctx context.Context, in api.HoldSuppressJSONBody) (client.HoldResult, error)
+	Views(ctx context.Context) ([]api.View, error)
+	View(ctx context.Context, ref string) (api.View, error)
+	SaveView(ctx context.Context, in api.ViewInput) (api.View, error)
+	PutView(ctx context.Context, ref string, in api.ViewInput) (api.View, error)
+	DeleteView(ctx context.Context, ref string) error
 }
 
 var _ API = (*client.Client)(nil)
@@ -106,12 +111,14 @@ func New(o Options) *mcp.Server {
 	t.addSettingsRead(s)
 	t.addAttachmentRead(s)
 	t.addHoldRead(s)
+	t.addViewsRead(s)
 	if o.Write {
 		t.addIncidentAct(s)
 		t.addCheckinUpdate(s)
 		t.addMute(s)
 		t.addSend(s)
 		t.addHoldAct(s)
+		t.addViewsWrite(s)
 	}
 	if o.Admin {
 		t.addSettingsWrite(s)
@@ -121,8 +128,8 @@ func New(o Options) *mcp.Server {
 
 // ReadTools, WriteTools and AdminTools name the tools New registers.
 var (
-	ReadTools  = []string{"overview", "events_search", "event_read", "checkin_read", "activity_read", "settings_read", "attachment_read", "hold_read"}
-	WriteTools = []string{"incident_act", "checkin_update", "mute", "send", "hold_act"}
+	ReadTools  = []string{"overview", "events_search", "event_read", "checkin_read", "activity_read", "settings_read", "attachment_read", "hold_read", "views_read"}
+	WriteTools = []string{"incident_act", "checkin_update", "mute", "send", "hold_act", "views_write"}
 	AdminTools = []string{"settings_write"}
 )
 

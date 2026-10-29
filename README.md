@@ -47,6 +47,8 @@ Three principles follow, and every feature is judged against them:
   each check keeps its own history.
 - Projects: events filed by project, with a project filter and per-project
   mutes.
+- Saved views: named filters every client shares, with optional bundling
+  that folds a burst of pushes into one notification.
 - Attachments: screenshots, logs and PDFs stored with an event. The apps show
   images and text inline; agents read them over MCP.
 
@@ -218,7 +220,7 @@ any `-wal` and `-shm` files left beside the old database first.
 | `heraldo show [--json] <id>` | Prints one event with its full body; `why`, one line on why it did or did not push; and an `attached:` line per attachment (type and size). |
 | `heraldo why [--json] <id>` | Prints why an event did or did not push, one line per push stage: hold, expiry, push table, mutes, inhibit rules, delivery per device. See [docs/api.md](docs/api.md), "Why it pushed". |
 | `heraldo attachment get [-o file] <id>` | Writes an attachment's bytes to a new file, or to stdout. It never overwrites a file. |
-| `heraldo ls` | Lists the newest events (20 by default, oldest first). Filters: `--kind`, `--source`, `--host`, `--key`, `--tag`, `--project` (a comma-separated list; `-` for none), `-q` (full text). `--open` lists the incidents that are not resolved. Routine events (passing check-ins, progress, status) stay out unless `--routine` is given, or `--kind` or `--key` names them. |
+| `heraldo ls` | Lists the newest events (20 by default, oldest first). Filters: `--kind`, `--source`, `--host`, `--key`, `--tag`, `--project` (a comma-separated list; `-` for none), `-q` (full text). `--open` lists the incidents that are not resolved. Routine events (passing check-ins, progress, status) stay out unless `--routine` is given, or `--kind` or `--key` names them. `--view <name>` applies a saved view; other filters replace its fields, and the view's own routine filter applies. |
 | `heraldo held` | Lists events held for triage (`hold.state` is `held`). |
 | `heraldo hold` | Shows the alert hold's queue: mode, dead-man, and each entry. `--pending` lists open entries only. The call is a look, not a triage poll; `--poll` makes it a poll, for a triage job. |
 | `heraldo hold release --verdict V --title t --body b --tag t <id>...` | Closes held entries with one diagnosis. In mode `on` it stores one message. Needs `HERALDO_WRITE_TOKEN`. |
@@ -229,6 +231,9 @@ any `-wal` and `-shm` files left beside the old database first.
 | `heraldo devices` | Lists the registered devices: name, platform, token suffix, active or retired. `devices retire <id>` stops pushes to one. |
 | `heraldo mute` | Mutes a source, key or project for a while: `--source`, `--key`, `--project`, and `--for` (default `1h`) or `--until`. Needs `HERALDO_WRITE_TOKEN`. |
 | `heraldo mutes`, `mutes end <id>` | Lists the mutes in force, or ends one now. Needs `HERALDO_WRITE_TOKEN`. |
+| `heraldo views [ls]` | Lists the saved views: name, bundle and filter. |
+| `heraldo views save [flags] <name>` | Saves a view, or replaces the one with that name. It takes the `ls` filters except `--key`, plus `--level`, `--routine`, `--bundle 15m`, `--max-visible`, `--icon` and `--position`. Needs `HERALDO_WRITE_TOKEN`. |
+| `heraldo views rm <name>` | Removes a saved view. Needs `HERALDO_WRITE_TOKEN`. |
 | `heraldo checkins` | Lists every check: state, next due time, last run length, first line of the last log. `--project` keeps the checks in those projects. `checkins show <slug>` prints one check with its full last log. |
 | `heraldo checkins create <slug>` | Creates a check, or replaces a known check's schedule: `--period` or `--cron` with `--tz`, `--grace`, `--max-runtime`, `--reminder`, `--host`. Needs `HERALDO_WRITE_TOKEN`. |
 | `heraldo checkins pause <slug>`, `resume <slug>` | Pauses or resumes a check. Needs `HERALDO_WRITE_TOKEN`. |
@@ -354,6 +359,12 @@ app group.
   event by id and attaches the image, else the source's icon from the
   server's registry. A digest keeps its one line; a tap opens the full text.
 - **Settings**: the mutes in force, with End.
+- **Saved views**: the Inbox filter menu has Save as View, which saves the
+  current filter under a name (write token), and on iOS a View picker that
+  scopes the list to a view. On the Mac, the sidebar lists the views under
+  Projects; selecting one scopes the list, and its context menu has Delete.
+  A view with a bundle folds a burst of its pushes into one notification
+  ([docs/api.md](docs/api.md), "Saved views").
 - **Live Activities**: a `progress` key shows as a Live Activity on the Lock
   Screen, in the Dynamic Island and in the Watch Smart Stack. The server starts
   it with push-to-start, so the app need not be open. The app reports its

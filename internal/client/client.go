@@ -98,6 +98,12 @@ type Query struct {
 	// Routine is routine.Exclude or routine.Only. List applies it on the
 	// client when the server does not.
 	Routine string
+	// Level keeps events at these levels.
+	Level []string `json:",omitempty"`
+	// View applies a saved view, by id or name; the fields above replace
+	// its fields of the same name. List gives ErrNoViews when the server
+	// does not apply it.
+	View string `json:",omitempty"`
 }
 
 func (q Query) values() url.Values {
@@ -105,7 +111,7 @@ func (q Query) values() url.Values {
 	for _, p := range []struct{ k, v string }{
 		{"after", q.After}, {"before", q.Before}, {"source", q.Source}, {"kind", q.Kind},
 		{"host", q.Host}, {"key", q.Key}, {"tag", q.Tag}, {"q", q.Q}, {"hold", q.Hold},
-		{"routine", q.Routine},
+		{"routine", q.Routine}, {"view", q.View},
 	} {
 		if p.v != "" {
 			v.Set(p.k, p.v)
@@ -113,6 +119,9 @@ func (q Query) values() url.Values {
 	}
 	for _, p := range q.Project {
 		v.Add("project", p)
+	}
+	for _, l := range q.Level {
+		v.Add("level", l)
 	}
 	if q.Desc {
 		v.Set("order", "desc")
@@ -211,6 +220,9 @@ var ErrNoDesc = errors.New("the server cannot list newest first")
 func (c *Client) List(ctx context.Context, q Query) (Page, error) {
 	var p Page
 	hdr, err := c.doHeader(ctx, http.MethodGet, "/v1/events", q.values(), c.Token, nil, &p)
+	if err == nil && q.View != "" && hdr.Get("Heraldo-View") == "" {
+		return Page{}, ErrNoViews
+	}
 	if err == nil && q.Desc && hdr.Get("Heraldo-Order") != "desc" {
 		return Page{}, ErrNoDesc
 	}

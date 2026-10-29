@@ -35,7 +35,7 @@ heraldo mcp [--read-only]
 - Without `HERALDO_URL` or `HERALDO_TOKEN`, the server still starts and lists
   only `overview`. `overview` fails with `not_configured` and names the missing
   variable and the env file.
-- With `--read-only`, or without a write token, only the eight read tools are
+- With `--read-only`, or without a write token, only the nine read tools are
   listed. `overview` says why in `server.write_off`. `--read-only` also drops
   `settings_write`.
 - One source per harness lets the owner mute one agent: `mute` with
@@ -59,6 +59,8 @@ heraldo mcp [--read-only]
 | `settings_read` | Server settings: value, type, default, source and lock; a secret shows only `set` | read |
 | `settings_write` | Change one server setting, or put it back to its default | admin |
 | `hold_act` | Release held entries as one diagnosis, or suppress them | write |
+| `views_read` | The saved views: filter and bundle | read |
+| `views_write` | Save a view (replacing one with the same name), or delete one | write |
 
 Each tool's description says what it is best for, what it returns, what it is
 not for, and which tool follows it. Two short notes on the newer ones:
@@ -67,6 +69,12 @@ not for, and which tool follows it. Two short notes on the newer ones:
   history; `events_search hold=held` lists those.
 - `hold_act`. Best for: closing a group of held alerts with one call after
   `hold_read`. Not for: incidents (`incident_act`) or mutes (`mute`).
+- `views_read`. Best for: the view name to pass to `events_search view=`.
+  Not for: the events in a view; `events_search view=<name>` lists those.
+- `views_write`. Best for: the owner asks for a view, or to fold a noisy
+  source's pushes into one notification (`bundle`). Not for: muting (`mute`).
+- `events_search` takes `view` (a saved view's name or id) and `level`. With
+  `view`, the view's own routine filter applies unless `routine` is given.
 
 `overview` takes `sections`. The default is `unread`, `incidents`,
 `checkins`, `activities` and `mutes`. Ask for `statuses`, `projects` (the
@@ -194,7 +202,7 @@ OpenCode (`opencode.json`):
 - To keep tokens out of files, point `HERALDO_ENV_FILE` at a mode 600 file, or
   start the command under a secret manager's `run` wrapper.
 - Permissions: the read tools are safe to allow without a prompt. Keep a prompt
-  on `send`, `incident_act`, `checkin_update`, `mute`, `hold_act` and
+  on `send`, `incident_act`, `checkin_update`, `mute`, `hold_act`, `views_write` and
   `settings_write`.
 
 ## Over HTTP
@@ -215,9 +223,9 @@ without the CLI, or a hosted agent that can only reach a URL.
 
   | Scope | Tools |
   |---|---|
-  | `read` | the eight read tools |
-  | `write` | the read and write tools, thirteen |
-  | `admin` | all fourteen, with `settings_write` |
+  | `read` | the nine read tools |
+  | `write` | the read and write tools, fifteen |
+  | `admin` | all sixteen, with `settings_write` |
 
 - A `write` token may also read through MCP, because a client sends one token
   and the write tools read before they write. Outside MCP the same token still

@@ -88,6 +88,9 @@ func (t *tools) apiErr(err error, c call) *ToolError {
 		}
 		return e
 	}
+	if errors.Is(err, client.ErrNoViews) {
+		return toolErr("server_too_old", "this heraldo server has no saved views", "leave view out")
+	}
 	if errors.Is(err, client.ErrNoDesc) {
 		return toolErr("server_too_old", "this heraldo server is too old for newest-first", "pass order=oldest")
 	}

@@ -29,7 +29,8 @@ reading (HERALDO_URL, HERALDO_TOKEN):
                    an attachment's bytes, to a file or stdout
   why <id>         why an event did or did not push, stage by stage
   ls               the newest events, without routine ones; --kind --source --host
-                   --key --tag --project -q --open --routine
+                   --key --tag --project -q --open --routine --view
+  views [ls]       the saved views every client shares
   held             events held for triage
   hold             the alert hold's queue (a look, not a triage poll; --poll for one)
   state            open incidents, running jobs, checks and statuses; --project
@@ -51,6 +52,10 @@ writing:
                    print a new ping URL for a check; the old one stops working
   mute             mute a source, key or project for a while (HERALDO_WRITE_TOKEN)
   mutes [end <id>] the mutes in force, or end one (HERALDO_WRITE_TOKEN)
+  views save [flags] <name>
+                   save a view, or replace the one with that name; --bundle 15m
+                   folds a burst of its pushes into one notification (HERALDO_WRITE_TOKEN)
+  views rm <name>  remove a saved view (HERALDO_WRITE_TOKEN)
   hold release|suppress <id>...
                    close held entries with one diagnosis, or with none
   send             send a notification through HERALDO_SEND_URL or APPRISE_URL
@@ -131,7 +136,7 @@ func (a *app) run(ctx context.Context, args []string) int {
 		"tail": a.tail, "ack": a.ack, "resolve": a.resolve, "send": a.send, "attachment": a.attachment,
 		"mcp": a.mcp, "settings": a.settings, "why": a.why,
 		"mute": a.mute, "mutes": a.mutes, "hold": a.hold, "devices": a.devices,
-		"projects": a.projects, "state": a.state, "activities": a.activities,
+		"projects": a.projects, "state": a.state, "activities": a.activities, "views": a.views,
 	}
 	name := args[0]
 	switch name {
