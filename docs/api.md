@@ -15,7 +15,7 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `GET /healthz` | Liveness, with `db`, the event count and, with push on, `unsent` ("Push"). 503 when the database does not answer. No auth. | served |
 | `POST /v1/events` | Stores one `EventInput`. Returns the stored `Event` (201), or the first event for a repeated `dedup` (200). | served |
 | `GET /v1/events?after=&before=&order=&limit=&source=&kind=&host=&key=&tag=&q=&hold=&project=&routine=` | Lists events after a cursor, in arrival order. `q` is full-text search over title, summary and body. `order=desc` lists newest first. `hold` keeps events whose `hold.state` matches. `project` takes a list (see "Projects"). `routine=exclude` or `only` filters routine events (see "Routine events"). | served |
-| `GET /v1/events/{id}` | Returns one event with its full body. | served |
+| `GET /v1/events/{id}` | Returns one event with its full body and its `attachment_info`. | served |
 | `GET /v1/events/{id}/why` | Why the event did or did not push: one row per push pipeline stage. See "Why it pushed". | served |
 | `GET /v1/send?source=&kind=&...` | Same as `POST /v1/events` for GET-only clients. Scalar fields and `tags` (repeat the parameter) only. | served |
 | `GET` or `POST /ping/{slug}`, `/start`, `/fail`, `/log`, `/{exit_code}` | Check-in pings in the healthchecks.io shape, with a write token. `?rid=` pairs runs; `?create=1` creates an unknown check. Answers `OK`. See "Check-ins". | served |
@@ -40,6 +40,7 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `GET /v1/mutes`, `POST /v1/mutes`, `DELETE /v1/mutes/{id}` | Mutes in force; mute a source, key or project for a while; end a mute. | served |
 | `GET /v1/icons`, `GET`, `PUT`, `DELETE /v1/icons/{name}` | The icon registry: list, fetch an image, store one, remove one. | served |
 | `GET /v1/settings`, `GET`, `PUT`, `DELETE /v1/settings/{key}` | Server settings: every key with its value and source, one key, store a value (admin), back to the default (admin). See "Settings". | served |
+| `POST /v1/attachments`, `GET /v1/attachments/{id}` | Store a file an event can name (write), and fetch its bytes (read). See "Attachments". | served |
 | `GET /v1/standby/devices` | Every device with its full push tokens, for a standby. Admin, or a `read` token with the `standby` capability. See "Standby". | served |
 | `POST /v1/standby/import` | Stores the events a standby stored, by their ids, and pushes none of them. Same token as above. | served |
 
@@ -926,6 +927,42 @@ curl -X PUT --data-binary @backup.png -H "Authorization: Bearer $ADMIN_TOKEN" \
   "$HERALDO_URL/v1/icons/backup"
 ```
 
+## Attachments
+
+An event can carry files, such as a screenshot or a log excerpt. Upload each
+file first, then name the ids in the event's `attachments`.
+
+- `POST /v1/attachments` (write) stores one file, up to 5 MiB. The body is
+  the raw bytes with their `Content-Type`, or `multipart/form-data` with the
+  file in the part called `file`. It answers
+  `{id, url, content_type, bytes, sha256}`: 201 new, 200 when the same bytes
+  are stored already (the first id comes back). `url` is `attachment:<id>`.
+- Allowed types are `image/*`, `text/plain`, `application/pdf` and
+  `application/json`. A body with no type, or `application/octet-stream`, is
+  typed by its bytes. An image whose bytes read as text, such as SVG, is
+  refused. Other types get 415; an empty body 400; a larger one 413.
+- `GET /v1/attachments/{id}` (read) returns the bytes with the stored type.
+  The `ETag` is the SHA-256. The answer carries `X-Content-Type-Options:
+  nosniff` and a sandbox `Content-Security-Policy`.
+- An event names up to 8 ids in `attachments`. An id the server does not hold
+  fails the post with 400, and nothing is stored. Many events may name one id.
+- The read API (`POST` and `GET /v1/events`, `GET /v1/events/{id}`) adds
+  `attachment_info`: `{id, content_type, bytes}` for each id, in order.
+- An attachment no event names is deleted 24 hours after its upload. A
+  repeated upload of the same bytes starts the 24 hours again.
+- The bytes live in the database. `heraldo-server backup` copies them with
+  the events.
+- A standby refuses uploads with 503: it hands its events back to the
+  primary without bytes. Send the event without attachments, or retry on the
+  primary.
+
+```sh
+id=$(curl -s -H "Authorization: Bearer $WRITE_TOKEN" -H "Content-Type: image/png" \
+  --data-binary @shot.png "$HERALDO_URL/v1/attachments" | jq -r .id)
+curl -s -H "Authorization: Bearer $WRITE_TOKEN" "$HERALDO_URL/v1/events" \
+  -d '{"source":"share","title":"Screenshot","attachments":["'"$id"'"]}'
+```
+
 ## Standby
 
 A standby is a second heraldo server on another host. It delivers pushes
@@ -952,7 +989,10 @@ to the primary; the primary never calls the standby.
 
 The standby accepts `POST /v1/events`, `GET /v1/send` and the pings from its
 own `write` tokens, types them with its own `HERALDO_RULES`, stores them and
-pushes them. It judges no checks: the primary owns them.
+pushes them. It judges no checks: the primary owns them. It refuses
+`POST /v1/attachments` with 503 (see "Attachments"), so no event it hands
+back names a file the primary lacks. The primary counts an imported event
+that names an unknown attachment as `rejected`.
 
 The import is idempotent:
 
@@ -987,7 +1027,7 @@ A script can post to the standby's `POST /v1/events` itself.
 
 - **`EventInput`** is what a sender posts. It is the schema root.
 - **`Event`** is what the read API returns: `$defs/Event` in the schema.
-- The server owns `id`, `received_at`, `cursor`, `hold`, `delivery`, `why` and `incident`. An
+- The server owns `id`, `received_at`, `cursor`, `hold`, `delivery`, `why`, `attachment_info` and `incident`. An
   input that sets any of them is rejected. `ts` stays the sender's; the server fills it with the
   arrival time when it is missing.
 
@@ -1221,6 +1261,7 @@ Sender fields:
 | `icon` | string, 512 | Source icon: an `https` URL, or a name in the icon registry. |
 | `sound` | string, 64 | `default`, `none`, or a sound bundled with the app. |
 | `tags` | up to 16 strings of 64 | Labels for rule matching, such as Apprise tags. |
+| `attachments` | up to 8 attachment ids | Files stored with the event, from `POST /v1/attachments`. See "Attachments". |
 | `dedup` | string, 128 | Idempotency id. A repeat within 24 hours is dropped. |
 | `expires_at` | date-time | The event is stale after this. |
 | `relevance` | number 0–1 | Rank against other events from the app. |
@@ -1278,6 +1319,7 @@ that, the check's config lives on the server. See "Check-ins".
 | `hold` | Triage state. |
 | `delivery` | Per-device outcome: `sent`, `failed`, or `skipped` (a mute or an inhibit rule held it back), with the level the push carried. See "Push". |
 | `why` | One line on the push decision, such as `pushed active to 2 devices`. See "Why it pushed". |
+| `attachment_info` | On an event with `attachments`: `{id, content_type, bytes}` for each, in order. See "Attachments". |
 | `incident` | On an incident event: the incident after this event, `{state, opened_at, resolved_at}`. `state` is `open`, `acked` or `resolved`. See "Incidents". |
 
 ## APNs mapping

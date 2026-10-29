@@ -33,7 +33,7 @@ heraldo mcp [--read-only]
 - Without `HERALDO_URL` or `HERALDO_TOKEN`, the server still starts and lists
   only `overview`. `overview` fails with `not_configured` and names the missing
   variable and the env file.
-- With `--read-only`, or without a write token, only the six read tools are
+- With `--read-only`, or without a write token, only the seven read tools are
   listed. `overview` says why in `server.write_off`. `--read-only` also drops
   `settings_write`.
 - One source per harness lets the owner mute one agent: `mute` with
@@ -45,13 +45,14 @@ heraldo mcp [--read-only]
 |---|---|---|
 | `overview` | Unread count, open incidents, checks that are down or late, running Live Activities, mutes in force | read (mutes: write) |
 | `events_search` | List or search events: filters, full text, unread, cursor paging | read |
-| `event_read` | One event in full: body (paged), details, delivery, and why it did or did not push (`why`, `decisions`) | read |
+| `event_read` | One event in full: body (paged), details, delivery, why it did or did not push (`why`, `decisions`), attachment list | read |
 | `checkin_read` | One check: schedule, state, due times, the end of the last log | read |
 | `activity_read` | One Live Activity: content, device instances, timeline | read |
+| `attachment_read` | One attached file: text inline (paged), an image as image content | read |
 | `incident_act` | Ack or resolve an open incident | write |
 | `checkin_update` | Pause, resume, or replace a check's schedule | write |
 | `mute` | Mute a source, key or project for a while, or end a mute | write |
-| `send` | Post a plain message to the owner | write |
+| `send` | Post a plain message to the owner, with optional base64 attachments | write |
 | `settings_read` | Server settings: value, type, default, source and lock; a secret shows only `set` | read |
 | `settings_write` | Change one server setting, or put it back to its default | admin |
 
@@ -81,6 +82,8 @@ that matches the tool's `outputSchema`.
 | `event_read` decisions | every push stage the event passed through; absent before the server decides it |
 | Check `last_log` | the last 8 KiB |
 | `activity_read` timeline | the newest 50 by default, 200 at most |
+| `attachment_read` text | 32 KiB per call; pass `page.next_offset` as `offset`. A PDF or other type returns its type and size only |
+| `send` attachments | 4 at most, each 5 MiB decoded |
 | Any result | 64 KiB of JSON; `events_search` drops rows to fit and sets `truncated` |
 
 Paging: `events_search` returns `next_cursor`. Pass it alone as `cursor`. It

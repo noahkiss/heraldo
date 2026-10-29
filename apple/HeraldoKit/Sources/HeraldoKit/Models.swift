@@ -31,14 +31,19 @@ public struct Event: Codable, Hashable, Identifiable, Sendable {
     /// One line on the push decision, such as "pushed active to 2 devices".
     /// Servers before 0.7 send none.
     public var why: String?
+    /// Ids of the files stored with the event. Servers before 0.7 send none.
+    public var attachments: [String]?
+    /// Each attachment's id, type and size, in the order of `attachments`.
+    public var attachmentInfo: [AttachmentInfo]?
     public var checkin: Checkin?
     /// On an incident event: the incident as it stood after the event.
     public var incident: IncidentInfo?
 
     enum CodingKeys: String, CodingKey {
         case id, cursor, ts, source, kind, key, action, host, title, summary, body, level, thread, project
-        case url, image, icon, tags, actions, hold, delivery, why, checkin, incident
+        case url, image, icon, tags, actions, hold, delivery, why, checkin, incident, attachments
         case receivedAt = "received_at"
+        case attachmentInfo = "attachment_info"
     }
 
     public init(id: String, source: String, kind: String? = nil, title: String? = nil,
@@ -411,6 +416,30 @@ public let noProject = "-"
 
 struct MuteList: Codable, Sendable {
     var mutes: [Mute]
+}
+
+/// One file stored with an event, without its bytes. `HeraldoClient.attachment(id:)`
+/// fetches the bytes.
+public struct AttachmentInfo: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var contentType: String
+    public var bytes: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id, bytes
+        case contentType = "content_type"
+    }
+
+    public init(id: String, contentType: String, bytes: Int) {
+        self.id = id
+        self.contentType = contentType
+        self.bytes = bytes
+    }
+
+    /// An image the app can show inline.
+    public var isImage: Bool { contentType.hasPrefix("image/") }
+    /// Text the app can show inline: plain text or JSON.
+    public var isText: Bool { contentType == "text/plain" || contentType == "application/json" }
 }
 
 public struct Delivery: Codable, Hashable, Sendable {

@@ -272,7 +272,7 @@ func serve(flags map[string]string, log *slog.Logger) error {
 		Version: version.String(), Store: st, Tokens: tokens, Validator: v, Rules: rw, Logger: log,
 		Done: ctx.Done(), Pusher: pusher, PushState: pushState, Live: lm,
 		TrustedNets: cfg.NotifyTrustedNets, Settings: sm,
-		Standby:     cfg.Standby,
+		Standby: cfg.Standby,
 		Hold: server.HoldOptions{
 			Mode: cfg.HoldMode, Bypass: bypass, Deadline: cfg.HoldDeadline, Deadman: cfg.HoldDeadman,
 		},

@@ -280,6 +280,18 @@ public struct HeraldoClient: Sendable {
         return (data, http.mimeType)
     }
 
+    // MARK: Attachments
+
+    /// An attachment's bytes and MIME type.
+    public func attachment(id: String) async throws -> (data: Data, mimeType: String?) {
+        let (data, response) = try await session.data(for: request("v1/attachments/\(escape(id))", method: "GET", token: readToken))
+        guard let http = response as? HTTPURLResponse else { throw HeraldoError.badAnswer("not HTTP") }
+        guard (200..<300).contains(http.statusCode) else {
+            throw HeraldoError.http(status: http.statusCode, message: HTTPURLResponse.localizedString(forStatusCode: http.statusCode))
+        }
+        return (data, http.mimeType)
+    }
+
     // MARK: Live Activities
 
     /// The activity on a progress key, with its instances.

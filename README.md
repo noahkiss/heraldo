@@ -47,6 +47,8 @@ Three principles follow, and every feature is judged against them:
   each check keeps its own history.
 - Projects: events filed by project, with a project filter and per-project
   mutes.
+- Attachments: screenshots, logs and PDFs stored with an event. The apps show
+  images and text inline; agents read them over MCP.
 
 ## Layout
 
@@ -212,8 +214,9 @@ any `-wal` and `-shm` files left beside the old database first.
 | Command | Does |
 |---|---|
 | `heraldo peek [--mark]` | Lists the events after the read cursor. `--mark` moves the cursor past them. With no cursor yet, it lists the newest events. `--project` keeps the unread events in those projects; not with `--mark`. |
-| `heraldo show [--json] <id>` | Prints one event with its full body, and `why`: one line on why it did or did not push. |
+| `heraldo show [--json] <id>` | Prints one event with its full body; `why`, one line on why it did or did not push; and an `attached:` line per attachment (type and size). |
 | `heraldo why [--json] <id>` | Prints why an event did or did not push, one line per push stage: hold, expiry, push table, mutes, inhibit rules, delivery per device. See [docs/api.md](docs/api.md), "Why it pushed". |
+| `heraldo attachment get [-o file] <id>` | Writes an attachment's bytes to a new file, or to stdout. It never overwrites a file. |
 | `heraldo ls` | Lists the newest events (20 by default, oldest first). Filters: `--kind`, `--source`, `--host`, `--key`, `--tag`, `--project` (a comma-separated list; `-` for none), `-q` (full text). `--open` lists the incidents that are not resolved. Routine events (passing check-ins, progress, status) stay out unless `--routine` is given, or `--kind` or `--key` names them. |
 | `heraldo held` | Lists events held for triage (`hold.state` is `held`). |
 | `heraldo checkins` | Lists every check: state, next due time, last run length, first line of the last log. `--project` keeps the checks in those projects. `checkins show <slug>` prints one check with its full last log. |
@@ -222,7 +225,7 @@ any `-wal` and `-shm` files left beside the old database first.
 | `heraldo checkins key [--remove] <slug>` | Prints a new ping URL, `<HERALDO_URL>/p/<key>`, for the check; the old key stops working. `--remove` removes the key. Needs `HERALDO_WRITE_TOKEN`. |
 | `heraldo tail` | Prints new events as they arrive. It takes the `ls` filters, `--unread` (start at the read cursor), `--mark` (move the cursor; not with filters) and `--exec <command>`. |
 | `heraldo ack <key>`, `heraldo resolve <key>` | Posts an `ack` or `resolve` event for an open incident. `-m` adds a note; `--force` posts for a key with no open incident. |
-| `heraldo send` | Posts a notification to an Apprise-compatible notify URL, with an optional heraldo fallback. |
+| `heraldo send` | Posts a notification to an Apprise-compatible notify URL, with an optional heraldo fallback. `--attach <file>` posts to the heraldo API instead. |
 | `heraldo mcp [--read-only]` | Serves the MCP tools for coding agents on stdio. See [docs/mcp.md](docs/mcp.md). |
 | `heraldo settings [ls]`, `get <key>` | Lists the server settings, or prints one value. The source and any lock go to stderr. |
 | `heraldo settings set <key> <value>`, `unset <key>` | Stores a value, or puts the key back to its default. A secret key takes `-` and reads stdin, never argv. Needs `HERALDO_ADMIN_TOKEN`. |
@@ -280,7 +283,11 @@ No shell runs. The command gets the event's JSON on stdin, and these variables:
 - `--project`, else `HERALDO_PROJECT`, adds `project`, folded to lower case.
   A name that is not valid is dropped with a warning on stderr; the message
   still goes. `send` never reads a project from the working directory.
-- With no notify URL set, `send` does nothing and exits 0.
+- With no notify URL set and no `--attach`, `send` does nothing and exits 0.
+- `--attach <file>`, repeatable, stores each file with the message (images,
+  text, PDF or JSON, 5 MiB each). The notify URL takes no files, so `send`
+  then uploads to `HERALDO_URL` with `HERALDO_WRITE_TOKEN` and posts the
+  message there as kind `message`. Without both variables it fails.
 - Success prints `✅ Notification sent successfully.` and exits 0. Success
   means HTTP 200 with a `Sent` line in the answer.
 - Anything else prints `❌ Failed to send notification. HTTP Status: <code>` and

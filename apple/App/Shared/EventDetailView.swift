@@ -32,6 +32,9 @@ struct EventDetailView: View {
                 if let body = event.body, !body.isEmpty {
                     MarkdownView(text: body)
                 }
+                ForEach(event.attachmentInfo ?? []) { a in
+                    AttachmentView(info: a)
+                }
                 #if os(iOS)
                 actions
                 #endif
@@ -248,5 +251,69 @@ struct MarkdownView: View {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         if let a = try? AttributedString(markdown: t, options: options) { return Text(a) }
         return Text(t)
+    }
+}
+
+/// One attached file: an image or text shown inline, any other type as its
+/// type and size.
+struct AttachmentView: View {
+    @Environment(AppModel.self) private var model
+    let info: AttachmentInfo
+    @State private var data: Data?
+    @State private var failed: String?
+
+    /// Text past this many bytes is cut, so a large log stays scrollable.
+    private static let textCap = 64 << 10
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if info.isImage || info.isText {
+                content
+            }
+            Text(caption).font(.caption).foregroundStyle(.secondary)
+        }
+        .task(id: info.id) {
+            guard info.isImage || info.isText, data == nil else { return }
+            do {
+                data = try await model.client().attachment(id: info.id).data
+            } catch {
+                failed = error.localizedDescription
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let data {
+            if info.isImage, let image = Self.image(data) {
+                image.resizable().scaledToFit().clipShape(.rect(cornerRadius: 8))
+            } else if info.isText {
+                ScrollView(.horizontal) {
+                    Text(Self.text(data)).font(.callout.monospaced()).textSelection(.enabled).padding(8)
+                }
+                .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 6))
+            }
+        } else if failed == nil {
+            ProgressView().frame(maxWidth: .infinity, minHeight: 60)
+        }
+    }
+
+    private var caption: String {
+        var parts = [info.contentType, ByteCountFormatter.string(fromByteCount: Int64(info.bytes), countStyle: .file)]
+        if let failed { parts.append(failed) }
+        return parts.joined(separator: " · ")
+    }
+
+    private static func text(_ data: Data) -> String {
+        let s = String(decoding: data.prefix(textCap), as: UTF8.self)
+        return data.count > textCap ? s + "\n…" : s
+    }
+
+    private static func image(_ data: Data) -> Image? {
+        #if os(macOS)
+        NSImage(data: data).map { Image(nsImage: $0) }
+        #else
+        UIImage(data: data).map { Image(uiImage: $0) }
+        #endif
     }
 }

@@ -54,6 +54,28 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(e.why, "passive: inbox only")
     }
 
+    func testDecodesAttachments() throws {
+        let json = """
+        {
+          "id": "01JBA6Z0000000000000000012",
+          "source": "share:phone",
+          "kind": "message",
+          "attachments": ["att_01JBA6Z0000000000000000010", "att_01JBA6Z0000000000000000011"],
+          "attachment_info": [
+            {"id": "att_01JBA6Z0000000000000000010", "content_type": "image/png", "bytes": 48213},
+            {"id": "att_01JBA6Z0000000000000000011", "content_type": "text/plain", "bytes": 912}
+          ]
+        }
+        """
+        let e = try JSON.decoder.decode(Event.self, from: Data(json.utf8))
+        XCTAssertEqual(e.attachments?.count, 2)
+        let info = try XCTUnwrap(e.attachmentInfo)
+        XCTAssertEqual(info.map(\.contentType), ["image/png", "text/plain"])
+        XCTAssertTrue(info[0].isImage)
+        XCTAssertTrue(info[1].isText)
+        XCTAssertEqual(info[0].bytes, 48213)
+    }
+
     func testDecodesChecks() throws {
         let json = """
         {"checkins": [
