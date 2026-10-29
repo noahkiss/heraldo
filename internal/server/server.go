@@ -19,6 +19,7 @@ import (
 
 	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/auth"
+	"github.com/noahkiss/heraldo/internal/digest"
 	"github.com/noahkiss/heraldo/internal/hold"
 	"github.com/noahkiss/heraldo/internal/ids"
 	"github.com/noahkiss/heraldo/internal/routine"
@@ -93,6 +94,8 @@ type server struct {
 	// hmu guards deadmanActive, the hold's dead-man as the last tick saw it.
 	hmu           sync.Mutex
 	deadmanActive bool
+	// digest builds and sends the daily digest.
+	digest *digest.Runner
 }
 
 // Server is the HTTP handler and the check-in scheduler.
@@ -144,6 +147,7 @@ func NewServer(o Options) *Server {
 		o.Settings = m
 	}
 	s := &server{Options: o, hub: newHub(), started: o.Now()}
+	s.digest = s.newDigest()
 	if e, ok := o.Live.(interface {
 		SetEmit(func(context.Context, map[string]any) error)
 	}); ok {
@@ -158,6 +162,8 @@ func NewServer(o Options) *Server {
 	mux.HandleFunc("GET /v1/send", s.auth(auth.ScopeWrite, true, s.sendEvent))
 	mux.HandleFunc("GET /v1/stream", s.auth(auth.ScopeRead, false, s.stream))
 	mux.HandleFunc("GET /v1/state", s.auth(auth.ScopeRead, false, s.state))
+	mux.HandleFunc("GET /v1/digest/preview", s.auth(auth.ScopeRead, false, s.digestPreview))
+	mux.HandleFunc("POST /v1/digest/send", s.auth(auth.ScopeWrite, false, s.digestSend))
 	mux.HandleFunc("GET /v1/projects", s.auth(auth.ScopeRead, false, s.listProjects))
 	mux.HandleFunc("GET /v1/cursors/{name}", s.auth(auth.ScopeRead, false, s.getCursor))
 	mux.HandleFunc("PUT /v1/cursors/{name}", s.auth(auth.ScopeRead, false, s.putCursor))

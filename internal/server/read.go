@@ -118,12 +118,22 @@ func (s *server) state(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "%v", err)
 		return
 	}
+	only := false
+	switch v := r.URL.Query().Get("stale"); v {
+	case "", "0", "false":
+	case "1", "true":
+		only = true
+	default:
+		writeError(w, http.StatusBadRequest, "stale: want 1 or 0, not %q", v)
+		return
+	}
 	st, err := s.Store.State(r.Context(), projects)
 	if err != nil {
 		s.Logger.Error("state", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	s.staleState(&st, only)
 	writeJSON(w, http.StatusOK, statePage{
 		Incidents: st.Incidents, Progress: st.Progress, Checkins: st.Checkins, Statuses: st.Statuses,
 	})

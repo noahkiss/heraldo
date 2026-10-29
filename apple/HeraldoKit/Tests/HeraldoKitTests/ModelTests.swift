@@ -284,6 +284,10 @@ final class ModelTests: XCTestCase {
         XCTAssertNil(e.incident?.openFor)
         XCTAssertEqual(e.hold?.label, "held · flapping")
         XCTAssertTrue(e.wasHeldBack)
+        XCTAssertNil(e.incident?.stale, "an older server sends no stale flag")
+
+        let stale = #"{"id": "e3", "source": "uptime", "kind": "incident", "key": "web", "incident": {"state": "open", "opened_at": "2026-10-20T12:00:00Z", "stale": true}}"#
+        XCTAssertEqual(try JSON.decoder.decode(Event.self, from: Data(stale.utf8)).incident?.stale, true)
 
         let resolved = IncidentInfo(state: "resolved", openedAt: Date(timeIntervalSince1970: 0),
                                     resolvedAt: Date(timeIntervalSince1970: 720))

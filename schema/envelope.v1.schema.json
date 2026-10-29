@@ -111,6 +111,10 @@
               "type": "string",
               "format": "date-time",
               "description": "When the incident resolved, RFC 3339. Set when state is resolved."
+            },
+            "stale": {
+              "type": "boolean",
+              "description": "Set only in GET /v1/state: true when the incident's last event is older than the setting stale.after. Never stored."
             }
           },
           "additionalProperties": false

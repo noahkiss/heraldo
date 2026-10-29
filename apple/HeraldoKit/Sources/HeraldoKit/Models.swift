@@ -328,17 +328,22 @@ public struct IncidentInfo: Codable, Hashable, Sendable {
     public var state: String
     public var openedAt: Date?
     public var resolvedAt: Date?
+    /// Set by `/v1/state` (server 0.7 and later, with `stale.enabled` on):
+    /// the incident's last event is older than `stale.after`. Never stored.
+    public var stale: Bool?
 
     enum CodingKeys: String, CodingKey {
         case state
         case openedAt = "opened_at"
         case resolvedAt = "resolved_at"
+        case stale
     }
 
-    public init(state: String, openedAt: Date? = nil, resolvedAt: Date? = nil) {
+    public init(state: String, openedAt: Date? = nil, resolvedAt: Date? = nil, stale: Bool? = nil) {
         self.state = state
         self.openedAt = openedAt
         self.resolvedAt = resolvedAt
+        self.stale = stale
     }
 
     /// How long the incident was open, for a resolved one.

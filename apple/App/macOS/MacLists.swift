@@ -80,7 +80,8 @@ struct MacEventList: View {
     }
 }
 
-/// Open incidents, acknowledged ones, then the ones resolved today.
+/// Open incidents, acknowledged ones, stale ones, then the ones resolved
+/// today.
 struct MacIncidentList: View {
     @Environment(AppModel.self) private var model
     @Bindable var state: MacWindowState
@@ -88,14 +89,16 @@ struct MacIncidentList: View {
     var body: some View {
         let open = model.openIncidents.filter(match)
         let acked = model.ackedIncidents.filter(match)
+        let stale = model.staleIncidents.filter(match)
         let resolved = model.resolvedToday.filter(match)
         List(selection: $state.selection) {
             section("Open", open)
             section("Acknowledged", acked)
+            section("Stale", stale)
             section("Resolved today", resolved)
         }
         .overlay {
-            if open.isEmpty && acked.isEmpty && resolved.isEmpty {
+            if open.isEmpty && acked.isEmpty && stale.isEmpty && resolved.isEmpty {
                 if state.query.isEmpty {
                     ContentUnavailableView("No open incidents", systemImage: "checkmark.seal")
                 } else {

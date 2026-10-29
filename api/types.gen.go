@@ -246,6 +246,45 @@ func (e DeviceRegistrationEnvironment) Valid() bool {
 	}
 }
 
+// Defines values for DigestIncidentState.
+const (
+	DigestIncidentStateAcked    DigestIncidentState = "acked"
+	DigestIncidentStateOpen     DigestIncidentState = "open"
+	DigestIncidentStateResolved DigestIncidentState = "resolved"
+)
+
+// Valid indicates whether the value is a known member of the DigestIncidentState enum.
+func (e DigestIncidentState) Valid() bool {
+	switch e {
+	case DigestIncidentStateAcked:
+		return true
+	case DigestIncidentStateOpen:
+		return true
+	case DigestIncidentStateResolved:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DigestPreviewLevel.
+const (
+	DigestPreviewLevelActive  DigestPreviewLevel = "active"
+	DigestPreviewLevelPassive DigestPreviewLevel = "passive"
+)
+
+// Valid indicates whether the value is a known member of the DigestPreviewLevel enum.
+func (e DigestPreviewLevel) Valid() bool {
+	switch e {
+	case DigestPreviewLevelActive:
+		return true
+	case DigestPreviewLevelPassive:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for EventIncidentState.
 const (
 	EventIncidentStateAcked    EventIncidentState = "acked"
@@ -837,6 +876,30 @@ func (e HoldReleaseJSONBodyVerdict) Valid() bool {
 	}
 }
 
+// Defines values for GetStateParamsStale.
+const (
+	GetStateParamsStaleFalse GetStateParamsStale = "false"
+	GetStateParamsStaleN0    GetStateParamsStale = "0"
+	GetStateParamsStaleN1    GetStateParamsStale = "1"
+	GetStateParamsStaleTrue  GetStateParamsStale = "true"
+)
+
+// Valid indicates whether the value is a known member of the GetStateParamsStale enum.
+func (e GetStateParamsStale) Valid() bool {
+	switch e {
+	case GetStateParamsStaleFalse:
+		return true
+	case GetStateParamsStaleN0:
+		return true
+	case GetStateParamsStaleN1:
+		return true
+	case GetStateParamsStaleTrue:
+		return true
+	default:
+		return false
+	}
+}
+
 // Action A button on a notification, Live Activity or widget. type open: the device opens url. type http: the device calls url with method, so it can reach hosts only the device sees, such as the LAN. type server: heraldo handles it; id names the server action (ack, resolve or mute) and url is not used.
 type Action struct {
 	// Destructive Show the button as destructive.
@@ -1216,6 +1279,137 @@ type DeviceRegistration struct {
 // DeviceRegistrationEnvironment The APNs environment the token belongs to. A development build's token is sandbox; TestFlight and App Store tokens are production.
 type DeviceRegistrationEnvironment string
 
+// DigestCheck defines model for DigestCheck.
+type DigestCheck struct {
+	DownReason *string `json:"down_reason,omitempty"`
+
+	// Failures Failed runs inside the window.
+	Failures int    `json:"failures"`
+	Key      string `json:"key"`
+	State    string `json:"state"`
+}
+
+// DigestHeld defines model for DigestHeld.
+type DigestHeld struct {
+	At    time.Time `json:"at"`
+	Id    string    `json:"id"`
+	Title string    `json:"title"`
+}
+
+// DigestIncident defines model for DigestIncident.
+type DigestIncident struct {
+	// EventId The incident's last event.
+	EventId string `json:"event_id"`
+	Key     string `json:"key"`
+
+	// LastAt When the incident's last event arrived.
+	LastAt time.Time `json:"last_at"`
+	Level  *string   `json:"level,omitempty"`
+
+	// New The incident opened inside the window.
+	New        *bool               `json:"new,omitempty"`
+	OpenedAt   time.Time           `json:"opened_at"`
+	Project    *string             `json:"project,omitempty"`
+	ResolvedAt *time.Time          `json:"resolved_at,omitempty"`
+	Source     *string             `json:"source,omitempty"`
+	State      DigestIncidentState `json:"state"`
+	Title      string              `json:"title"`
+}
+
+// DigestIncidentState defines model for DigestIncident.State.
+type DigestIncidentState string
+
+// DigestJob defines model for DigestJob.
+type DigestJob struct {
+	EndedAt time.Time `json:"ended_at"`
+	EventId string    `json:"event_id"`
+	Key     string    `json:"key"`
+	Project *string   `json:"project,omitempty"`
+	Title   string    `json:"title"`
+}
+
+// DigestPreview A digest and the schedule around it. Times are RFC 3339 in UTC; the text
+// uses tz. The lists hold every item; the body lists at most 10 per section.
+type DigestPreview struct {
+	// At digest.at, HH:MM in tz.
+	At string `json:"at"`
+
+	// Body The full text, Markdown.
+	Body     string `json:"body"`
+	Checkins struct {
+		// Items Checks down or late now, or with failed runs inside the window.
+		Items []DigestCheck `json:"items"`
+
+		// Ok Of those, the ones not down or late.
+		Ok     int `json:"ok"`
+		Paused int `json:"paused"`
+
+		// Total Checks that are not paused.
+		Total int `json:"total"`
+	} `json:"checkins"`
+
+	// Day The local day the digest is for, YYYY-MM-DD in tz.
+	Day string `json:"day"`
+
+	// Enabled digest.enabled.
+	Enabled bool `json:"enabled"`
+
+	// EventId The stored event, on POST /v1/digest/send.
+	EventId *string `json:"event_id,omitempty"`
+
+	// Finished Progress keys (jobs, prints) that ended inside the window.
+	Finished []DigestJob `json:"finished"`
+	Held     struct {
+		// Closed Entries triage closed inside the window.
+		Closed int `json:"closed"`
+
+		// Open Entries the hold still keeps back.
+		Open []DigestHeld `json:"open"`
+	} `json:"held"`
+	Incidents struct {
+		// Open Not resolved and not stale.
+		Open []DigestIncident `json:"open"`
+
+		// Opened Incidents that opened inside the window.
+		Opened   int              `json:"opened"`
+		Resolved []DigestIncident `json:"resolved"`
+
+		// Stale Not resolved, last event older than stale.after. Empty while stale.enabled is off.
+		Stale []DigestIncident `json:"stale"`
+	} `json:"incidents"`
+
+	// LastSent When the last scheduled digest went out.
+	LastSent *time.Time `json:"last_sent,omitempty"`
+
+	// Level active when an incident is open and not acked, or a check is down or late.
+	Level DigestPreviewLevel `json:"level"`
+
+	// NextAt When the scheduled digest goes out next. Missing while the digest is off.
+	NextAt *time.Time `json:"next_at,omitempty"`
+
+	// Projects Events inside the window per project, routine events left out, most first. name is empty for events with no project.
+	Projects []DigestProject `json:"projects"`
+
+	// Prose A summary paragraph from the summary model. Missing without one.
+	Prose *string   `json:"prose,omitempty"`
+	Since time.Time `json:"since"`
+
+	// Summary The one-line push text.
+	Summary string    `json:"summary"`
+	Title   string    `json:"title"`
+	Tz      string    `json:"tz"`
+	Until   time.Time `json:"until"`
+}
+
+// DigestPreviewLevel active when an incident is open and not acked, or a check is down or late.
+type DigestPreviewLevel string
+
+// DigestProject defines model for DigestProject.
+type DigestProject struct {
+	Events int    `json:"events"`
+	Name   string `json:"name"`
+}
+
 // Error defines model for Error.
 type Error struct {
 	// Error What went wrong, for a person to read.
@@ -1282,6 +1476,9 @@ type Event struct {
 
 		// ResolvedAt When the incident resolved, RFC 3339. Set when state is resolved.
 		ResolvedAt *time.Time `json:"resolved_at,omitempty"`
+
+		// Stale Set only in GET /v1/state: true when the incident's last event is older than the setting stale.after. Never stored.
+		Stale *bool `json:"stale,omitempty"`
 
 		// State open: not acked or resolved. acked: someone acknowledged it. resolved: it is over.
 		State EventIncidentState `json:"state"`
@@ -2565,7 +2762,13 @@ type GetStateParams struct {
 	// one name matches. - matches items with no project. A name also matches the
 	// names the rules file's aliases map to it. Upper case folds to lower case.
 	Project *ProjectFilter `form:"project,omitempty" json:"project,omitempty"`
+
+	// Stale 1 keeps only the stale incidents.
+	Stale *GetStateParamsStale `form:"stale,omitempty" json:"stale,omitempty"`
 }
+
+// GetStateParamsStale defines parameters for GetState.
+type GetStateParamsStale string
 
 // NotifyLiveActivityUpsertJSONRequestBody defines body for NotifyLiveActivityUpsert for application/json ContentType.
 type NotifyLiveActivityUpsertJSONRequestBody = NotifyLiveActivityUpsertJSONBody

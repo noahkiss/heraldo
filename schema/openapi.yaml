@@ -41,6 +41,8 @@ tags:
     description: A standby server copies the devices and hands back what it stored.
   - name: settings
     description: Server settings. A launch flag or env var wins over a stored value and locks the key.
+  - name: digest
+    description: The daily digest. The primary sends it at digest.at when digest.enabled is on.
   - name: mcp
     description: The MCP tools for coding agents, over streamable HTTP. docs/mcp.md.
 paths:
@@ -348,9 +350,22 @@ paths:
         check-ins and status values. The shape is a stand-in until stage 12. An
         incident's last event carries the incident's state in its incident field:
         open or acked, with the time it opened.
+
+        Stale incidents: an incident whose last event is older than the setting
+        stale.after (default 72h) is stale. With stale.enabled on, its incident
+        field carries stale: true. stale=1 keeps only the stale incidents, and
+        marks them, whether stale.enabled is on or not; the other lists are
+        unchanged. A server older than 0.7 ignores stale.
       tags: [state]
       parameters:
         - $ref: "#/components/parameters/ProjectFilter"
+        - name: stale
+          in: query
+          required: false
+          description: 1 keeps only the stale incidents.
+          schema:
+            type: string
+            enum: ["1", "0", "true", "false"]
       responses:
         "200":
           description: The current state.
@@ -361,6 +376,48 @@ paths:
         "401":
           $ref: "#/components/responses/Error"
         "403":
+          $ref: "#/components/responses/Error"
+  /v1/digest/preview:
+    get:
+      operationId: getDigestPreview
+      summary: The digest as it would go out now.
+      description: |
+        Builds the digest for the window that ends now: from the end of the last
+        scheduled digest, or the last 24 hours without one, at most 7 days. Stores
+        and sends nothing. Works with digest.enabled off, and on a standby.
+      tags: [digest]
+      responses:
+        "200":
+          description: The digest.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DigestPreview"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/digest/send:
+    post:
+      operationId: sendDigest
+      summary: Build the digest and send it now.
+      description: |
+        Stores the digest as a message from source heraldo, thread digest, and
+        pushes it at its level. It does not count as the day's scheduled digest, so
+        the scheduled one still goes out at digest.at. A standby answers 409.
+      tags: [digest]
+      responses:
+        "201":
+          description: The digest that went out; event_id is the stored event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DigestPreview"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
           $ref: "#/components/responses/Error"
   /v1/stream:
     get:
@@ -2322,6 +2379,196 @@ components:
         at:
           type: string
           format: date-time
+    DigestPreview:
+      type: object
+      description: |
+        A digest and the schedule around it. Times are RFC 3339 in UTC; the text
+        uses tz. The lists hold every item; the body lists at most 10 per section.
+      required: [day, tz, since, until, level, title, summary, body, incidents, checkins, finished, held, projects, enabled, at]
+      properties:
+        day:
+          type: string
+          description: The local day the digest is for, YYYY-MM-DD in tz.
+        tz:
+          type: string
+        since:
+          type: string
+          format: date-time
+        until:
+          type: string
+          format: date-time
+        level:
+          type: string
+          enum: [passive, active]
+          description: active when an incident is open and not acked, or a check is down or late.
+        title:
+          type: string
+        summary:
+          type: string
+          description: The one-line push text.
+        body:
+          type: string
+          description: The full text, Markdown.
+        prose:
+          type: string
+          description: A summary paragraph from the summary model. Missing without one.
+        incidents:
+          type: object
+          required: [opened, resolved, open, stale]
+          properties:
+            opened:
+              type: integer
+              description: Incidents that opened inside the window.
+            resolved:
+              type: array
+              items:
+                $ref: "#/components/schemas/DigestIncident"
+            open:
+              type: array
+              description: Not resolved and not stale.
+              items:
+                $ref: "#/components/schemas/DigestIncident"
+            stale:
+              type: array
+              description: Not resolved, last event older than stale.after. Empty while stale.enabled is off.
+              items:
+                $ref: "#/components/schemas/DigestIncident"
+        checkins:
+          type: object
+          required: [total, ok, paused, items]
+          properties:
+            total:
+              type: integer
+              description: Checks that are not paused.
+            ok:
+              type: integer
+              description: Of those, the ones not down or late.
+            paused:
+              type: integer
+            items:
+              type: array
+              description: Checks down or late now, or with failed runs inside the window.
+              items:
+                $ref: "#/components/schemas/DigestCheck"
+        finished:
+          type: array
+          description: Progress keys (jobs, prints) that ended inside the window.
+          items:
+            $ref: "#/components/schemas/DigestJob"
+        held:
+          type: object
+          required: [open, closed]
+          properties:
+            open:
+              type: array
+              description: Entries the hold still keeps back.
+              items:
+                $ref: "#/components/schemas/DigestHeld"
+            closed:
+              type: integer
+              description: Entries triage closed inside the window.
+        projects:
+          type: array
+          description: Events inside the window per project, routine events left out, most first. name is empty for events with no project.
+          items:
+            $ref: "#/components/schemas/DigestProject"
+        enabled:
+          type: boolean
+          description: digest.enabled.
+        at:
+          type: string
+          description: digest.at, HH:MM in tz.
+        next_at:
+          type: string
+          format: date-time
+          description: When the scheduled digest goes out next. Missing while the digest is off.
+        last_sent:
+          type: string
+          format: date-time
+          description: When the last scheduled digest went out.
+        event_id:
+          type: string
+          description: The stored event, on POST /v1/digest/send.
+    DigestIncident:
+      type: object
+      required: [key, state, title, opened_at, last_at, event_id]
+      properties:
+        key:
+          type: string
+        state:
+          type: string
+          enum: [open, acked, resolved]
+        title:
+          type: string
+        source:
+          type: string
+        project:
+          type: string
+        level:
+          type: string
+        opened_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+        last_at:
+          type: string
+          format: date-time
+          description: When the incident's last event arrived.
+        event_id:
+          type: string
+          description: The incident's last event.
+        new:
+          type: boolean
+          description: The incident opened inside the window.
+    DigestCheck:
+      type: object
+      required: [key, state, failures]
+      properties:
+        key:
+          type: string
+        state:
+          type: string
+        down_reason:
+          type: string
+        failures:
+          type: integer
+          description: Failed runs inside the window.
+    DigestJob:
+      type: object
+      required: [key, title, ended_at, event_id]
+      properties:
+        key:
+          type: string
+        title:
+          type: string
+        project:
+          type: string
+        ended_at:
+          type: string
+          format: date-time
+        event_id:
+          type: string
+    DigestHeld:
+      type: object
+      required: [id, title, at]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        at:
+          type: string
+          format: date-time
+    DigestProject:
+      type: object
+      required: [name, events]
+      properties:
+        name:
+          type: string
+        events:
+          type: integer
     State:
       type: object
       description: The latest event per key, by kind. A stand-in until stage 12.

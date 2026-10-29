@@ -49,6 +49,8 @@ Three principles follow, and every feature is judged against them:
   mutes.
 - Saved views: named filters every client shares, with optional bundling
   that folds a burst of pushes into one notification.
+- A daily digest at a set time, and a flag on incidents open for days with
+  no update. Both are off by default.
 - Attachments: screenshots, logs and PDFs stored with an event. The apps show
   images and text inline; agents read them over MCP.
 
@@ -220,12 +222,13 @@ any `-wal` and `-shm` files left beside the old database first.
 | `heraldo show [--json \| --md] <id>` | Prints one event with its full body; `why`, one line on why it did or did not push; and an `attached:` line per attachment (type and size). `--md` prints the event as markdown to share, the same text as the apps' Share button, ending with its `heraldo://event/<id>` link. |
 | `heraldo why [--json] <id>` | Prints why an event did or did not push, one line per push stage: hold, expiry, push table, mutes, inhibit rules, delivery per device. See [docs/api.md](docs/api.md), "Why it pushed". |
 | `heraldo attachment get [-o file] <id>` | Writes an attachment's bytes to a new file, or to stdout. It never overwrites a file. |
-| `heraldo ls` | Lists the newest events (20 by default, oldest first). Filters: `--kind`, `--source`, `--host`, `--key`, `--tag`, `--project` (a comma-separated list; `-` for none), `-q` (full text). `--open` lists the incidents that are not resolved. Routine events (passing check-ins, progress, status) stay out unless `--routine` is given, or `--kind` or `--key` names them. `--view <name>` applies a saved view; other filters replace its fields, and the view's own routine filter applies. |
+| `heraldo ls` | Lists the newest events (20 by default, oldest first). Filters: `--kind`, `--source`, `--host`, `--key`, `--tag`, `--project` (a comma-separated list; `-` for none), `-q` (full text). `--open` lists the incidents that are not resolved; `--open --stale` only those with no update for the server's `stale.after` (72h). Routine events (passing check-ins, progress, status) stay out unless `--routine` is given, or `--kind` or `--key` names them. `--view <name>` applies a saved view; other filters replace its fields, and the view's own routine filter applies. |
 | `heraldo held` | Lists events held for triage (`hold.state` is `held`). |
 | `heraldo hold` | Shows the alert hold's queue: mode, dead-man, and each entry. `--pending` lists open entries only. The call is a look, not a triage poll; `--poll` makes it a poll, for a triage job. |
 | `heraldo hold release --verdict V --title t --body b --tag t <id>...` | Closes held entries with one diagnosis. In mode `on` it stores one message. Needs `HERALDO_WRITE_TOKEN`. |
 | `heraldo hold suppress [--reason r] <id>...` | Closes held entries and sends nothing. Needs `HERALDO_WRITE_TOKEN`. |
 | `heraldo state` | Prints the incidents not resolved, the progress not ended, the check-ins and the statuses. `--project` keeps those projects. |
+| `heraldo digest [--send]` | Prints the daily digest as it would go out now: incidents, stale incidents, check-ins, finished jobs, held entries, counts per project. `--send` sends it now, besides the scheduled one; it needs `HERALDO_WRITE_TOKEN`. See [docs/api.md](docs/api.md#digest). |
 | `heraldo projects` | Lists the projects the stored events name, with counts, and the events with none (`-`). |
 | `heraldo activities [--all]` | Lists the running Live Activities; `--all` adds ended ones. `activities show <key>` prints one with its devices and timeline. |
 | `heraldo devices` | Lists the registered devices: name, platform, token suffix, active or retired. `devices retire <id>` stops pushes to one. |
@@ -337,8 +340,9 @@ app group.
   menu marks all read. Both move the shared `inbox` cursor, so the CLI and the
   app share one unread state. The badge is the cursor's `unread`.
 - **Incidents**: open incidents first, then acknowledged ones, from
-  `/v1/state`, with Ack; then the ones resolved in the last day, with how long
-  each was open. With more than one project, each project gets a section.
+  `/v1/state`, with Ack; then a Stale section, the incidents the server marks
+  stale (`stale.enabled`); then the ones resolved in the last day, with how
+  long each was open. With more than one project, each project gets a section.
 - **Check-ins**: every check from `/v1/checkins`, with its state, next due
   time, last run length and last log. A swipe pauses or resumes a check (write
   token). The tab's badge counts the checks that are down. With more than one

@@ -1,8 +1,9 @@
 import HeraldoKit
 import SwiftUI
 
-/// Incidents: open ones first, then acknowledged ones, from `/v1/state`; then
-/// the ones resolved in the last day, from the synced history. With more
+/// Incidents: open ones first, then acknowledged ones, then stale ones, from
+/// `/v1/state`; then the ones resolved in the last day, from the synced
+/// history. With more
 /// than one project present, each project gets its own section, in the same
 /// order inside it.
 struct IncidentsView: View {
@@ -11,6 +12,7 @@ struct IncidentsView: View {
 
     private var open: [Event] { model.openIncidents }
     private var acked: [Event] { model.ackedIncidents }
+    private var stale: [Event] { model.staleIncidents }
     private var resolved: [Event] { model.resolvedToday }
 
     var body: some View {
@@ -19,7 +21,7 @@ struct IncidentsView: View {
                 if let error {
                     Text(error).font(.footnote).foregroundStyle(.red)
                 }
-                if let groups = ProjectGroup.split(open + acked + resolved, by: \.project) {
+                if let groups = ProjectGroup.split(open + acked + stale + resolved, by: \.project) {
                     ForEach(groups, id: \.title) { g in
                         Section(g.title) {
                             ForEach(g.items) { row($0) }
@@ -28,6 +30,7 @@ struct IncidentsView: View {
                 } else {
                     section("Open", open)
                     section("Acknowledged", acked)
+                    section("Stale", stale)
                     section("Resolved today", resolved)
                 }
             }
@@ -101,11 +104,19 @@ struct IncidentsView: View {
     }
 }
 
+extension Event {
+    /// The server marked the incident stale: no update for `stale.after`.
+    var isStale: Bool { incident?.stale == true }
+}
+
 extension AppModel {
-    /// Open incidents not yet acknowledged, newest first.
-    var openIncidents: [Event] { incidents.filter { !$0.isAcked } }
-    /// Acknowledged incidents, newest first.
-    var ackedIncidents: [Event] { incidents.filter(\.isAcked) }
+    /// Open incidents not yet acknowledged and not stale, newest first.
+    var openIncidents: [Event] { incidents.filter { !$0.isAcked && !$0.isStale } }
+    /// Acknowledged incidents that are not stale, newest first.
+    var ackedIncidents: [Event] { incidents.filter { $0.isAcked && !$0.isStale } }
+    /// Incidents with no update for the server's `stale.after`, open or
+    /// acknowledged, newest first.
+    var staleIncidents: [Event] { incidents.filter(\.isStale) }
     /// The incidents resolved in the last day, from the synced history,
     /// without the ones that opened again.
     var resolvedToday: [Event] {

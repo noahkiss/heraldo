@@ -29,11 +29,13 @@ reading (HERALDO_URL, HERALDO_TOKEN):
                    an attachment's bytes, to a file or stdout
   why <id>         why an event did or did not push, stage by stage
   ls               the newest events, without routine ones; --kind --source --host
-                   --key --tag --project -q --open --routine --view
+                   --key --tag --project -q --open --stale --routine --view
   views [ls]       the saved views every client shares
   held             events held for triage
   hold             the alert hold's queue (a look, not a triage poll; --poll for one)
   state            open incidents, running jobs, checks and statuses; --project
+  digest           the daily digest as it would go out now; --send sends it
+                   (HERALDO_WRITE_TOKEN)
   projects         the projects stored events name, with counts
   activities [--all]
                    running Live Activities; activities show <key> for one
@@ -137,6 +139,7 @@ func (a *app) run(ctx context.Context, args []string) int {
 		"mcp": a.mcp, "settings": a.settings, "why": a.why,
 		"mute": a.mute, "mutes": a.mutes, "hold": a.hold, "devices": a.devices,
 		"projects": a.projects, "state": a.state, "activities": a.activities, "views": a.views,
+		"digest": a.digest,
 	}
 	name := args[0]
 	switch name {

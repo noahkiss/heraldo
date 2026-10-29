@@ -291,8 +291,9 @@ func serve(flags map[string]string, log *slog.Logger) error {
 	go h.RunHold(ctx, holdTick)
 	go h.RunAttachmentSweep(ctx, server.AttachmentSweepEvery)
 	if cfg.Standby {
-		// A standby judges no checks: the primary owns them, and a standby
-		// that judged them would raise a second copy of every incident.
+		// A standby judges no checks and sends no digest: the primary owns
+		// them, and a standby that ran them would raise a second copy of
+		// every incident and digest.
 		if pushState != api.HealthPushOn {
 			log.Warn("standby: push is not on; this standby delivers nothing")
 		}
@@ -302,6 +303,7 @@ func serve(flags map[string]string, log *slog.Logger) error {
 		}).Run(ctx)
 	} else {
 		go h.RunCheckins(ctx, checkinTick)
+		go h.RunDigest(ctx, server.DigestTick)
 	}
 	srv := &http.Server{
 		Addr:              cfg.Addr,

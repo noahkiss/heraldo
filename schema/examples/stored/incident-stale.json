@@ -1,0 +1,13 @@
+{
+  "id": "01JBA6Y8Q2K9M3T4V5W6X7Y8ZA",
+  "received_at": "2026-10-23T09:00:00Z",
+  "ts": "2026-10-23T09:00:00Z",
+  "source": "backup",
+  "kind": "incident",
+  "key": "backup:offsite",
+  "action": "open",
+  "title": "Offsite backup failing",
+  "level": "active",
+  "incident": { "state": "open", "opened_at": "2026-10-23T09:00:00Z", "stale": true },
+  "why": "pushed active to 1 device"
+}

@@ -42,6 +42,7 @@ type API interface {
 	Projects(ctx context.Context) (api.ProjectList, error)
 	Devices(ctx context.Context) ([]api.Device, error)
 	Hold(ctx context.Context, q client.HoldQuery) (api.HoldQueue, error)
+	DigestPreview(ctx context.Context) (api.DigestPreview, error)
 	HoldRelease(ctx context.Context, in api.HoldReleaseJSONBody) (client.HoldResult, error)
 	HoldSuppress(ctx context.Context, in api.HoldSuppressJSONBody) (client.HoldResult, error)
 	Views(ctx context.Context) ([]api.View, error)
@@ -112,6 +113,7 @@ func New(o Options) *mcp.Server {
 	t.addAttachmentRead(s)
 	t.addHoldRead(s)
 	t.addViewsRead(s)
+	t.addDigestPreview(s)
 	if o.Write {
 		t.addIncidentAct(s)
 		t.addCheckinUpdate(s)
@@ -128,7 +130,7 @@ func New(o Options) *mcp.Server {
 
 // ReadTools, WriteTools and AdminTools name the tools New registers.
 var (
-	ReadTools  = []string{"overview", "events_search", "event_read", "checkin_read", "activity_read", "settings_read", "attachment_read", "hold_read", "views_read"}
+	ReadTools  = []string{"overview", "events_search", "event_read", "checkin_read", "activity_read", "settings_read", "attachment_read", "hold_read", "views_read", "digest_preview"}
 	WriteTools = []string{"incident_act", "checkin_update", "mute", "send", "hold_act", "views_write"}
 	AdminTools = []string{"settings_write"}
 )

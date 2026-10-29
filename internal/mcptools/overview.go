@@ -20,18 +20,22 @@ import (
 // sectionCap caps each overview list.
 const sectionCap = 20
 
-// allSections lists overview's sections; the first five are the default.
-var allSections = []string{"unread", "incidents", "checkins", "activities", "mutes", "statuses", "projects", "devices"}
+// allSections lists overview's sections; the first defaultSections are
+// the default.
+var allSections = []string{"unread", "incidents", "checkins", "activities", "mutes", "stale", "statuses", "projects", "devices"}
+
+const defaultSections = 6
 
 type overviewIn struct {
 	Project  []string `json:"project,omitempty" jsonschema:"Only incidents, checks and statuses of these projects."`
-	Sections []string `json:"sections,omitempty" jsonschema:"Default: unread, incidents, checkins, activities, mutes. Ask for statuses, projects or devices by name."`
+	Sections []string `json:"sections,omitempty" jsonschema:"Default: unread, incidents, checkins, activities, mutes, stale. Ask for statuses, projects or devices by name."`
 }
 
-const overviewDesc = `Show what needs attention in heraldo now: unread count, open incidents, checks that are down or late, running Live Activities, mutes in force.
+const overviewDesc = `Show what needs attention in heraldo now: unread count, open incidents, checks that are down or late, running Live Activities, mutes in force, stale incidents.
 
 Best for: the first call in a session, and "is anything wrong / what happened".
 Returns: counts plus short lists (at most 20 per section, most urgent first). No event bodies.
+stale lists incidents open with no update for the server's stale.after (default 72h); it is empty while the server's stale.enabled is off.
 Ask for more by name in sections: statuses (set status widgets), projects (the project names events use, with counts; use them as project filters), devices (the owner's registered phones and Macs, and whether each gets pushes).
 Not for: history or search; use events_search.
 Follow up with event_read for an incident's full text, checkin_read for a check, activity_read for an activity, events_search with key=<key> for an incident's history.`
@@ -59,7 +63,10 @@ func (t *tools) addOverview(s *mcp.Server) {
 			"activities": obj("", map[string]*jsonschema.Schema{
 				"running": integer(""), "items": arr("", anyObj("key, title, status, progress, updated_at, devices")),
 			}),
-			"mutes":    obj("", map[string]*jsonschema.Schema{"items": arr("", anyObj("id, source, key, project, until"))}),
+			"mutes": obj("", map[string]*jsonschema.Schema{"items": arr("", anyObj("id, source, key, project, until"))}),
+			"stale": obj("Open with no update for stale.after, oldest update first.", map[string]*jsonschema.Schema{
+				"total": integer(""), "items": arr("", anyObj("key, state, opened_at, last_at, level, source, title, project, event_id")),
+			}),
 			"statuses": obj("", map[string]*jsonschema.Schema{"total": integer(""), "items": arr("", eventSummarySchema)}),
 			"projects": obj("Newest first.", map[string]*jsonschema.Schema{
 				"total": integer(""), "unfiled": integer("Events with no project."),
@@ -83,8 +90,12 @@ type incidentItem struct {
 	Title    string `json:"title,omitempty"`
 	Project  string `json:"project,omitempty"`
 	EventID  string `json:"event_id"`
+	// LastAt is when the incident's last event arrived; set in stale.
+	LastAt string `json:"last_at,omitempty"`
+	Stale  bool   `json:"stale,omitempty"`
 
 	opened time.Time
+	last   time.Time
 }
 
 type checkItem struct {
@@ -131,7 +142,7 @@ func (t *tools) overview(ctx context.Context, req *mcp.CallToolRequest, in overv
 		want[s] = true
 	}
 	if len(in.Sections) == 0 {
-		for _, s := range allSections[:5] {
+		for _, s := range allSections[:defaultSections] {
 			want[s] = true
 		}
 	}
@@ -165,7 +176,7 @@ func (t *tools) overview(ctx context.Context, req *mcp.CallToolRequest, in overv
 		perr    error
 		devs    []api.Device
 		derr    error
-		needSt  = want["incidents"] || want["statuses"]
+		needSt  = want["incidents"] || want["statuses"] || want["stale"]
 		goFetch = func(on bool, f func()) {
 			if on {
 				wg.Add(1)
@@ -227,12 +238,27 @@ func (t *tools) overview(ctx context.Context, req *mcp.CallToolRequest, in overv
 			return result{}, unsupportedFilter()
 		}
 	}
+	var staleItems []incidentItem
+	if serr == nil {
+		for _, e := range state.Incidents {
+			if !client.IsStale(e) {
+				continue
+			}
+			s := summarize(e)
+			it := incidentItem{Key: s.Key, State: incidentState(e), Level: s.Level, Source: s.Source,
+				Title: s.headline(), Project: s.Project, EventID: e.Id, LastAt: rfc(e.ReceivedAt), Stale: true, last: e.ReceivedAt}
+			if e.Incident != nil {
+				it.OpenedAt = rfc(e.Incident.OpenedAt)
+			}
+			staleItems = append(staleItems, it)
+		}
+	}
 	if want["incidents"] && serr == nil {
 		var items []incidentItem
 		for _, e := range state.Incidents {
 			s := summarize(e)
 			it := incidentItem{Key: s.Key, State: incidentState(e), Level: s.Level, Source: s.Source,
-				Title: s.headline(), Project: s.Project, EventID: e.Id, opened: e.ReceivedAt}
+				Title: s.headline(), Project: s.Project, EventID: e.Id, opened: e.ReceivedAt, Stale: client.IsStale(e)}
 			if e.Incident != nil {
 				it.opened = e.Incident.OpenedAt
 				it.OpenedAt = rfc(it.opened)
@@ -255,6 +281,18 @@ func (t *tools) overview(ctx context.Context, req *mcp.CallToolRequest, in overv
 				since = " since " + it.OpenedAt
 			}
 			lines = append(lines, fmt.Sprintf("  %s [%s]%s, %s: %s (event %s)", it.Key, it.State, since, it.Source, it.Title, it.EventID))
+		}
+	}
+	if want["stale"] && serr == nil {
+		sort.SliceStable(staleItems, func(i, j int) bool { return staleItems[i].last.Before(staleItems[j].last) })
+		total := len(staleItems)
+		items := staleItems[:min(total, sectionCap)]
+		out["stale"] = map[string]any{"total": total, "items": nonNil(items)}
+		if total > 0 {
+			lines = append(lines, fmt.Sprintf("stale: %d open with no recent update", total))
+			for _, it := range items {
+				lines = append(lines, fmt.Sprintf("  %s [%s] last update %s, %s: %s (event %s)", it.Key, it.State, it.LastAt, it.Source, it.Title, it.EventID))
+			}
 		}
 	}
 	if want["statuses"] && serr == nil {

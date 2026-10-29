@@ -45,13 +45,14 @@ heraldo mcp [--read-only]
 
 | Tool | Does | Token |
 |---|---|---|
-| `overview` | Unread count, open incidents, checks that are down or late, running Live Activities, mutes in force. On request: statuses, projects, devices | read (mutes: write) |
+| `overview` | Unread count, open incidents, checks that are down or late, running Live Activities, mutes in force, stale incidents. On request: statuses, projects, devices | read (mutes: write) |
 | `events_search` | List or search events: filters, full text, unread, cursor paging | read |
 | `event_read` | One event in full: body (paged), details, delivery, why it did or did not push (`why`, `decisions`), attachment list; `markdown: true` adds the shareable text | read |
 | `checkin_read` | One check: schedule, state, due times, the end of the last log | read |
 | `activity_read` | One Live Activity: content, device instances, timeline | read |
 | `attachment_read` | One attached file: text inline (paged), an image as image content | read |
 | `hold_read` | The alert hold: mode, dead-man, held entries. A look, not a triage poll, unless `poll` is true | read |
+| `digest_preview` | The daily digest as it would go out now: incidents, stale incidents, check-ins, finished jobs, held entries, counts per project. Sends nothing | read |
 | `incident_act` | Ack or resolve an open incident | write |
 | `checkin_update` | Pause, resume, or replace a check's schedule | write |
 | `mute` | Mute a source, key or project for a while, or end a mute | write |
@@ -75,9 +76,15 @@ not for, and which tool follows it. Two short notes on the newer ones:
   source's pushes into one notification (`bundle`). Not for: muting (`mute`).
 - `events_search` takes `view` (a saved view's name or id) and `level`. With
   `view`, the view's own routine filter applies unless `routine` is given.
+- `digest_preview`. Best for: "what happened overnight", one call that sums
+  up the window since the last digest. Not for: the state of one thing;
+  `overview`, `checkin_read` or `events_search key=<key>` answer that.
 
 `overview` takes `sections`. The default is `unread`, `incidents`,
-`checkins`, `activities` and `mutes`. Ask for `statuses`, `projects` (the
+`checkins`, `activities`, `mutes` and `stale`. `stale` lists the incidents
+with no update for the server's `stale.after`; it is empty while the
+server's `stale.enabled` is off, and the incidents it lists carry
+`stale: true` in `incidents` too. Ask for `statuses`, `projects` (the
 names to filter by, with counts) or `devices` (the owner's phones and Macs,
 and whether each gets pushes) by name.
 
@@ -85,6 +92,7 @@ Left out on purpose:
 
 - Moving the read cursor. Reads never clear the owner's unread badge.
 - Ping keys. A key is a credential and would land in transcripts.
+- Sending the digest. `heraldo digest --send` does that.
 - Opening incidents, check-in events, Live Activities, re-alerts. `send` posts
   kind `message` only.
 - Retiring a device. A wrong call stops pushes to the owner's phone. The CLI

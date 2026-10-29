@@ -177,6 +177,7 @@ func (a *app) ls(ctx context.Context, args []string) error {
 	f.add(fs)
 	q := fs.String("q", "", "full-text search over title, summary and body")
 	open := fs.Bool("open", false, "open incidents only: those not resolved, newest event per key")
+	stale := fs.Bool("stale", false, "with --open: only stale incidents, open with no update for stale.after (72h)")
 	withRoutine := fs.Bool("routine", false, "include routine events: passing check-ins, progress and status")
 	view := fs.String("view", "", "apply a saved view, by name or id; other flags replace its fields")
 	limit := fs.Int("limit", 20, "how many events, 1 to 500")
@@ -191,8 +192,18 @@ func (a *app) ls(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if *stale && !*open {
+		return fmt.Errorf("--stale needs --open")
+	}
 	if *open {
-		st, err := c.StateIn(ctx, projectList(f.project))
+		var incs []client.Event
+		if *stale {
+			incs, err = c.StaleIncidents(ctx, projectList(f.project))
+		} else {
+			var st client.State
+			st, err = c.StateIn(ctx, projectList(f.project))
+			incs = st.Incidents
+		}
 		if err != nil {
 			return stateErr(err)
 		}
@@ -200,7 +211,7 @@ func (a *app) ls(ctx context.Context, args []string) error {
 		g := f
 		g.project = ""
 		var evs []client.Event
-		for _, e := range st.Incidents {
+		for _, e := range incs {
 			if g.match(e) {
 				evs = append(evs, e)
 			}
@@ -213,7 +224,11 @@ func (a *app) ls(ctx context.Context, args []string) error {
 		}
 		a.print(evs, *asJSON)
 		if len(evs) == 0 && !*asJSON {
-			fmt.Fprintln(a.stderr, "no open incidents")
+			if *stale {
+				fmt.Fprintln(a.stderr, "no stale incidents")
+			} else {
+				fmt.Fprintln(a.stderr, "no open incidents")
+			}
 		}
 		return nil
 	}

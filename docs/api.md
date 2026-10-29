@@ -27,7 +27,9 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `POST /notify/{key}`, `POST /v1/notify` | Apprise-compatible ingest: JSON, form or multipart. Answers 200 with a `Sent` line, or 424. See "Apprise compatibility". | served |
 | `GET /recent?n=&tag=&source=&routine=`, `GET /entry/{id}` | The newest events, or one, in the apprise-tee catalogue's shape. | served |
 | `GET /v1/hold?state=&peek=`, `POST /v1/hold/release`, `POST /v1/hold/suppress` | The alert hold: its queue, and closing entries. Also served as `/held`, `/held/release` and `/held/suppress`. See "Hold". | served |
-| `GET /v1/state?project=` | Flat arrays of the latest event per key: incidents not resolved, progress not ended, every check-in, set statuses. The shape is a stand-in until stage 12. | served |
+| `GET /v1/state?project=&stale=` | Flat arrays of the latest event per key: incidents not resolved, progress not ended, every check-in, set statuses. `stale=1` keeps only the stale incidents (see "Stale incidents"). The shape is a stand-in until stage 12. | served |
+| `GET /v1/digest/preview` | The daily digest as it would go out now. Stores and sends nothing. See "Digest". | served |
+| `POST /v1/digest/send` | Builds the digest and sends it now (write). It does not replace the scheduled one. A standby answers 409. | served |
 | `GET /v1/projects` | The projects the stored events name, with counts. See "Projects". | served |
 | `GET /v1/stream` | Server-sent events: one `poke` per stored event, with the newest cursor. | served |
 | `GET /v1/cursors/{name}`, `PUT /v1/cursors/{name}` | The read cursor called `name`, shared by every client, with its `unread` count. | served |
@@ -779,6 +781,75 @@ Re-alerts:
 - A mute or an inhibit rule holds a re-alert back, and the schedule moves on.
 - An imported event (`import-tee`) never schedules a re-alert: it is history.
 
+### Stale incidents
+
+An incident that is not resolved and whose last event is older than
+`stale.after` (default `72h`) is stale: open for days with no update.
+
+- With `stale.enabled` on, `GET /v1/state` marks each stale incident with
+  `incident.stale: true`. Off (the default), it marks none.
+- `GET /v1/state?stale=1` keeps only the stale incidents and marks them,
+  whether `stale.enabled` is on or not. The other lists are unchanged.
+- The flag is computed at read time. A stored event never carries it, so
+  `GET /v1/events` does not show it.
+- Any new event on the key (an `update`, an `ack`) makes the incident fresh
+  again.
+- With `stale.enabled` on, the digest has a "Stale" section, the MCP tool
+  `overview` a `stale` section, and the apps a "Stale" section in Incidents.
+  `heraldo ls --open --stale` lists them.
+
+## Digest
+
+The daily digest is one message that sums up the window since the last one.
+It is off by default.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `digest.enabled` | `false` | Send the digest once a day. |
+| `digest.at` | `07:30` | When, HH:MM in `digest.tz`. |
+| `digest.tz` | `UTC` | The time zone of `digest.at`, and of the times in the text. |
+
+What it is:
+
+- An event with `kind` `message`, `source` `heraldo`, `thread` `digest`. Its
+  `summary` is the one-line push text; its `body` is Markdown.
+- Level `passive`, or `active` when an incident is open and not acked, or a
+  check is down or late.
+- `details.heraldo.digest` holds the day, the window and the counts.
+- The text is deterministic: the same store gives the same digest.
+
+The body has one section each for:
+
+| Section | Holds |
+|---|---|
+| Incidents | Counts of those opened, resolved and still open in the window; the open ones (new ones marked), then the resolved ones. |
+| Stale | With `stale.enabled` on: the incidents with no update for `stale.after`. |
+| Check-ins | `N/N ok` over the checks that are not paused; the checks down or late, and those with failed runs in the window. |
+| Finished | Progress keys that ended in the window: jobs and prints. |
+| Held | Entries the hold still keeps back, and how many triage closed. |
+| Projects | Events in the window per project, routine events and digests left out. |
+
+Each list in the body shows at most 10 items. `GET /v1/digest/preview`
+returns every item, as JSON.
+
+Schedule:
+
+- The window runs from the end of the last scheduled digest to now. Without
+  one it is the last 24 hours. It is never longer than 7 days.
+- Only the primary sends it. A standby never runs the digest.
+- The server checks every minute. Once `digest.at` has passed on a local day
+  and that day has no digest, it sends one and logs the day in the `digests`
+  table. A restart never sends a day twice.
+- After downtime it sends one digest when it is back, for the current day,
+  not one per missed day. Its window covers the whole gap, up to 7 days.
+- Turning the digest on after `digest.at` sends that day's digest at the
+  next check.
+- `POST /v1/digest/send` (`heraldo digest --send`) sends one now. It is not
+  logged, so the scheduled one still goes out.
+- The digest has a hook for a summary paragraph from a model (`prose` in the
+  preview). No model writes one yet; without one the digest is the plain
+  list above.
+
 ## Mutes
 
 A mute holds back pushes for a while. Matching events are stored, listed and
@@ -1381,7 +1452,7 @@ that, the check's config lives on the server. See "Check-ins".
 | `delivery` | Per-device outcome: `sent`, `failed`, or `skipped` (a mute or an inhibit rule held it back), with the level the push carried. See "Push". |
 | `why` | One line on the push decision, such as `pushed active to 2 devices`. See "Why it pushed". |
 | `attachment_info` | On an event with `attachments`: `{id, content_type, bytes}` for each, in order. See "Attachments". |
-| `incident` | On an incident event: the incident after this event, `{state, opened_at, resolved_at}`. `state` is `open`, `acked` or `resolved`. See "Incidents". |
+| `incident` | On an incident event: the incident after this event, `{state, opened_at, resolved_at}`. `state` is `open`, `acked` or `resolved`. In `GET /v1/state` it can also carry `stale: true` (see "Stale incidents"). See "Incidents". |
 
 ## APNs mapping
 
