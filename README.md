@@ -298,6 +298,12 @@ No shell runs. The command gets the event's JSON on stdin, and these variables:
   text, PDF or JSON, 5 MiB each). The notify URL takes no files, so `send`
   then uploads to `HERALDO_URL` with `HERALDO_WRITE_TOKEN` and posts the
   message there as kind `message`. Without both variables it fails.
+- Auth: a URL that carries its own key (`/notify/<key>`, a `token`
+  parameter, or a user in the URL) is sent as it is. Otherwise, with
+  `HERALDO_WRITE_TOKEN` set, `send` adds it as `Authorization: Bearer`, so
+  `HERALDO_SEND_URL=<server>/v1/notify` works with no key in the URL. An
+  `APPRISE_URL` gets the token only when it is on `HERALDO_URL`'s server, so
+  the token never goes to another Apprise service.
 - Success prints `✅ Notification sent successfully.` and exits 0. Success
   means HTTP 200 with a `Sent` line in the answer.
 - Anything else prints `❌ Failed to send notification. HTTP Status: <code>` and

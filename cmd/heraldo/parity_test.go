@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -157,5 +158,55 @@ func TestProjectsStateActivities(t *testing.T) {
 	}
 	if r := f.run("activities", "show", "build/none"); r.code != 1 {
 		t.Fatalf("unknown activity: %+v", r)
+	}
+}
+
+func TestSendBearer(t *testing.T) {
+	f := newFixture(t)
+	f.env["HERALDO_SEND_URL"] = f.srv.URL + "/v1/notify"
+	// No key in the URL and no write token: the server refuses it.
+	if r := f.run("send", "-t", "x", "-m", "no token"); r.code != 1 || !strings.Contains(r.stdout, "HTTP Status: 401") {
+		t.Fatalf("without a write token: %+v", r)
+	}
+	f.env["HERALDO_WRITE_TOKEN"] = writeTok
+	if r := f.run("send", "-t", "bearer one", "-m", "with bearer"); r.code != 0 || !strings.Contains(r.stdout, "sent successfully") {
+		t.Fatalf("with a write token: %+v", r)
+	}
+	if r := f.run("ls"); !strings.Contains(r.stdout, "bearer one") {
+		t.Fatalf("not stored: %+v", r)
+	}
+
+	// An APPRISE_URL on another server never gets the token.
+	var auth []string
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = append(auth, r.Header.Get("Authorization"))
+		io.WriteString(w, "Sent")
+	}))
+	t.Cleanup(other.Close)
+	delete(f.env, "HERALDO_SEND_URL")
+	f.env["APPRISE_URL"] = other.URL + "/notify"
+	if r := f.run("send", "-m", "elsewhere"); r.code != 0 || len(auth) != 1 || auth[0] != "" {
+		t.Fatalf("foreign APPRISE_URL got %q: %+v", auth, r)
+	}
+	// A URL with a key in the path gets no token either.
+	f.env["HERALDO_SEND_URL"] = other.URL + "/notify/somekey"
+	if r := f.run("send", "-m", "keyed"); r.code != 0 || len(auth) != 2 || auth[1] != "" {
+		t.Fatalf("keyed URL got %q: %+v", auth, r)
+	}
+}
+
+func TestURLHasKey(t *testing.T) {
+	for u, want := range map[string]bool{
+		"https://h.example/v1/notify":         false,
+		"https://h.example/notify":            false,
+		"https://h.example/notify/apprise":    false,
+		"https://h.example/notify/k3y":        true,
+		"https://h.example/notify/k3y/":       true,
+		"https://h.example/v1/notify?token=x": true,
+		"https://u:p@h.example/v1/notify":     true,
+	} {
+		if got := urlHasKey(u); got != want {
+			t.Errorf("%s: %v", u, got)
+		}
 	}
 }

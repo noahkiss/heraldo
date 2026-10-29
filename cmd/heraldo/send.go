@@ -68,9 +68,9 @@ func (a *app) send(ctx context.Context, args []string) error {
 		fmt.Fprintf(a.stdout, "Unknown parameter: %s\n", pos[0])
 		return errQuiet
 	}
-	target := a.setting(envSendURL)
+	target, fromSend := a.setting(envSendURL), true
 	if target == "" {
-		target = a.setting(envAppriseURL)
+		target, fromSend = a.setting(envAppriseURL), false
 	}
 	if target == "" && len(attach) == 0 {
 		return nil
@@ -132,7 +132,12 @@ func (a *app) send(ctx context.Context, args []string) error {
 		// Leave the fallback its own time.
 		limit = 15 * time.Second
 	}
-	status, why := postNotify(ctx, hc, target, body, limit)
+	bearer := ""
+	if tok := a.setting(envWriteToken); tok != "" && !urlHasKey(target) &&
+		(fromSend || sameOrigin(target, a.setting(envURL))) {
+		bearer = tok
+	}
+	status, why := postNotify(ctx, hc, target, bearer, body, limit)
 	if status == "" {
 		fmt.Fprintln(a.stdout, sentLine)
 		return nil
@@ -166,7 +171,9 @@ func (a *app) send(ctx context.Context, args []string) error {
 // postNotify posts body to an Apprise-compatible notify URL. It returns ""
 // on success, else the status for the failed line ("000" when no answer
 // came) and, when there is more to say, why.
-func postNotify(ctx context.Context, hc *http.Client, target string, body []byte, limit time.Duration) (string, string) {
+//
+// bearer, when set, goes in the Authorization header.
+func postNotify(ctx context.Context, hc *http.Client, target, bearer string, body []byte, limit time.Duration) (string, string) {
 	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
@@ -175,6 +182,9 @@ func postNotify(ctx context.Context, hc *http.Client, target string, body []byte
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "*/*")
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
 	resp, err := hc.Do(req)
 	if err != nil {
 		// curl reports a request that got no answer as status 000.
@@ -189,6 +199,37 @@ func postNotify(ctx context.Context, hc *http.Client, target string, body []byte
 		return "200", "HTTP 200 without a Sent line: no target took the message"
 	}
 	return fmt.Sprint(resp.StatusCode), ""
+}
+
+// urlHasKey reports whether a notify URL carries its own credential: a key
+// in /notify/<key> (apprise, Apprise's default key, is none), a token
+// parameter, or a user in the URL. send adds no bearer token to such a URL,
+// so a notify-key URL keeps working as it did.
+func urlHasKey(target string) bool {
+	u, err := url.Parse(target)
+	if err != nil {
+		return true
+	}
+	if u.User != nil || u.Query().Has("token") {
+		return true
+	}
+	path := strings.TrimRight(u.Path, "/")
+	i := strings.LastIndex(path, "/notify/")
+	if i < 0 {
+		return false
+	}
+	key := path[i+len("/notify/"):]
+	return key != "" && key != "apprise" && !strings.Contains(key, "/")
+}
+
+// sameOrigin reports whether a and b have the same scheme and host. An
+// APPRISE_URL gets the write token only when it points at HERALDO_URL's
+// server, so the token never goes to another Apprise service.
+func sameOrigin(a, b string) bool {
+	ua, err1 := url.Parse(a)
+	ub, err2 := url.Parse(b)
+	return err1 == nil && err2 == nil && ub.Host != "" &&
+		strings.EqualFold(ua.Scheme, ub.Scheme) && strings.EqualFold(ua.Host, ub.Host)
 }
 
 // envelopeLevels are the envelope's levels. A --level that is not one is a
