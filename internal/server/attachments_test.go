@@ -232,4 +232,3 @@ func TestStandbyImportUnknownAttachment(t *testing.T) {
 		t.Fatalf("import: %+v", res)
 	}
 }
-
