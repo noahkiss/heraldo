@@ -10,18 +10,32 @@ struct InboxView: View {
     @State private var source: String?
     /// A hold state, such as held: the triage filter.
     @State private var hold: String?
+    /// A project, or `noProject` for the events with none.
+    @State private var project: String?
+    /// Routine events (passing check-ins, progress, status) stay out unless
+    /// this is on, or the kind filter names their kind.
+    @State private var showRoutine = false
     @State private var results: [Event]?
     @State private var resultsCursor: String?
     @State private var searching = false
 
     private var filtering: Bool {
         !query.trimmingCharacters(in: .whitespaces).isEmpty || kind != nil || source != nil || hold != nil
+            || project != nil
     }
 
-    /// Progress updates stay out of the plain list: the Live Activity shows
-    /// them, and each activity leaves one message when it ends. The kind
-    /// filter still finds them.
-    private var events: [Event] { filtering ? (results ?? []) : model.cache.events.filter { $0.kind != "progress" } }
+    /// The routine filter for a server search: routine events stay out
+    /// unless they are asked for, by the toggle or by the kind.
+    private var routineFilter: EventQuery.Routine? {
+        showRoutine || Event.isRoutineKind(kind) ? nil : .exclude
+    }
+
+    /// Routine events stay out of the plain list: a check's pings live in
+    /// its history on the Check-ins tab, and a Live Activity shows progress.
+    private var events: [Event] {
+        let list = filtering ? (results ?? []) : model.cache.events
+        return routineFilter == nil ? list : list.filter { !$0.isRoutine }
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -30,7 +44,8 @@ struct InboxView: View {
                 .navigationDestination(for: Event.self) { EventDetailView(event: $0) }
                 .searchable(text: $query, prompt: "Search title and body")
                 .onSubmit(of: .search) { Task { await search() } }
-                .task(id: SearchKey(query: query, kind: kind, source: source, hold: hold)) {
+                .task(id: SearchKey(query: query, kind: kind, source: source, hold: hold, project: project,
+                                    showRoutine: showRoutine)) {
                     // Debounce typing; a filter change searches at once too.
                     try? await Task.sleep(for: .milliseconds(350))
                     guard !Task.isCancelled else { return }
@@ -56,7 +71,7 @@ struct InboxView: View {
             }
             ForEach(events) { e in
                 NavigationLink(value: e) {
-                    EventRow(event: e, unread: model.isUnread(e))
+                    EventRow(event: e, unread: model.isUnread(e), showProject: project == nil)
                 }
                 .swipeActions(edge: .leading) {
                     if model.isUnread(e) {
@@ -95,12 +110,20 @@ struct InboxView: View {
                     Text("All sources").tag(String?.none)
                     ForEach(model.cache.sources, id: \.self) { Text($0).tag(String?.some($0)) }
                 }
+                if !model.projectChoices.isEmpty {
+                    Picker("Project", selection: $project) {
+                        Text("All projects").tag(String?.none)
+                        ForEach(model.projectChoices, id: \.self) { Text($0).tag(String?.some($0)) }
+                        Text("No project").tag(String?.some(noProject))
+                    }
+                }
                 Picker("Hold", selection: $hold) {
                     Text("Any hold").tag(String?.none)
                     ForEach(model.cache.holdStates, id: \.self) { Text($0.capitalized).tag(String?.some($0)) }
                 }
+                Toggle("Show routine events", isOn: $showRoutine)
             } label: {
-                Label("Filter", systemImage: kind == nil && source == nil && hold == nil
+                Label("Filter", systemImage: kind == nil && source == nil && hold == nil && project == nil && !showRoutine
                       ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
             }
         }
@@ -148,7 +171,8 @@ struct InboxView: View {
         defer { searching = false }
         let q = query.trimmingCharacters(in: .whitespaces)
         do {
-            let page = try await sync.search(q: q.isEmpty ? nil : q, kind: kind, source: source, hold: hold)
+            let page = try await sync.search(q: q.isEmpty ? nil : q, kind: kind, source: source, hold: hold,
+                                             project: project, routine: routineFilter)
             results = page.events
             resultsCursor = page.events.count < sync.pageSize ? nil : page.nextCursor
         } catch {
@@ -162,7 +186,7 @@ struct InboxView: View {
             let q = query.trimmingCharacters(in: .whitespaces)
             do {
                 let page = try await sync.search(q: q.isEmpty ? nil : q, kind: kind, source: source, hold: hold,
-                                                 before: before)
+                                                 project: project, routine: routineFilter, before: before)
                 results = (results ?? []) + page.events
                 resultsCursor = page.events.count < sync.pageSize ? nil : page.nextCursor
             } catch {
@@ -189,12 +213,16 @@ struct InboxView: View {
         var kind: String?
         var source: String?
         var hold: String?
+        var project: String?
+        var showRoutine: Bool
     }
 }
 
 struct EventRow: View {
     let event: Event
     var unread = false
+    /// Shows the event's project as a chip. Off when a project filter is set.
+    var showProject = true
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -217,9 +245,14 @@ struct EventRow: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
-                Text([event.source, event.host].compactMap { $0 }.joined(separator: " · "))
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                HStack(spacing: 6) {
+                    Text([event.source, event.host].compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    if showProject, let project = event.project {
+                        ProjectChip(project: project)
+                    }
+                }
                 if let hold = event.hold, !hold.label.isEmpty {
                     Label(hold.label, systemImage: "tray.full")
                         .font(.caption)

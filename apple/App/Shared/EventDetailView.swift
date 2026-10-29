@@ -48,6 +48,19 @@ struct EventDetailView: View {
                     Label("Mark read", systemImage: "envelope.open")
                 }
             }
+            if let project = event.project, model.canWrite {
+                Menu {
+                    Button {
+                        Task {
+                            do { try await model.muteProject(project); ackError = nil } catch { ackError = error.localizedDescription }
+                        }
+                    } label: {
+                        Label("Mute project for 1 h", systemImage: "bell.slash")
+                    }
+                } label: {
+                    Label("More", systemImage: "ellipsis.circle")
+                }
+            }
         }
     }
 
@@ -101,6 +114,14 @@ struct EventDetailView: View {
                     Button(a.title) { openURL(url) }.buttonStyle(.bordered)
                 }
             }
+            if let key = event.key, !key.isEmpty {
+                NavigationLink {
+                    KeyHistoryView(key: key)
+                } label: {
+                    Label("History", systemImage: "clock.arrow.circlepath")
+                }
+                .buttonStyle(.bordered)
+            }
         }
         if let ackError {
             Text(ackError).font(.footnote).foregroundStyle(.red)
@@ -112,6 +133,7 @@ struct EventDetailView: View {
             Divider()
             fact("Source", event.source)
             fact("Host", event.host)
+            fact("Project", event.project)
             fact("Key", event.key)
             fact("Level", event.level)
             fact("Thread", event.thread)

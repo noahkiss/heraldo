@@ -108,8 +108,8 @@ struct MutesSection: View {
             ForEach(mutes) { m in
                 HStack {
                     VStack(alignment: .leading) {
-                        Text(m.key ?? m.source ?? m.id)
-                        if m.key != nil, let source = m.source {
+                        Text(m.key ?? m.project ?? m.source ?? m.id)
+                        if m.key != nil || m.project != nil, let source = m.source {
                             Text(source).font(.caption).foregroundStyle(.secondary)
                         }
                     }

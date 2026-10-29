@@ -132,6 +132,38 @@ final class ModelTests: XCTestCase {
         XCTAssertFalse(Event(id: "x", source: "s", kind: "incident").isFailingCheckin)
     }
 
+    func testRoutine() throws {
+        func event(_ json: String) throws -> Event {
+            try JSON.decoder.decode(Event.self, from: Data(#"{"id":"01","source":"s",\#(json)}"#.utf8))
+        }
+        XCTAssertTrue(try event(#""kind":"checkin","key":"k","action":"success""#).isRoutine)
+        XCTAssertTrue(try event(#""kind":"checkin","key":"k","action":"log","checkin":{"exit_code":1}"#).isRoutine)
+        XCTAssertFalse(try event(#""kind":"checkin","key":"k","action":"fail""#).isRoutine)
+        XCTAssertFalse(try event(#""kind":"checkin","key":"k","action":"success","checkin":{"exit_code":2}"#).isRoutine)
+        XCTAssertTrue(try event(#""kind":"progress","key":"k","action":"update""#).isRoutine)
+        XCTAssertTrue(try event(#""kind":"status","key":"k""#).isRoutine)
+        XCTAssertFalse(try event(#""kind":"message""#).isRoutine)
+        XCTAssertFalse(try event(#""kind":"incident","key":"k","action":"open""#).isRoutine)
+        XCTAssertEqual(try event(#""kind":"message","project":"web""#).project, "web")
+    }
+
+    func testEventQueryItems() {
+        let q = EventQuery(order: .desc, project: ["web", noProject], routine: .exclude)
+        let items = q.items.map { "\($0.name)=\($0.value ?? "")" }
+        XCTAssertEqual(items, ["order=desc", "routine=exclude", "project=web", "project=-"])
+    }
+
+    func testProjectList() throws {
+        let json = #"{"projects":[{"name":"web","events":3,"last_at":"2026-10-28T12:00:00Z"}],"unfiled":2}"#
+        let l = try JSON.decoder.decode(ProjectList.self, from: Data(json.utf8))
+        XCTAssertEqual(l.projects.map(\.name), ["web"])
+        XCTAssertEqual(l.unfiled, 2)
+        let check = try JSON.decoder.decode(Check.self, from: Data(#"{"key":"job","state":"up","project":"web"}"#.utf8))
+        XCTAssertEqual(check.project, "web")
+        let mute = try JSON.encoder.encode(MuteInput(project: "web", for: "1h"))
+        XCTAssertEqual(String(decoding: mute, as: UTF8.self), #"{"for":"1h","project":"web"}"#)
+    }
+
     func testIncidentsText() throws {
         let json = #"""
         {"incidents":[

@@ -57,6 +57,11 @@ public struct HistoryCache: Codable, Equatable, Sendable {
         }
     }
 
+    /// The projects seen in the cache, sorted, for the project filter.
+    public var projects: [String] {
+        Array(Set(events.compactMap(\.project))).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
     /// The sources seen in the cache, sorted, for the source filter.
     public var sources: [String] {
         Array(Set(events.map(\.source))).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
@@ -134,9 +139,11 @@ public struct HistorySync: Sendable {
 
     /// A server-side search or filter, newest first. Not cached.
     public func search(q: String?, kind: String?, source: String?, hold: String? = nil,
+                       project: String? = nil, key: String? = nil, routine: EventQuery.Routine? = nil,
                        before: String? = nil) async throws -> EventPage {
         try await client.listEvents(EventQuery(before: before, order: .desc, limit: pageSize,
-                                               source: source, kind: kind, q: q, hold: hold))
+                                               source: source, kind: kind, key: key, q: q, hold: hold,
+                                               project: project.map { [$0] }, routine: routine))
     }
 
     /// The read cursor and the events after it, up to `maxPages` pages. A

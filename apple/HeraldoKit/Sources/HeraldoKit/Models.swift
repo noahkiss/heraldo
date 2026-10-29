@@ -19,6 +19,8 @@ public struct Event: Codable, Hashable, Identifiable, Sendable {
     public var body: String?
     public var level: String?
     public var thread: String?
+    /// The project the event is filed under. Servers before 0.5.0 send none.
+    public var project: String?
     public var url: String?
     public var image: String?
     public var icon: String?
@@ -31,7 +33,7 @@ public struct Event: Codable, Hashable, Identifiable, Sendable {
     public var incident: IncidentInfo?
 
     enum CodingKeys: String, CodingKey {
-        case id, cursor, ts, source, kind, key, action, host, title, summary, body, level, thread
+        case id, cursor, ts, source, kind, key, action, host, title, summary, body, level, thread, project
         case url, image, icon, tags, actions, hold, delivery, checkin, incident
         case receivedAt = "received_at"
     }
@@ -83,6 +85,22 @@ public struct Event: Codable, Hashable, Identifiable, Sendable {
         if action == "fail" { return true }
         if action == "log" { return false }
         return (checkin?.exitCode ?? 0) != 0
+    }
+
+    /// A routine event: one the push table never pushes by kind and action.
+    /// Check-ins that did not fail, progress and status (docs/api.md,
+    /// "Routine events"). The Inbox leaves them out by default.
+    public var isRoutine: Bool {
+        switch kind {
+        case "progress", "status": return true
+        case "checkin": return !isFailingCheckin
+        default: return false
+        }
+    }
+
+    /// A kind whose events are routine unless a check-in failed.
+    public static func isRoutineKind(_ kind: String?) -> Bool {
+        kind == "checkin" || kind == "progress" || kind == "status"
     }
 }
 
@@ -169,6 +187,8 @@ public struct Check: Codable, Hashable, Identifiable, Sendable {
 
     public var key: String
     public var host: String?
+    /// The project the check is filed under, on servers that set one.
+    public var project: String?
     public var state: State
     public var stateSince: Date?
     public var downReason: String?
@@ -188,7 +208,7 @@ public struct Check: Codable, Hashable, Identifiable, Sendable {
     public var id: String { key }
 
     enum CodingKeys: String, CodingKey {
-        case key, host, state, schedule, incident
+        case key, host, project, state, schedule, incident
         case stateSince = "state_since"
         case downReason = "down_reason"
         case createdAt = "created_at"
@@ -215,6 +235,7 @@ public struct Check: Codable, Hashable, Identifiable, Sendable {
         // still decodes.
         state = (try? c.decode(State.self, forKey: .state)) ?? .new
         host = try c.decodeIfPresent(String.self, forKey: .host)
+        project = try c.decodeIfPresent(String.self, forKey: .project)
         stateSince = try c.decodeIfPresent(Date.self, forKey: .stateSince)
         downReason = try c.decodeIfPresent(String.self, forKey: .downReason)
         schedule = try c.decodeIfPresent(CheckSchedule.self, forKey: .schedule)
@@ -319,18 +340,20 @@ public struct IncidentInfo: Codable, Hashable, Sendable {
     }
 }
 
-/// A mute: pushes of a source, a key or both are held back until `until`.
+/// A mute: pushes of a source, a key, a project, or a mix, are held back
+/// until `until`.
 public struct Mute: Codable, Hashable, Identifiable, Sendable {
     public var id: String
     public var source: String?
     public var key: String?
+    public var project: String?
     public var until: Date
     public var createdAt: Date?
     public var endedAt: Date?
     public var active: Bool
 
     enum CodingKeys: String, CodingKey {
-        case id, source, key, until, active
+        case id, source, key, project, until, active
         case createdAt = "created_at"
         case endedAt = "ended_at"
     }
@@ -340,15 +363,48 @@ public struct Mute: Codable, Hashable, Identifiable, Sendable {
 public struct MuteInput: Codable, Hashable, Sendable {
     public var source: String?
     public var key: String?
+    /// Every event filed under this project. A server before project mutes
+    /// refuses the field with 400.
+    public var project: String?
     /// A Go duration such as 1h.
     public var `for`: String?
 
-    public init(source: String? = nil, key: String? = nil, for duration: String) {
+    public init(source: String? = nil, key: String? = nil, project: String? = nil, for duration: String) {
         self.source = source
         self.key = key
+        self.project = project
         self.for = duration
     }
 }
+
+/// One project from `GET /v1/projects`.
+public struct ProjectInfo: Codable, Hashable, Identifiable, Sendable {
+    public var name: String
+    public var events: Int
+    public var lastAt: Date?
+
+    public var id: String { name }
+
+    enum CodingKeys: String, CodingKey {
+        case name, events
+        case lastAt = "last_at"
+    }
+
+    public init(name: String, events: Int, lastAt: Date? = nil) {
+        self.name = name
+        self.events = events
+        self.lastAt = lastAt
+    }
+}
+
+/// `GET /v1/projects`: the projects events name, and the count with none.
+public struct ProjectList: Codable, Sendable {
+    public var projects: [ProjectInfo]
+    public var unfiled: Int
+}
+
+/// The project filter value for events with no project.
+public let noProject = "-"
 
 struct MuteList: Codable, Sendable {
     var mutes: [Mute]

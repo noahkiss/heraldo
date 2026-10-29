@@ -18,6 +18,9 @@ final class AppModel {
     private(set) var incidents: [Event] = []
     /// Every check, in key order. Empty on a server before check-ins.
     private(set) var checks: [Check] = []
+    /// The projects the server's events name, from `GET /v1/projects`.
+    /// Empty on a server before projects.
+    private(set) var projects: [String] = []
     private(set) var isSyncing = false
     private(set) var lastSync: Date?
     var lastError: String?
@@ -132,6 +135,7 @@ final class AppModel {
             // Open incidents before acknowledged ones, newest first in each.
             incidents = try await sync.client.state().sortedIncidents
             checks = try await sync.client.checks() ?? []
+            projects = (try? await sync.client.projects())?.projects.map(\.name) ?? []
             lastSync = .now
             lastError = nil
             onBadge?(unread.badge)
@@ -176,6 +180,22 @@ final class AppModel {
     func ack(_ incident: Event) async throws {
         try await client().ack(incident, source: AppInfo.source)
         await refresh()
+    }
+
+    /// The projects for the Inbox's project filter: the server's list and
+    /// the ones in the cache.
+    var projectChoices: [String] {
+        Array(Set(projects).union(cache.projects))
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    /// Whether the write token is set: the write actions apply.
+    var canWrite: Bool { !(credentials.writeToken?.isEmpty ?? true) }
+
+    /// Mutes every event of a project for an hour, with the write token.
+    func muteProject(_ project: String) async throws {
+        let m = try await client().mute(MuteInput(project: project, for: "1h"))
+        log.info("muted project \(project, privacy: .public) until \(m.until, privacy: .public)")
     }
 
     /// Pauses or resumes a check with the write token.

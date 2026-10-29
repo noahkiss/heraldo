@@ -37,10 +37,18 @@ public struct EventQuery: Hashable, Sendable {
     public var q: String?
     /// Keeps events whose `hold.state` is this, such as held.
     public var hold: String?
+    /// Keeps events of these projects; `noProject` keeps the ones with none.
+    public var project: [String]?
+    /// `exclude` leaves routine events out, `only` keeps only them. A server
+    /// before the filter ignores it; `HeraldoClient.listEvents` then drops
+    /// the rows itself.
+    public var routine: Routine?
+
+    public enum Routine: String, Sendable { case exclude, only }
 
     public init(after: String? = nil, before: String? = nil, order: Order? = nil, limit: Int? = nil,
                 source: String? = nil, kind: String? = nil, key: String? = nil, q: String? = nil,
-                hold: String? = nil) {
+                hold: String? = nil, project: [String]? = nil, routine: Routine? = nil) {
         self.after = after
         self.before = before
         self.order = order
@@ -50,18 +58,21 @@ public struct EventQuery: Hashable, Sendable {
         self.key = key
         self.q = q
         self.hold = hold
+        self.project = project
+        self.routine = routine
     }
 
     var items: [URLQueryItem] {
         let pairs: [(String, String?)] = [
             ("after", after), ("before", before), ("order", order?.rawValue),
             ("limit", limit.map(String.init)), ("source", source), ("kind", kind),
-            ("key", key), ("q", q), ("hold", hold),
+            ("key", key), ("q", q), ("hold", hold), ("routine", routine?.rawValue),
         ]
-        return pairs.compactMap { name, value in
+        let items = pairs.compactMap { name, value -> URLQueryItem? in
             guard let value, !value.isEmpty else { return nil }
             return URLQueryItem(name: name, value: value)
         }
+        return items + (project ?? []).map { URLQueryItem(name: "project", value: $0) }
     }
 }
 
@@ -100,7 +111,25 @@ public struct HeraldoClient: Sendable {
     // MARK: Events
 
     public func listEvents(_ query: EventQuery = EventQuery()) async throws -> EventPage {
-        try await get("v1/events", query: query.items)
+        let (page, response): (EventPage, HTTPURLResponse?) = try await getWithResponse("v1/events", query: query.items)
+        guard let routine = query.routine,
+              response?.value(forHTTPHeaderField: "Heraldo-Routine") != routine.rawValue else { return page }
+        // A server before the filter ignored it. The page may come up short;
+        // its next_cursor still continues it.
+        var p = page
+        p.events = page.events.filter { $0.isRoutine == (routine == .only) }
+        return p
+    }
+
+    /// The projects the server's events name. A server before projects
+    /// answers 404, and this returns nil.
+    public func projects() async throws -> ProjectList? {
+        do {
+            let list: ProjectList = try await get("v1/projects")
+            return list
+        } catch let e as HeraldoError where e.status == 404 || e.status == 405 {
+            return nil
+        }
     }
 
     public func event(id: String) async throws -> Event {
@@ -291,7 +320,15 @@ public struct HeraldoClient: Sendable {
         try await send(request(path, method: "GET", token: readToken, query: query))
     }
 
+    private func getWithResponse<T: Decodable>(_ path: String, query: [URLQueryItem] = []) async throws -> (T, HTTPURLResponse?) {
+        try await sendWithResponse(request(path, method: "GET", token: readToken, query: query))
+    }
+
     private func send<T: Decodable>(_ r: URLRequest) async throws -> T {
+        try await sendWithResponse(r).0
+    }
+
+    private func sendWithResponse<T: Decodable>(_ r: URLRequest) async throws -> (T, HTTPURLResponse?) {
         let (data, response) = try await session.data(for: r)
         guard let http = response as? HTTPURLResponse else { throw HeraldoError.badAnswer("not HTTP") }
         guard (200..<300).contains(http.statusCode) else {
@@ -300,7 +337,7 @@ public struct HeraldoClient: Sendable {
             throw HeraldoError.http(status: http.statusCode, message: message)
         }
         do {
-            return try JSON.decoder.decode(T.self, from: data)
+            return (try JSON.decoder.decode(T.self, from: data), http)
         } catch {
             throw HeraldoError.badAnswer("\(T.self): \(error)")
         }

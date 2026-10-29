@@ -271,16 +271,23 @@ the person's other devices; the notification extension reads them through the
 app group.
 
 - **Inbox**: history synced by cursor on launch and on foreground, search,
-  filters by kind, source and hold state (the Held filter shows the triage
-  verdict on each row). A swipe marks events read up to that one; the
+  filters by kind, source, project and hold state (the Held filter shows the
+  triage verdict on each row). Routine events (passing check-ins, progress,
+  status) stay out; Show routine events in the filter menu brings them back,
+  and so does a kind filter of their kind. Each row shows its project. A swipe marks events read up to that one; the
   menu marks all read. Both move the shared `inbox` cursor, so the CLI and the
   app share one unread state. The badge is the cursor's `unread`.
 - **Incidents**: open incidents first, then acknowledged ones, from
   `/v1/state`, with Ack; then the ones resolved in the last day, with how long
-  each was open.
+  each was open. With more than one project, each project gets a section.
 - **Check-ins**: every check from `/v1/checkins`, with its state, next due
   time, last run length and last log. A swipe pauses or resumes a check (write
-  token). The tab's badge counts the checks that are down.
+  token). The tab's badge counts the checks that are down. With more than one
+  project, each project gets a section. A check's History lists its pings.
+- **Event detail**: History lists every event of the event's key: a check's
+  pings, an activity's progress, an incident's updates. Mute project for 1 h
+  in the menu, and in an incident's context menu, mutes every event of the
+  event's project (write token).
 - **Push**: the app registers its APNs token with `POST /v1/devices` on every
   launch, and again when a permission changes. A Debug build reports
   `sandbox`; a TestFlight or App Store build reports `production`.
@@ -297,7 +304,8 @@ app group.
   it with push-to-start, so the app need not be open. The app reports its
   push-to-start token with the registration, and each activity's update token
   and dismissal (docs/api.md, "Live Activities"). The inbox leaves progress
-  events out; each activity leaves one message when it ends.
+  events out; each activity leaves one message when it ends, and its History
+  lists the progress.
 - **Shortcuts**: Send Event (with the write token), Get Recent History (JSON),
   Get Open Incidents (open and acknowledged, as text or JSON), and Start,
   Update, End and Get Live Activity, with Notify!'s parameters.
