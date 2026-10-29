@@ -68,7 +68,7 @@ struct RootView: View {
         TabView(selection: $tab) {
             InboxView()
                 .tabItem { Label("Inbox", systemImage: "tray") }
-                .badge(model.unread.badge)
+                .badge(model.unread.inboxCount)
                 .tag(Tab.inbox)
             IncidentsView()
                 .tabItem { Label("Incidents", systemImage: "exclamationmark.triangle") }

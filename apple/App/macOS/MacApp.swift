@@ -98,7 +98,8 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationC
     }
 }
 
-/// The menu bar item: a bell and the unread count. The bell fills and gains
+/// The menu bar item: a bell and the badge (the server's badge.scope count,
+/// as on the Dock). The bell fills and gains
 /// a badge while an incident is open or a check is down. It is always on
 /// screen, so it also hands the model the action that opens the main window.
 struct MenuBarLabel: View {
@@ -150,7 +151,7 @@ struct MenuBarSummary {
     var accessibility: String {
         let n = model.unread.badge
         var items = [AppInfo.displayName()]
-        if n > 0 { items.append("\(n) unread") }
+        if n > 0 { items.append("badge \(n)") }
         items += parts
         return items.joined(separator: ", ")
     }
@@ -191,7 +192,7 @@ struct MenuBarContent: View {
                 Text(AppInfo.displayName()).font(.headline)
                 Spacer()
                 if model.isSyncing { ProgressView().controlSize(.small) }
-                let n = model.unread.badge
+                let n = model.unread.inboxCount
                 Text(n == 1 ? "1 unread" : "\(n) unread")
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
@@ -344,7 +345,7 @@ struct MenuBarContent: View {
             Button("Open Heraldo") { model.showMain?() }
                 .keyboardShortcut(.defaultAction)
             Button("Mark all read") { Task { await model.markAllRead() } }
-                .disabled(!model.isConfigured || model.unread.badge == 0)
+                .disabled(!model.isConfigured || model.unread.inboxCount == 0)
             Spacer()
             Menu {
                 Button("Sync now") { Task { await model.refresh() } }

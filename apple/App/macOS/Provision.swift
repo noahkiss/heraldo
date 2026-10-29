@@ -65,7 +65,9 @@ enum Provision {
             if let stored, !stored.isSameServer(as: url), !replace {
                 throw ProvisionError("settings for another server exist; launch with \(replaceFlag) to replace them")
             }
-            let new = Credentials(serverURL: url, readToken: input.readToken, writeToken: input.writeToken)
+            // An admin token set in Settings stays for the same server.
+            let admin = stored.flatMap { $0.isSameServer(as: url) ? $0.adminToken : nil }
+            let new = Credentials(serverURL: url, readToken: input.readToken, writeToken: input.writeToken, adminToken: admin)
             // The write check first: save() checks the read token and saves.
             if !(input.writeToken ?? "").isEmpty {
                 try await HeraldoClient(credentials: new).checkWriteToken()

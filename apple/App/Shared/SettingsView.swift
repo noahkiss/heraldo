@@ -6,6 +6,7 @@ struct SettingsView: View {
     @State private var serverURL = ""
     @State private var readToken = ""
     @State private var writeToken = ""
+    @State private var adminToken = ""
     @State private var saving = false
     @State private var result: String?
     @State private var failed = false
@@ -26,6 +27,7 @@ struct SettingsView: View {
                         #endif
                     SecureField("Read token", text: $readToken)
                     SecureField("Write token", text: $writeToken)
+                    SecureField("Admin token (optional)", text: $adminToken)
                     Button {
                         Task { await save() }
                     } label: {
@@ -38,12 +40,14 @@ struct SettingsView: View {
                 } header: {
                     Text("Server")
                 } footer: {
-                    Text("The read token syncs history and registers this device. The write token acknowledges incidents and sends events. Saved in \(model.store.modeDescription).")
+                    Text("The read token syncs history and registers this device. The write token acknowledges incidents and sends events. The admin token changes server settings. Saved in \(model.store.modeDescription).")
                 }
 
                 PushSection()
 
                 DisplaySection()
+
+                ServerSettingsSection()
 
                 MutesSection()
 
@@ -55,7 +59,8 @@ struct SettingsView: View {
 
                 Section("Sync") {
                     LabeledContent("Events kept", value: "\(model.cache.events.count)")
-                    LabeledContent("Unread", value: "\(model.unread.badge)")
+                    LabeledContent("Unread", value: "\(model.unread.inboxCount)")
+                    LabeledContent("Badge", value: "\(model.unread.badge)")
                     if let last = model.lastSync {
                         LabeledContent("Last sync") { Text(last, format: .relative(presentation: .named)) }
                     }
@@ -80,13 +85,15 @@ struct SettingsView: View {
         serverURL = model.credentials.serverURL ?? ""
         readToken = model.credentials.readToken ?? ""
         writeToken = model.credentials.writeToken ?? ""
+        adminToken = model.credentials.adminToken ?? ""
     }
 
     private func save() async {
         saving = true
         defer { saving = false }
         do {
-            let h = try await model.save(Credentials(serverURL: serverURL, readToken: readToken, writeToken: writeToken))
+            let h = try await model.save(Credentials(serverURL: serverURL, readToken: readToken, writeToken: writeToken,
+                                                       adminToken: adminToken))
             failed = false
             result = "Connected: heraldo \(h.version), push \(h.push ?? "unknown")."
         } catch {

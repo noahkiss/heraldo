@@ -92,12 +92,16 @@ public struct HeraldoClient: Sendable {
     public var baseURL: URL
     public var readToken: String
     public var writeToken: String?
+    /// The admin token, for server settings; nil leaves them read-only.
+    public var adminToken: String?
     public var session: URLSession
 
-    public init(baseURL: URL, readToken: String, writeToken: String? = nil, session: URLSession = .shared) {
+    public init(baseURL: URL, readToken: String, writeToken: String? = nil, adminToken: String? = nil,
+                session: URLSession = .shared) {
         self.baseURL = baseURL
         self.readToken = readToken
         self.writeToken = writeToken
+        self.adminToken = adminToken
         self.session = session
     }
 
@@ -114,7 +118,8 @@ public struct HeraldoClient: Sendable {
             throw HeraldoError.notConfigured("The read token")
         }
         let write = credentials.writeToken.flatMap { $0.isEmpty ? nil : $0 }
-        self.init(baseURL: url, readToken: read, writeToken: write, session: session)
+        let admin = credentials.adminToken.flatMap { $0.isEmpty ? nil : $0 }
+        self.init(baseURL: url, readToken: read, writeToken: write, adminToken: admin, session: session)
     }
 
     // MARK: Events
@@ -254,6 +259,29 @@ public struct HeraldoClient: Sendable {
     public func updateDevice(id: String, _ registration: DeviceRegistration) async throws -> Device {
         var r = request("v1/devices/\(escape(id))", method: "PUT", token: readToken)
         r.httpBody = try JSONEncoder().encode(registration)
+        return try await send(r)
+    }
+
+    // MARK: Server settings
+
+    /// Every server setting, with the read token. A server before settings
+    /// answers 404, and this returns nil.
+    public func settings() async throws -> [ServerSetting]? {
+        do {
+            let list: ServerSettingList = try await get("v1/settings")
+            return list.settings
+        } catch let e as HeraldoError where e.status == 404 || e.status == 405 {
+            return nil
+        }
+    }
+
+    /// Stores one server setting, with the admin token. The answer is the
+    /// setting after the write; a key a flag or env var sets answers 409.
+    @discardableResult
+    public func putSetting(_ key: String, _ value: SettingValue) async throws -> ServerSetting {
+        guard let adminToken else { throw HeraldoError.notConfigured("The admin token") }
+        var r = request("v1/settings/\(escape(key))", method: "PUT", token: adminToken)
+        r.httpBody = try JSONEncoder().encode(SettingInput(value: value))
         return try await send(r)
     }
 

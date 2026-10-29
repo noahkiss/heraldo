@@ -6,17 +6,21 @@ public struct Credentials: Codable, Equatable, Sendable {
     public var serverURL: String?
     public var readToken: String?
     public var writeToken: String?
+    /// An admin token, optional: it changes server settings.
+    public var adminToken: String?
 
     enum CodingKeys: String, CodingKey {
         case serverURL = "server_url"
         case readToken = "read_token"
         case writeToken = "write_token"
+        case adminToken = "admin_token"
     }
 
-    public init(serverURL: String? = nil, readToken: String? = nil, writeToken: String? = nil) {
+    public init(serverURL: String? = nil, readToken: String? = nil, writeToken: String? = nil, adminToken: String? = nil) {
         self.serverURL = serverURL
         self.readToken = readToken
         self.writeToken = writeToken
+        self.adminToken = adminToken
     }
 
     public var isComplete: Bool {

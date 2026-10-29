@@ -538,6 +538,8 @@ public struct EventPage: Codable, Sendable {
 
 /// `GET /v1/state`: the latest event per key. Only incidents are used yet.
 public struct ServerState: Codable, Sendable {
+    /// The badge by badge.scope; nil from servers before 0.7.
+    public var badge: Int?
     public var incidents: [Event]
     public var progress: [Event]?
     public var checkins: [Event]?
@@ -569,8 +571,19 @@ extension ServerState {
 public struct ReadCursor: Codable, Hashable, Sendable {
     public var name: String?
     public var cursor: String
-    /// The events after the cursor that push an alert: the badge.
+    /// The events after the cursor that push an alert: the Inbox's unread
+    /// count.
     public var unread: Int?
+    /// The badge by the server's badge.scope: the icon, Dock and menu bar
+    /// number. Nil from servers before 0.7, where `unread` was the badge.
+    public var badge: Int?
+
+    public init(name: String? = nil, cursor: String, unread: Int? = nil, badge: Int? = nil) {
+        self.name = name
+        self.cursor = cursor
+        self.unread = unread
+        self.badge = badge
+    }
 }
 
 /// What the app reports about its notification permissions. Nil is unknown.
@@ -607,11 +620,16 @@ public struct DeviceRegistration: Codable, Hashable, Sendable {
     public var permissions: Permissions?
     /// The push-to-start token for Live Activities, hex.
     public var liveActivityToken: String?
+    /// The Focus filter. Nil leaves it out, and the server keeps the stored
+    /// one; the app sets it only from the Focus filter intent, since servers
+    /// before 0.7 refuse the field.
+    public var focusFilter: FocusFilterState?
 
     enum CodingKeys: String, CodingKey {
         case token, environment, topic, name, platform, permissions
         case appVersion = "app_version"
         case liveActivityToken = "live_activity_token"
+        case focusFilter = "focus_filter"
     }
 
     public init(token: String, environment: APNsEnvironment, topic: String, name: String?,
@@ -636,10 +654,13 @@ public struct Device: Codable, Hashable, Sendable {
     public var name: String?
     public var active: Bool
     public var permissions: Permissions?
+    /// The Focus filter the server holds for this device; nil for none.
+    public var focusFilter: FocusFilterState?
 
     enum CodingKeys: String, CodingKey {
         case id, environment, topic, name, active, permissions
         case tokenSuffix = "token_suffix"
+        case focusFilter = "focus_filter"
     }
 }
 

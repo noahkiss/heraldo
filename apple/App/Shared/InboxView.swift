@@ -85,7 +85,7 @@ struct InboxView: View {
             } label: {
                 Label("Mark all read", systemImage: "checkmark.circle")
             }
-            .disabled(model.unread.ids.isEmpty && model.unread.badge == 0)
+            .disabled(model.unread.ids.isEmpty && model.unread.inboxCount == 0)
         }
     }
 

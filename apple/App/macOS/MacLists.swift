@@ -31,7 +31,7 @@ struct MacContentList: View {
     private var subtitle: String {
         switch state.sidebar {
         case .home(.inbox):
-            let n = model.unread.badge
+            let n = model.unread.inboxCount
             return n == 0 ? "" : n == 1 ? "1 unread" : "\(n) unread"
         case .home(.incidents):
             let n = model.unackedIncidents

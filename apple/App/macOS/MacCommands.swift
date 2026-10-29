@@ -55,7 +55,7 @@ struct MacCommands: Commands {
             .disabled(!(event.map(model.isUnread) ?? false))
             Button("Mark All Read") { Task { await model.markAllRead() } }
                 .keyboardShortcut("u", modifiers: [.command, .shift, .option])
-                .disabled(!model.isConfigured || model.unread.badge == 0)
+                .disabled(!model.isConfigured || model.unread.inboxCount == 0)
             Divider()
             Button("Acknowledge") {
                 if let event { model.perform { try await $0.ack(event) } }

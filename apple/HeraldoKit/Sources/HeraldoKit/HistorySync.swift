@@ -80,8 +80,14 @@ public struct UnreadState: Equatable, Sendable {
         self.ids = ids
     }
 
-    /// The badge: the server's count of alerting events after the cursor.
-    public var badge: Int { cursor?.unread ?? 0 }
+    /// The Inbox's unread count: the server's count of alerting events
+    /// after the cursor.
+    public var inboxCount: Int { cursor?.unread ?? 0 }
+
+    /// The badge for the icon, the Dock and the menu bar: the server's count
+    /// by its badge.scope setting, or the unread count from a server before
+    /// 0.7.
+    public var badge: Int { cursor?.badge ?? cursor?.unread ?? 0 }
 }
 
 /// History sync and the shared read cursor, over the API client.

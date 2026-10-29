@@ -106,7 +106,8 @@ final class AppModel {
     func save(_ c: Credentials) async throws -> Health {
         let trimmed = Credentials(serverURL: c.serverURL?.trimmingCharacters(in: .whitespacesAndNewlines),
                                   readToken: c.readToken?.trimmingCharacters(in: .whitespacesAndNewlines),
-                                  writeToken: c.writeToken?.trimmingCharacters(in: .whitespacesAndNewlines))
+                                  writeToken: c.writeToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+                                  adminToken: c.adminToken?.trimmingCharacters(in: .whitespacesAndNewlines))
         let probe = try HeraldoClient(credentials: trimmed)
         let health = try await probe.health()
         _ = try await probe.state() // proves the read token

@@ -132,7 +132,7 @@ struct MacSidebar: View {
 
     private func count(_ h: MacHome) -> Int {
         switch h {
-        case .inbox: return model.unread.badge
+        case .inbox: return model.unread.inboxCount
         case .incidents: return model.unackedIncidents
         case .checkins: return model.checks.filter { $0.state == .down || $0.state == .late }.count
         case .activities: return model.activities.count

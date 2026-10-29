@@ -178,12 +178,14 @@ final class PushManager {
             } else {
                 dev = try await client.register(reg)
             }
+            if dev.id != deviceID { reportedFocus = nil }
             device = dev
             deviceID = dev.id
             reported = reg
             registeredThisLaunch = true
             lastError = nil
             log.info("push: registered device \(dev.id, privacy: .public) (\(self.environment.rawValue, privacy: .public))")
+            if FocusFilterStore.load() != reportedFocus { await reportFocus() }
         } catch {
             lastError = "Registration: \(error.localizedDescription)"
             log.error("push: registration failed: \(error.localizedDescription, privacy: .public)")
@@ -198,9 +200,38 @@ final class PushManager {
     static let platform = "macOS"
     #endif
 
+    // MARK: Focus filter
+
+    /// The Focus filter the server last took for this device.
+    private var reportedFocus: FocusFilterState? {
+        get { defaults.data(forKey: "reportedFocus").flatMap { try? JSONDecoder().decode(FocusFilterState.self, from: $0) } }
+        set { defaults.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: "reportedFocus") }
+    }
+
+    /// Sends the Focus filter in force (FocusFilterStore) to the server with
+    /// PUT /v1/devices/{id}. Only this call sends focus_filter: a server
+    /// before 0.7 refuses the field with 400, and the usual registration
+    /// must keep working there.
+    func reportFocus() async {
+        let filter = FocusFilterStore.load()
+        guard let filter, filter != reportedFocus else { return }
+        guard let id = deviceID, var reg = reported, let client = try? AppModel.shared.client() else { return }
+        reg.focusFilter = filter
+        do {
+            device = try await client.updateDevice(id: id, reg)
+            reportedFocus = filter
+            log.info("push: Focus filter \(filter.active ? "on" : "off", privacy: .public)")
+        } catch let e as HeraldoError where e.status == 400 {
+            log.info("push: the server takes no Focus filter: \(e.localizedDescription, privacy: .public)")
+        } catch {
+            log.error("push: Focus filter: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     /// Settings changed: register with the (maybe new) server now.
     func credentialsChanged() {
         reported = nil
+        reportedFocus = nil
         Task { await register(force: true) }
     }
 
@@ -313,6 +344,7 @@ struct PushSection: View {
             if let d = push.device {
                 LabeledContent("Device", value: d.id)
                 LabeledContent("Token", value: "…" + d.tokenSuffix)
+                LabeledContent("Focus filter", value: Self.focusText(d.focusFilter))
             } else if push.apnsToken == nil {
                 LabeledContent("Device", value: "No APNs token yet")
             } else {
@@ -334,6 +366,13 @@ struct PushSection: View {
     private static let notificationSettingsURL = URL(
         string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(Bundle.main.bundleIdentifier ?? "")")
     #endif
+
+    private static func focusText(_ f: FocusFilterState?) -> String {
+        guard let f, f.active else { return "Off" }
+        let level = f.breakThrough == FocusFilterState.critical ? "Critical only" : "Time Sensitive and up"
+        guard let p = f.projects, !p.isEmpty else { return level }
+        return "\(level), \(p.joined(separator: ", "))"
+    }
 
     private var authorization: String {
         switch push.authorization {
