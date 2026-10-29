@@ -105,11 +105,17 @@ struct InboxEmptyView: View {
             } else if feed.filtering {
                 if feed.searching {
                     ProgressView()
-                } else if feed.trimmedQuery.isEmpty {
-                    ContentUnavailableView("No events", systemImage: "line.3.horizontal.decrease.circle",
-                                           description: Text("No events match the filters."))
                 } else {
-                    ContentUnavailableView.search(text: feed.trimmedQuery)
+                    #if os(macOS)
+                    if feed.trimmedQuery.isEmpty {
+                        ContentUnavailableView("No events", systemImage: "line.3.horizontal.decrease.circle",
+                                               description: Text("No events match the filters."))
+                    } else {
+                        ContentUnavailableView.search(text: feed.trimmedQuery)
+                    }
+                    #else
+                    ContentUnavailableView.search(text: feed.query)
+                    #endif
                 }
             } else if model.isSyncing {
                 ProgressView()
@@ -146,7 +152,6 @@ struct EventRow: View {
                     if let d = event.date {
                         Text(d, format: .relative(presentation: .numeric, unitsStyle: .narrow))
                             .font(.caption)
-                            .monospacedDigit()
                             .foregroundStyle(.secondary)
                     }
                 }

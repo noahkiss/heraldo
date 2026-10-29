@@ -155,7 +155,8 @@ struct MenuBarSummary {
     }
 }
 
-/// The menu bar window: unread count, open incidents, down checks.
+/// The menu bar window: unread count, open incidents, down checks and
+/// running Live Activities.
 struct MenuBarContent: View {
     @Environment(AppModel.self) private var model
     @State private var ackError: String?
@@ -171,6 +172,7 @@ struct MenuBarContent: View {
             } else {
                 section("Open incidents", model.incidents, empty: "No open incidents")
                 downSection
+                if !model.activities.isEmpty { runningSection }
             }
             if let error = ackError ?? model.lastError {
                 Text(error).font(.caption).foregroundStyle(.red).lineLimit(3)
@@ -235,9 +237,54 @@ struct MenuBarContent: View {
         }
     }
 
+    /// The running Live Activities. Shown only while one runs.
+    private var runningSection: some View {
+        let running = model.activities
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("Live Activities").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+            ForEach(running.prefix(limit)) { a in
+                activityRow(a)
+            }
+            if running.count > limit {
+                Text("\(running.count - limit) more").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func activityRow(_ a: ActivitySummary) -> some View {
+        Button {
+            show(.activities, .activity(a.key))
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: a.content?.symbol ?? MacHome.activities.symbol)
+                    .foregroundStyle(activityTint(a.content?.tint)).font(.body)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(a.headline).lineLimit(1)
+                    if let line = a.content?.status ?? a.content?.body, !line.isEmpty {
+                        Text(line).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 4)
+                if let text = a.content?.state.progressText {
+                    Text(text).monospacedDigit().font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Opens the main window on a home with one item selected.
+    private func show(_ home: MacHome, _ item: MacDetailItem) {
+        let window = MacWindowState.shared
+        window.show(home)
+        window.selection = item
+        model.showMain?()
+    }
+
     private func checkRow(_ c: Check) -> some View {
         Button {
-            model.showMain?()
+            show(.checkins, .check(c.key))
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Image(systemName: "clock.badge.xmark").foregroundStyle(.red).font(.body)

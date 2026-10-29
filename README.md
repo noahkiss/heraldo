@@ -322,11 +322,40 @@ cask installs it:
 brew install --cask noahkiss/tap/heraldo-app
 ```
 
-- **Menu bar**: the unread count, the open incidents with Ack, and the checks
-  that are down, from `/v1/checkins`. A click on an incident opens it in the
-  history window; a click on a check opens the window.
-- **History window**: the inbox and incidents of the iOS app. Settings is in
-  the app menu (Command-comma).
+- **Window**: three columns. The sidebar lists the homes, Inbox, Incidents,
+  Check-ins, Live Activities and Held, each with its count. Held shows only
+  while the hold has open entries. Below them, Projects lists each project
+  from `/v1/projects`; a red mark shows an open incident or a down check. The
+  middle column lists the chosen home or project, and the right column shows
+  the selected event, incident, check, activity or held alert. Return or a
+  double-click opens the item in its own window.
+- **Toolbar**: search, the Inbox filters (kind, source, project, hold,
+  routine events), refresh, and Mark all read.
+- **Held** reads the hold with `peek=1`, so viewing it never counts as a
+  triage poll.
+- **Keyboard**: the menus list every shortcut.
+
+  | Menu | Command | Shortcut |
+  |---|---|---|
+  | Edit | Find | Command-F |
+  | View | Refresh | Command-R |
+  | View | Inbox, Incidents, Check-ins, Live Activities, Held | Command-1 to Command-5 |
+  | Event | Open in New Window | Command-O |
+  | Event | Open Link | Shift-Command-L |
+  | Event | Mark Read up to Here | Shift-Command-U |
+  | Event | Mark All Read | Option-Shift-Command-U |
+  | Event | Acknowledge | Shift-Command-A |
+  | Event | Pause Check or Resume Check | Shift-Command-P |
+  | Event | Mute Project for 1 h | none |
+
+  The arrow keys move the selection. The Event menu's writes need the write
+  token.
+- **Menu bar**: a bell with the unread count. The bell gains a badge while
+  events are unread, and fills while an incident is open or a check is down.
+  The panel shows a one-line summary, the open incidents with Ack, the checks
+  that are down, and the running Live Activities. A click on an item opens it
+  in the window.
+- **Settings** is in the app menu (Command-comma).
 - **Credentials**: the same iCloud Keychain item as the iPhone, so tokens saved
   on one device reach the other.
 - **Push**: the Mac registers its own APNs token with `platform` `macOS` and

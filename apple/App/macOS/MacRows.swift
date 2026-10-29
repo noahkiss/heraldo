@@ -17,6 +17,8 @@ struct RowTime: View {
         .font(.caption)
         .monospacedDigit()
         .foregroundStyle(.secondary)
+        // A wrapped title never squeezes the time.
+        .fixedSize()
         .help(date.formatted(date: .abbreviated, time: .shortened))
     }
 }
@@ -46,7 +48,7 @@ struct MacEventRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(event.headline)
                         .fontWeight(unread ? .semibold : .regular)
-                        .lineLimit(1)
+                        .lineLimit(2)
                     Spacer(minLength: 4)
                     trailing
                 }
@@ -135,7 +137,7 @@ struct MacCheckRow: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(check.key).lineLimit(1)
+                    Text(check.key).lineLimit(2)
                     Spacer(minLength: 4)
                     if check.state == .down || check.state == .late, let since = check.stateSince {
                         RowTime(date: since)
@@ -208,7 +210,7 @@ struct MacActivityRow: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(activity.headline).lineLimit(1)
+                    Text(activity.headline).lineLimit(2)
                     Spacer(minLength: 4)
                     if let text = state?.progressText {
                         Text(text).font(.caption).monospacedDigit().foregroundStyle(.secondary)
@@ -277,7 +279,7 @@ struct MacHeldRow: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(entry.headline).lineLimit(1)
+                    Text(entry.headline).lineLimit(2)
                     Spacer(minLength: 4)
                     RowTime(date: entry.date)
                 }
