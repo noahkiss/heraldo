@@ -54,6 +54,11 @@ struct EventDetailView: View {
             if event.why != nil { trace = try? await model.client().why(id: event.id) }
         }
         .toolbar {
+            // Share out: the event as markdown, ending with its heraldo:// link.
+            ShareLink(item: event.shareMarkdown, subject: Text(event.headline),
+                      preview: SharePreview(event.headline)) {
+                Label("Share", systemImage: "square.and.arrow.up")
+            }
             if model.isUnread(event) {
                 Button {
                     Task { await model.markRead(event) }

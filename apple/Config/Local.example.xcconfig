@@ -16,6 +16,7 @@ OTHER_CODE_SIGN_FLAGS[sdk=macosx*] = --timestamp
 // APP_IOS_PROFILE = match AppStore com.nkmkdigital.heraldo
 // APP_NSE_IOS_PROFILE = match AppStore com.nkmkdigital.heraldo.nse
 // APP_WIDGETS_IOS_PROFILE = match AppStore com.nkmkdigital.heraldo.widgets
+// APP_SHARE_IOS_PROFILE = match AppStore com.nkmkdigital.heraldo.share
 
 // 3. macOS: the Developer ID profile for the app's bundle ID, with push and
 //    the app group. fastlane match (developer_id, platform macos) names it:
@@ -24,3 +25,7 @@ OTHER_CODE_SIGN_FLAGS[sdk=macosx*] = --timestamp
 //    credentials in the synced, app-group Keychain item the iOS app uses:
 // APP_MAC_ENTITLEMENTS = App/macOS/App.entitlements
 // APP_MAC_KEYCHAIN_GROUP = $(APP_GROUP_ID)
+//    The share extension needs its own Developer ID profile (app group) to
+//    read that item:
+// APP_SHARE_MAC_PROFILE = match Direct com.nkmkdigital.heraldo.share macos
+// APP_SHARE_MAC_ENTITLEMENTS = ShareExtension/ShareMac.entitlements

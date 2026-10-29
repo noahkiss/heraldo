@@ -1,8 +1,10 @@
 import AppIntents
 import Foundation
 import HeraldoKit
+import UniformTypeIdentifiers
 
-/// Shortcuts: send an event, get the recent history as JSON, and get the
+/// Shortcuts: send an event (with files, a project, or onto an open
+/// incident), get one event, get the recent history as JSON, and get the
 /// open incidents as text or JSON.
 
 enum IntentLevel: String, AppEnum {
@@ -17,9 +19,28 @@ enum IntentLevel: String, AppEnum {
     ]
 }
 
+/// The server's projects, for the Project picker.
+struct ProjectOptions: DynamicOptionsProvider {
+    func results() async throws -> [String] {
+        let client = try HeraldoClient(credentials: CredentialStore().load())
+        return try await client.projects()?.projects.map(\.name) ?? []
+    }
+}
+
+/// The keys of the open incidents, for the Incident picker.
+struct IncidentOptions: DynamicOptionsProvider {
+    func results() async throws -> [String] {
+        let client = try HeraldoClient(credentials: CredentialStore().load())
+        return try await client.state().sortedIncidents.compactMap(\.key)
+    }
+}
+
+/// "Send to Heraldo". The type keeps its first name, so shortcuts made with
+/// the earlier "Send Event" keep working.
 struct SendEventIntent: AppIntent {
-    static let title: LocalizedStringResource = "Send Event"
-    static let description = IntentDescription("Posts an event to the heraldo server with the write token.")
+    static let title: LocalizedStringResource = "Send to Heraldo"
+    static let description = IntentDescription(
+        "Posts an event to the heraldo server with the write token. Files go up as attachments: images, plain text, PDF or JSON, 5 MB each, 8 at most. With an incident, it adds an update to that open incident.")
 
     @Parameter(title: "Title")
     var eventTitle: String
@@ -33,17 +54,75 @@ struct SendEventIntent: AppIntent {
     @Parameter(title: "Level", default: .active)
     var level: IntentLevel
 
+    @Parameter(title: "Files", supportedContentTypes: [.image, .plainText, .pdf, .json])
+    var files: [IntentFile]?
+
+    @Parameter(title: "Project", optionsProvider: ProjectOptions())
+    var project: String?
+
+    @Parameter(title: "Add to Open Incident", description: "The incident's key.", optionsProvider: IncidentOptions())
+    var incident: String?
+
     static var parameterSummary: some ParameterSummary {
         Summary("Send \(\.$eventTitle) from \(\.$source)") {
             \.$body
+            \.$files
+            \.$project
+            \.$incident
             \.$level
         }
     }
 
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
         let client = try HeraldoClient(credentials: CredentialStore().load())
-        let e = try await client.post(EventInput(source: source, title: eventTitle, body: body, level: level.rawValue))
+        var draft = ShareDraft(title: eventTitle, text: body ?? "", project: project, incidentKey: incident)
+        draft.level = level.rawValue
+        for f in files ?? [] {
+            let type = f.type ?? UTType(filenameExtension: (f.filename as NSString).pathExtension) ?? .data
+            draft.files.append(try ShareFile.make(name: f.filename, data: f.data, type: type))
+        }
+        let e = try await ShareSender.send(draft, with: client, source: source)
         return .result(value: e.id)
+    }
+}
+
+enum EventFormat: String, AppEnum {
+    case markdown, json, link
+
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Format"
+    static let caseDisplayRepresentations: [EventFormat: DisplayRepresentation] = [
+        .markdown: "Markdown",
+        .json: "JSON",
+        .link: "Link",
+    ]
+}
+
+struct GetEventIntent: AppIntent {
+    static let title: LocalizedStringResource = "Get Event"
+    static let description = IntentDescription(
+        "Returns one event from the heraldo server: as markdown to share, as JSON, or as its heraldo:// link.")
+
+    @Parameter(title: "Event", description: "The event id, or its heraldo://event/ link.")
+    var event: String
+
+    @Parameter(title: "Format", default: .markdown)
+    var format: EventFormat
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Get event \(\.$event) as \(\.$format)")
+    }
+
+    func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        guard let id = eventID(fromLinkOrID: event) else {
+            throw HeraldoError.badAnswer("not an event id or heraldo://event/ link: \(event)")
+        }
+        let client = try HeraldoClient(credentials: CredentialStore().load())
+        let e = try await client.event(id: id)
+        switch format {
+        case .markdown: return .result(value: e.shareMarkdown)
+        case .json: return .result(value: String(decoding: try JSON.encoder.encode(e), as: UTF8.self))
+        case .link: return .result(value: e.shareLink.absoluteString)
+        }
     }
 }
 
@@ -103,8 +182,12 @@ struct GetOpenIncidentsIntent: AppIntent {
 struct HeraldoShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(intent: SendEventIntent(),
-                    phrases: ["Send an event with \(.applicationName)", "Send a \(.applicationName) event"],
-                    shortTitle: "Send Event", systemImageName: "paperplane")
+                    phrases: ["Send an event with \(.applicationName)", "Send a \(.applicationName) event",
+                              "Send to \(.applicationName)"],
+                    shortTitle: "Send to Heraldo", systemImageName: "paperplane")
+        AppShortcut(intent: GetEventIntent(),
+                    phrases: ["Get an event from \(.applicationName)"],
+                    shortTitle: "Get Event", systemImageName: "doc.text")
         AppShortcut(intent: GetRecentHistoryIntent(),
                     phrases: ["Get recent \(.applicationName) history", "Get history from \(.applicationName)"],
                     shortTitle: "Recent History", systemImageName: "clock.arrow.circlepath")

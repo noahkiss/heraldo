@@ -24,6 +24,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationC
         }
         #endif
         UNUserNotificationCenter.current().delegate = self
+        NSApp.servicesProvider = MacServices.shared
         let push = PushManager.shared
         AppModel.shared.onBadge = { push.setBadge($0) }
         AppModel.shared.onCredentialsChanged = { push.credentialsChanged() }

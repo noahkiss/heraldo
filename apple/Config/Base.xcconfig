@@ -28,10 +28,14 @@ APP_MAC_PROFILE =
 // credentials stay in this Mac's login keychain. Local.xcconfig switches both.
 APP_MAC_ENTITLEMENTS = App/macOS/Unsigned.entitlements
 APP_MAC_KEYCHAIN_GROUP =
+// The share extension reads the same Keychain item, so it switches with the app.
+APP_SHARE_MAC_ENTITLEMENTS = ShareExtension/ShareMacUnsigned.entitlements
+APP_SHARE_MAC_PROFILE =
 // A Developer ID profile carries production APNs only, in Debug too.
 APS_ENVIRONMENT[sdk=macosx*] = production
 APP_IOS_PROFILE =
 APP_NSE_IOS_PROFILE =
 APP_WIDGETS_IOS_PROFILE =
+APP_SHARE_IOS_PROFILE =
 
 #include? "Local.xcconfig"

@@ -42,6 +42,9 @@ targets:
       - target: HeraldoWidgets
         embed: true
         codeSign: true
+      - target: HeraldoShare
+        embed: true
+        codeSign: true
     settings:
       base:
         PRODUCT_NAME: $(APP_DISPLAY_NAME)
@@ -99,6 +102,36 @@ targets:
         "CODE_SIGN_ENTITLEMENTS[sdk=iphone*]": Widgets/Widgets.entitlements
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Widgets/WidgetsMac.entitlements
         "PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]": $(APP_WIDGETS_IOS_PROFILE)
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        "LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]": "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
+        "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]": "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks"
+  # Share in: the share sheet on iOS and the Share menu on macOS.
+  HeraldoShare:
+    type: app-extension
+    platform: auto
+    supportedDestinations: [iOS, macOS]
+    sources:
+      - path: ShareExtension/Shared
+      - path: ShareExtension/iOS
+        excludes: ["Info.plist"]
+        destinationFilters: [iOS]
+      - path: ShareExtension/macOS
+        excludes: ["Info.plist"]
+        destinationFilters: [macOS]
+    dependencies:
+      - package: HeraldoKit
+        product: HeraldoKit
+    settings:
+      base:
+        PRODUCT_NAME: HeraldoShare
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_SHARE_BUNDLE_ID)
+        "INFOPLIST_FILE[sdk=iphone*]": ShareExtension/iOS/Info.plist
+        "INFOPLIST_FILE[sdk=macosx*]": ShareExtension/macOS/Info.plist
+        "CODE_SIGN_ENTITLEMENTS[sdk=iphone*]": ShareExtension/Share.entitlements
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": $(APP_SHARE_MAC_ENTITLEMENTS)
+        "PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]": $(APP_SHARE_IOS_PROFILE)
+        "PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]": $(APP_SHARE_MAC_PROFILE)
         GENERATE_INFOPLIST_FILE: NO
         TARGETED_DEVICE_FAMILY: "1,2"
         "LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]": "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
