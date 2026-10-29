@@ -34,3 +34,8 @@ OTHER_CODE_SIGN_FLAGS[sdk=macosx*] = --timestamp
 //    read that item:
 // APP_SHARE_MAC_PROFILE = match Direct com.nkmkdigital.heraldo.share macos
 // APP_SHARE_MAC_ENTITLEMENTS = ShareExtension/ShareMac.entitlements
+//    The notification extension signals the app without a profile. With its
+//    own Developer ID profile (app group) it also rewrites pushes, as on iOS:
+// APP_NSE_MAC_PROFILE = match Direct com.nkmkdigital.heraldo.nse macos
+// APP_NSE_MAC_ENTITLEMENTS = NotificationService/NotificationServiceMac.entitlements
+// APP_NSE_GROUP[sdk=macosx*] = $(APP_GROUP_ID)

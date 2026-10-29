@@ -21,7 +21,9 @@
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>HeraldoAppGroup</key>
-	<string>$(APP_GROUP_ID)</string>
+	<string>$(APP_NSE_GROUP)</string>
+	<key>HeraldoAppBundleID</key>
+	<string>$(APP_BUNDLE_ID)</string>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionPointIdentifier</key>

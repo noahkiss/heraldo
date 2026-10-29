@@ -361,7 +361,7 @@ final class PushManager {
             var incident = (try? await client.event(id: info.id)) ?? Event(id: info.id, source: info.source ?? "heraldo")
             if incident.key == nil { incident.key = info.key }
             try await client.ack(incident, source: AppInfo.source)
-            await model.refresh()
+            await model.refresh([.state, .history, .unread])
         } catch {
             await failed("Acknowledge failed", error, id: "ack-failed-\(info.id)")
         }

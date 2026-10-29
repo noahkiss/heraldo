@@ -8,9 +8,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         UNUserNotificationCenter.current().delegate = self
         let push = PushManager.shared
         AppModel.shared.onBadge = { push.setBadge($0) }
-        AppModel.shared.onCredentialsChanged = { push.credentialsChanged() }
+        AppModel.shared.onCredentialsChanged = {
+            push.credentialsChanged()
+            AppSync.shared.credentialsChanged()
+        }
         push.start()
         LiveActivities.shared.start()
+        // Asleep until the scene is active: HeraldoApp wakes it.
+        AppSync.shared.start(awake: false)
         return true
     }
 
@@ -25,7 +30,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         // A push in the foreground: show it, and sync, since it means something new.
-        Task { @MainActor in await AppModel.shared.refresh() }
+        Task { @MainActor in AppSync.shared.driver?.hint() }
         completionHandler([.banner, .list, .sound])
     }
 

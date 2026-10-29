@@ -33,7 +33,7 @@ final class MacServices: NSObject {
         Task { @MainActor in
             do {
                 try await ShareSender.send(draft, with: client, source: source)
-                await AppModel.shared.refresh()
+                await AppModel.shared.refresh([.history, .unread])
             } catch {
                 let alert = NSAlert()
                 alert.messageText = "Send to Heraldo failed"

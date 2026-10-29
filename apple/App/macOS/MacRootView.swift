@@ -185,7 +185,8 @@ struct MacSidebar: View {
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else if let at = model.lastSync {
-            TimelineView(.periodic(from: .now, by: 30)) { _ in
+            // Stops ticking while no window is on screen.
+            TimelineView(PausableSchedule(interval: 30, paused: !UILiveness.shared.windows)) { _ in
                 Text("Updated \(at, format: .relative(presentation: .named))")
                     .font(.caption)
                     .monospacedDigit()

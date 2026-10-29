@@ -18,10 +18,16 @@ struct HeraldoApp: App {
                 .environment(model)
         }
         .onChange(of: scenePhase) { _, phase in
-            guard phase == .active else { return }
-            Task { await model.refresh() }
-            Task { await PushManager.shared.foreground() }
-            Task { await LiveActivities.shared.flush() }
+            switch phase {
+            case .active:
+                AppSync.shared.sceneActive()
+                Task { await PushManager.shared.foreground() }
+                Task { await LiveActivities.shared.flush() }
+            case .background:
+                AppSync.shared.sceneBackground()
+            default:
+                break
+            }
         }
         #else
         // The main window. One of it; the menu bar item and notifications bring it up.
@@ -93,8 +99,10 @@ struct RootView: View {
             if !Provision.requested { openSettings() }
             #endif
         }
+        #if os(iOS)
         // The scene is often active before onChange(of: scenePhase) can see it.
-        .task { await model.refresh() }
+        .task { AppSync.shared.sceneActive() }
+        #endif
         .heraldoLinks()
         .permissionsOnboarding()
         .onChange(of: model.openEventID) { _, id in if id != nil { tab = .inbox } }

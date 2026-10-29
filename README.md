@@ -409,7 +409,15 @@ read and write tokens. The app keeps them in iCloud Keychain, so they reach
 the person's other devices; the notification extension reads them through the
 app group.
 
-- **Inbox**: history synced by cursor on launch and on foreground, search,
+- **Sync**: while the app is open (after about 3 seconds), it holds the
+  server's event stream (`GET /v1/stream`). Each poke carries the server's
+  revision vector, and the app fetches only what changed: a mark-read on
+  another device costs one or two requests, not a full sync. On foreground
+  it asks `GET /v1/revisions` once; in the background nothing runs, and the
+  notification extension keeps the widgets current. Pull to refresh fetches
+  everything. Against a server before `/v1/revisions`, a poke or a
+  foreground brings the old full sync.
+- **Inbox**: history synced by cursor, search,
   filters by kind, source, project and hold state (the Held filter shows the
   triage verdict on each row). Routine events (passing check-ins, progress,
   status) stay out: the app syncs its cache with `routine=exclude`, so pings
@@ -494,7 +502,8 @@ app group.
   Screen, Project shows one project's open incidents, down checks and newest
   events; edit the widget to choose the project. The widgets read the server
   with the shared read token, and fall back to the copy the app saves after
-  each sync. Each sync and each push reloads them.
+  each sync. The notification extension writes each pushed event into that
+  copy. A sync or a push reloads only the widgets whose content changed.
 - **Live Activities**: a `progress` key shows as a Live Activity on the Lock
   Screen, in the Dynamic Island and in the Watch Smart Stack. The server starts
   it with push-to-start, so the app need not be open. The app reports its
@@ -576,8 +585,21 @@ brew install --cask noahkiss/tap/heraldo-app
 - **Push**: the Mac registers its own APNs token with `platform` `macOS` and
   environment `production`, and reports the same permission health. The Dock
   icon shows the cursor's `badge` (`badge.scope`).
-- The app syncs every minute, on wake and on a push. Closing the window keeps
-  the app running in the menu bar. Quit is in the menu bar item's menu.
+- **Sync**: the app does not poll. It holds the server's event stream and
+  fetches only the parts each poke's revision vector names (see "iOS app",
+  "Sync"). With no window open the stream asks for a keep-alive every 60
+  seconds instead of 25. In Low Power Mode, or on an expensive or
+  constrained network (a hotspot, Low Data Mode), the stream closes while no
+  window is open. A safety net asks `GET /v1/revisions` every 15 minutes (30
+  in Low Power Mode or on such a network), at a moment macOS picks. Opening
+  the menu or a window checks the vector when the last check is older than
+  30 seconds. A push (the server marks Mac alerts `content-available`) and
+  the notification extension's signal start a sync too. The stream closes
+  at sleep and returns after wake once the network is back. Sync now in the
+  menu fetches everything. With no window on screen, the window's
+  relative times stop updating.
+- Closing the window keeps the app running in the menu bar. Quit is in the
+  menu bar item's menu.
 - **Dock**: with "Show in Dock only while a window is open" on (Settings, on by
   default), the Dock icon and the Command-Tab entry go away when the last
   window closes, the Settings window included. Opening a window from the menu
@@ -585,8 +607,11 @@ brew install --cask noahkiss/tap/heraldo-app
   this Mac.
 - **Display**: the Inbox filters and Open on sync with the iPhone through
   iCloud (see "iOS app"). Open on can name a home or a saved view in the
-  sidebar. With Last used, the window opens on the home it showed last. Notification grouping by project is iOS only: the
-  Mac has no notification extension.
+  sidebar. With Last used, the window opens on the home it showed last. Notification grouping by project, the full
+  text of a cut push and its thumbnail need the Mac notification extension's
+  own Developer ID profile with the app group
+  (`apple/Config/Local.example.xcconfig`). Without it the extension only
+  tells the running app to sync, and pushes show as sent.
 - **Widgets**: the Mac widgets are a placeholder for now. The Mac widget
   extension has no app group, so it cannot read the app's copy.
 

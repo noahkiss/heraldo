@@ -132,21 +132,21 @@ enum Widgets {
     /// The last snapshot written, with `updated` cleared.
     @MainActor private static var last: WidgetSnapshot?
 
-    /// Writes the snapshot and reloads the widgets when what they show
-    /// changed. A reload wakes every widget extension.
+    /// Writes the snapshot and reloads the widget kinds whose content
+    /// changed. A reload wakes the widget extension. The baseline is the
+    /// file, since the notification extension writes it too.
     @MainActor static func reload(_ model: AppModel) {
         DisplayPrefs.shared.syncFromExtensions()
         let snapshot = WidgetSnapshot(incidents: model.incidents, checks: model.checks,
                                       projects: model.projectChoices, events: model.cache.events)
-        var content = snapshot
-        content.updated = .distantPast
-        guard content != last else { return }
+        let kinds = snapshot.changedKinds(from: WidgetSnapshot.load() ?? last)
+        guard !kinds.isEmpty else { return }
         do {
             try snapshot.save()
         } catch {
             log.error("widgets: \(error.localizedDescription, privacy: .public)")
         }
-        last = content
-        WidgetCenter.shared.reloadAllTimelines()
+        last = snapshot
+        for kind in kinds.sorted() { WidgetCenter.shared.reloadTimelines(ofKind: kind) }
     }
 }

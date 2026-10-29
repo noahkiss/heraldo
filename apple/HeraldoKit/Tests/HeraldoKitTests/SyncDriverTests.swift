@@ -208,7 +208,7 @@ final class SyncDriverTests: XCTestCase {
         XCTAssertEqual(stream.heartbeat, 25)
     }
 
-    func testNotConfiguredRunsNothingThenFullRefresh() async {
+    func testNotConfiguredRunsNothingThenChecks() async {
         let d = driver(SyncInputs(network: .satisfied))
         XCTAssertNil(stream.heartbeat)
         XCTAssertNil(net.net)
@@ -217,7 +217,7 @@ final class SyncDriverTests: XCTestCase {
         XCTAssertEqual(stream.heartbeat, 60)
         clock.advance(2)
         await settle()
-        XCTAssertEqual(requests, [.fullRefresh])
+        XCTAssertEqual(requests, [.revisionsCheck])
     }
 
     func testUILiveCallback() {

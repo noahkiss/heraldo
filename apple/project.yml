@@ -38,7 +38,6 @@ targets:
       - target: HeraldoNotificationService
         embed: true
         codeSign: true
-        destinationFilters: [iOS]
       - target: HeraldoWidgets
         embed: true
         codeSign: true
@@ -63,9 +62,12 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+  # iOS: rewrites pushes, updates the widget snapshot. macOS: signals the
+  # running app to sync, and rewrites pushes when signed with the app group.
   HeraldoNotificationService:
     type: app-extension
-    platform: iOS
+    platform: auto
+    supportedDestinations: [iOS, macOS]
     sources:
       - path: NotificationService
         excludes: ["*.entitlements", "Info.plist"]
@@ -77,11 +79,14 @@ targets:
         PRODUCT_NAME: HeraldoNotificationService
         PRODUCT_BUNDLE_IDENTIFIER: $(APP_NSE_BUNDLE_ID)
         INFOPLIST_FILE: NotificationService/Info.plist
-        CODE_SIGN_ENTITLEMENTS: NotificationService/NotificationService.entitlements
+        "CODE_SIGN_ENTITLEMENTS[sdk=iphone*]": NotificationService/NotificationService.entitlements
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": $(APP_NSE_MAC_ENTITLEMENTS)
         "PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]": $(APP_NSE_IOS_PROFILE)
+        "PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]": $(APP_NSE_MAC_PROFILE)
         GENERATE_INFOPLIST_FILE: NO
         TARGETED_DEVICE_FAMILY: "1,2"
-        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
+        "LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]": "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
+        "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]": "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks"
   HeraldoWidgets:
     type: app-extension
     platform: auto

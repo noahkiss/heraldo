@@ -6,7 +6,7 @@ import os
 let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "heraldo", category: "app")
 
 /// The app's state: settings, the synced history, unread state and incidents.
-/// Views read it; the platform push code calls `refresh()`.
+/// Views read it. `AppSync` drives `perform(_:)`; Sync now calls `refresh()`.
 @MainActor
 @Observable
 final class AppModel {
@@ -49,7 +49,15 @@ final class AppModel {
     @ObservationIgnored var showMain: (() -> Void)?
 
     let store = CredentialStore()
-    @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    /// The vector the cache and state were last brought up to. In memory
+    /// only: a launch starts with one full refresh.
+    @ObservationIgnored private var applied: Revisions?
+    /// Whether the server answers `/v1/revisions`; nil until asked.
+    @ObservationIgnored private var hasRevisions: Bool?
+    /// The requests waiting for the running sync, merged.
+    @ObservationIgnored private var queued: SyncRequest?
+    @ObservationIgnored private var syncTask: Task<Void, Never>?
+    @ObservationIgnored private var sentBadge: Int?
 
     init() {
         // The first builds kept device-only items; move them to the synced one.
@@ -117,6 +125,8 @@ final class AppModel {
         let changedServer = trimmed.serverURL != credentials.serverURL
         try store.save(trimmed)
         credentials = trimmed
+        applied = nil
+        hasRevisions = nil
         if changedServer {
             cache = HistoryCache()
             saveCache()
@@ -128,47 +138,134 @@ final class AppModel {
 
     // MARK: Sync
 
-    /// Syncs history, the unread state and the open incidents. Calls made
-    /// while one runs join it.
+    /// Sync now: everything, whatever the vector says.
     func refresh() async {
-        if let refreshTask { return await refreshTask.value }
-        let task = Task { await self.doRefresh() }
-        refreshTask = task
-        await task.value
-        refreshTask = nil
+        await perform(.fullRefresh)
     }
 
-    private func doRefresh() async {
+    /// Fetches these parts, after the app's own write.
+    func refresh(_ parts: Set<SyncPart>) async {
+        await perform(SyncRequest(parts: parts))
+    }
+
+    /// Runs a sync request. One runs at a time; a request made meanwhile
+    /// joins the queue, and the call returns once it ran.
+    func perform(_ r: SyncRequest) async {
+        if queued == nil { queued = r } else { queued?.merge(r) }
+        if let syncTask { return await syncTask.value }
+        let task = Task { @MainActor in
+            while let next = self.queued {
+                self.queued = nil
+                await self.run(next)
+            }
+            // No suspension between the last look at the queue and here,
+            // so a request queued now starts a new task.
+            self.syncTask = nil
+        }
+        syncTask = task
+        await task.value
+    }
+
+    /// The client for syncs nobody asked for: it waits for the network
+    /// instead of failing at once, as after a wake.
+    private static let waitingSession: URLSession = {
+        let c = URLSessionConfiguration.default
+        c.waitsForConnectivity = true
+        c.timeoutIntervalForResource = 90
+        return URLSession(configuration: c)
+    }()
+
+    private func run(_ r: SyncRequest) async {
         guard isConfigured else { return }
+        let client: HeraldoClient
+        do {
+            client = try HeraldoClient(credentials: credentials, session: r.full ? .shared : Self.waitingSession)
+        } catch {
+            lastError = error.localizedDescription
+            return
+        }
+        var vector = r.vector
+        if vector != nil { hasRevisions = true }
+        // Learn the vector before fetching, so a change made during the
+        // fetch shows up as a change next time.
+        if (r.check || r.full), vector == nil, hasRevisions != false {
+            do {
+                vector = try await client.revisions()
+                hasRevisions = vector != nil
+            } catch {
+                if !r.full {
+                    log.error("revisions: \(error.localizedDescription, privacy: .public)")
+                    lastError = error.localizedDescription
+                    return
+                }
+            }
+        }
+        let plan: SyncPlan
+        if r.full {
+            plan = .full
+        } else if let vector {
+            plan = vector.plan(since: applied, poke: r.poke).union(r.parts)
+        } else if r.poke || r.check {
+            // A server before revisions: the old full refresh.
+            plan = .full
+        } else {
+            plan = .parts(r.parts)
+        }
+        let parts: Set<SyncPart>
+        switch plan {
+        case .full: parts = Set(SyncPart.allCases)
+        case .parts(let p): parts = p
+        }
+        if parts.isEmpty {
+            if let vector { applied = vector }
+            return
+        }
+        if await fetch(parts, client), let vector { applied = vector }
+    }
+
+    /// Fetches the parts. Each value is set only when it changed: a set
+    /// redraws every view that reads it, and most syncs bring little.
+    private func fetch(_ parts: Set<SyncPart>, _ client: HeraldoClient) async -> Bool {
         isSyncing = true
         defer { isSyncing = false }
+        let sync = HistorySync(client: client)
         do {
-            let sync = try sync()
-            // Each value is set only when it changed: a set redraws every
-            // view that reads it, and most syncs bring nothing new.
-            let synced = try await sync.sync(cache)
-            if synced != cache {
-                cache = synced
-                saveCache()
+            if parts.contains(.history) {
+                let synced = try await sync.sync(cache)
+                if synced != cache {
+                    cache = synced
+                    saveCache()
+                }
             }
-            update(\.unread, try await sync.unread())
+            if parts.contains(.unread) {
+                update(\.unread, try await sync.unread())
+                if sentBadge != unread.badge {
+                    sentBadge = unread.badge
+                    onBadge?(unread.badge)
+                }
+            }
             // Open incidents before acknowledged ones, newest first in each.
-            update(\.incidents, try await sync.client.state().sortedIncidents)
-            update(\.checks, try await sync.client.checks() ?? [])
-            update(\.projects, (try? await sync.client.projects())?.projects.map(\.name) ?? [])
-            await reloadViews()
-            update(\.chatAvailable, (try? await sync.client.llmStatus())?.chat ?? false)
+            if parts.contains(.state) { update(\.incidents, try await client.state().sortedIncidents) }
+            if parts.contains(.checks) { update(\.checks, try await client.checks() ?? []) }
+            if parts.contains(.projects) {
+                update(\.projects, (try? await client.projects())?.projects.map(\.name) ?? [])
+            }
+            if parts.contains(.views) { await reloadViews(client) }
+            if parts.contains(.llm) { update(\.chatAvailable, (try? await client.llmStatus())?.chat ?? false) }
             #if os(macOS)
-            update(\.activities, (try? await sync.client.activities()) ?? [])
-            update(\.held, (try? await sync.client.heldEntries())?.held.filter(\.isOpen) ?? [])
+            if parts.contains(.activities) { update(\.activities, (try? await client.activities()) ?? []) }
+            if parts.contains(.held) {
+                update(\.held, (try? await client.heldEntries())?.held.filter(\.isOpen) ?? [])
+            }
             #endif
             lastSync = .now
             if lastError != nil { lastError = nil }
-            onBadge?(unread.badge)
-            Widgets.reload(self)
+            if !parts.isDisjoint(with: [.history, .state, .checks, .projects]) { Widgets.reload(self) }
+            return true
         } catch {
-            log.error("refresh: \(error.localizedDescription, privacy: .public)")
+            log.error("sync: \(error.localizedDescription, privacy: .public)")
             lastError = error.localizedDescription
+            return false
         }
     }
 
@@ -197,6 +294,7 @@ final class AppModel {
             let sync = try sync()
             _ = try await body(sync)
             unread = try await sync.unread()
+            sentBadge = unread.badge
             onBadge?(unread.badge)
         } catch {
             lastError = error.localizedDescription
@@ -206,7 +304,7 @@ final class AppModel {
     /// Acknowledges an incident with the write token.
     func ack(_ incident: Event) async throws {
         try await client().ack(incident, source: AppInfo.source)
-        await refresh()
+        await refresh([.state, .history, .unread])
     }
 
     /// The projects for the Inbox's project filter: the server's list and
@@ -228,13 +326,13 @@ final class AppModel {
     /// Pauses or resumes a check with the write token.
     func setPaused(_ check: Check, _ paused: Bool) async throws {
         try await client().setPaused(check.key, paused)
-        await refresh()
+        await refresh([.checks, .state])
     }
 
     /// Fetches the saved views. A failed fetch keeps the ones shown.
-    func reloadViews() async {
+    func reloadViews(_ with: HeraldoClient? = nil) async {
         let list: [SavedView]?
-        do { list = try await client().views() } catch { return }
+        do { list = try await (with ?? client()).views() } catch { return }
         update(\.views, list ?? [])
         update(\.viewsSupported, list != nil)
     }

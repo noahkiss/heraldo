@@ -282,8 +282,10 @@ public final class SyncDriver {
             return
         }
         if SyncMode.of(old).uiLive != mode.uiLive { onUILive?(mode.uiLive) }
+        // Settings saved: learn the vector. Saving refreshed everything
+        // already; the check finds nothing new, or what came meanwhile.
         if inputs.configured && !old.configured {
-            request(.fullRefresh)
+            requestCheck()
             return
         }
         // Back from sleep, or the network returned: an open stream sends its

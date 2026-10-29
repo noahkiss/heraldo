@@ -8,7 +8,14 @@ import WidgetKit
 /// in the full text when the push carried a cut copy, and attaches the image,
 /// else the source's icon, as the thumbnail. A digest keeps its one line; the
 /// full text is in the app. With "Group by project" on, it threads the
-/// notification as `project:<name>`. Each push reloads the widgets.
+/// notification as `project:<name>`.
+///
+/// Each push also tells the app something changed: it writes the event into
+/// the widget snapshot in the app group and reloads only the widget kinds
+/// whose content changed, and it posts the `SyncSignal` a running app
+/// observes. A Mac build without the app group (no Developer ID profile for
+/// the extension) cannot read the credentials: it posts the signal and
+/// shows the push as it came.
 final class NotificationService: UNNotificationServiceExtension {
     private var contentHandler: ((UNNotificationContent) -> Void)?
     private var bestAttempt: UNMutableNotificationContent?
@@ -33,10 +40,15 @@ final class NotificationService: UNNotificationServiceExtension {
             content.threadIdentifier = thread
         }
         bestAttempt = content
-        // Something changed: the widgets read the server again.
-        WidgetCenter.shared.reloadAllTimelines()
+        // A running app syncs; it costs nothing when the app is not running.
+        if let name = SyncSignal.extensionName() { SyncSignal.post(name) }
+        guard AppGroup.identifier() != nil else {
+            deliver(content)
+            return
+        }
         work = Task {
-            let final = await Self.enrich(content, info: info)
+            let (final, event) = await Self.enrich(content, info: info)
+            Self.updateWidgets(event ?? Self.event(from: info, content: content))
             self.deliver(final)
         }
     }
@@ -55,7 +67,30 @@ final class NotificationService: UNNotificationServiceExtension {
         handler?(content)
     }
 
-    static func enrich(_ content: UNMutableNotificationContent, info: PushInfo) async -> UNNotificationContent {
+    /// The event the push names, from the payload alone, for when the
+    /// fetch fails.
+    static func event(from info: PushInfo, content: UNNotificationContent) -> Event {
+        var e = Event(id: info.id, source: info.source ?? "", kind: info.kind,
+                      title: content.title.isEmpty ? nil : content.title, receivedAt: .now)
+        e.key = info.key
+        e.action = info.action
+        e.project = info.project
+        return e
+    }
+
+    /// Writes the event into the widget snapshot and reloads the kinds
+    /// whose content changed. No reload when nothing did: each one is
+    /// budgeted.
+    static func updateWidgets(_ event: Event) {
+        guard WidgetSnapshot.url() != nil else { return }
+        var snapshot = WidgetSnapshot.load() ?? WidgetSnapshot(updated: .distantPast)
+        let kinds = snapshot.apply(event)
+        guard !kinds.isEmpty else { return }
+        try? snapshot.save()
+        for kind in kinds.sorted() { WidgetCenter.shared.reloadTimelines(ofKind: kind) }
+    }
+
+    static func enrich(_ content: UNMutableNotificationContent, info: PushInfo) async -> (UNNotificationContent, Event?) {
         let creds = CredentialStore().load()
         let client = try? HeraldoClient(credentials: creds, session: session)
         let event = try? await client?.event(id: info.id)
@@ -78,7 +113,7 @@ final class NotificationService: UNNotificationServiceExtension {
         } else if !Task.isCancelled, let icon = await icon(info, client: client) {
             content.attachments = [icon]
         }
-        return content
+        return (content, event)
     }
 
     /// The source's icon: the registry icon by name, with the read token,

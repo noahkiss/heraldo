@@ -69,7 +69,7 @@ struct SettingsView: View {
                     if let error = model.lastError {
                         Text(error).font(.footnote).foregroundStyle(.red)
                     }
-                    Button("Sync now") { Task { await model.refresh() } }
+                    Button("Sync now") { Task { await AppSync.shared.syncNow() } }
                         .disabled(!model.isConfigured || model.isSyncing)
                 }
 

@@ -181,7 +181,7 @@ struct ServerSettingsSection: View {
             do {
                 settings[key] = try await model.client().putSetting(key, value)
                 error = nil
-                if key.hasPrefix("badge.") { await model.refresh() }
+                if key.hasPrefix("badge.") { await model.refresh([.unread]) }
             } catch {
                 self.error = error.localizedDescription
                 await load()

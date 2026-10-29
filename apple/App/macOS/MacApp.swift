@@ -4,15 +4,12 @@ import SwiftUI
 import UserNotifications
 
 /// The Mac app's delegate: push, notification responses, heraldo:// links,
-/// and the sync that keeps the menu bar current while no window is open.
+/// and the start of `AppSync`, which keeps the menu bar current while no
+/// window is open.
 final class MacAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     static let mainWindowID = "main"
     /// The windows that show one item: Return or a double-click in a list.
     static let detailWindowID = "detail"
-    /// How often the menu bar syncs. The sync is a cursor read, so it is cheap.
-    static let pollInterval: Duration = .seconds(60)
-
-    private var poll: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         #if DEBUG
@@ -27,21 +24,15 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationC
         NSApp.servicesProvider = MacServices.shared
         let push = PushManager.shared
         AppModel.shared.onBadge = { push.setBadge($0) }
-        AppModel.shared.onCredentialsChanged = { push.credentialsChanged() }
+        AppModel.shared.onCredentialsChanged = {
+            push.credentialsChanged()
+            AppSync.shared.credentialsChanged()
+        }
         push.start()
         if Provision.requested { Task { await Provision.run(AppModel.shared) } }
-        startPolling()
+        // The stream, the safety net, sleep and wake, window visibility.
+        MacSync.start()
         DockPolicy.start()
-        // After sleep the network can take a few seconds to return; sync then.
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
-        ) { _ in
-            Task { @MainActor in
-                try? await Task.sleep(for: .seconds(5))
-                await AppModel.shared.refresh()
-                await PushManager.shared.foreground()
-            }
-        }
     }
 
     /// The menu bar item stays when the window closes. DockPolicy hides the Dock icon.
@@ -53,17 +44,14 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationC
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
+        AppSync.shared.driver?.opened()
         Task { await PushManager.shared.foreground() }
     }
 
-    private func startPolling() {
-        poll = Task { @MainActor in
-            while !Task.isCancelled {
-                await AppModel.shared.refresh()
-                // A continuous clock: a wait that spans sleep ends at wake, once.
-                try? await Task.sleep(for: Self.pollInterval)
-            }
-        }
+    /// An alert push with content-available reaches a running app here,
+    /// frontmost or not: something changed on the server.
+    func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
+        AppSync.shared.driver?.hint()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -84,7 +72,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationC
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         // A push while the app is frontmost: show it, and sync, since it means something new.
-        Task { @MainActor in await AppModel.shared.refresh() }
+        Task { @MainActor in AppSync.shared.driver?.hint() }
         completionHandler([.banner, .list, .sound])
     }
 
@@ -92,7 +80,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationC
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
         Task { @MainActor in
             await PushManager.shared.handle(response)
-            await AppModel.shared.refresh()
+            AppSync.shared.driver?.hint()
             completionHandler()
         }
     }
@@ -191,7 +179,7 @@ struct MenuBarContent: View {
             HStack {
                 Text(AppInfo.displayName()).font(.headline)
                 Spacer()
-                if model.isSyncing { ProgressView().controlSize(.small) }
+                if model.isSyncing && UILiveness.shared.menu { ProgressView().controlSize(.small) }
                 let n = model.unread.inboxCount
                 Text(n == 1 ? "1 unread" : "\(n) unread")
                     .monospacedDigit()
@@ -348,7 +336,7 @@ struct MenuBarContent: View {
                 .disabled(!model.isConfigured || model.unread.inboxCount == 0)
             Spacer()
             Menu {
-                Button("Sync now") { Task { await model.refresh() } }
+                Button("Sync now") { Task { await AppSync.shared.syncNow() } }
                     .disabled(!model.isConfigured)
                 SettingsLink { Text("Settings…") }
                 Divider()
