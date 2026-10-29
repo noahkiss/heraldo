@@ -21,7 +21,7 @@ func (r *rig) view(t *testing.T, body string) string {
 
 type alert struct {
 	APS struct {
-		Alert struct{ Title, Body string }
+		Alert             struct{ Title, Body string }
 		ThreadID          string `json:"thread-id"`
 		InterruptionLevel string `json:"interruption-level"`
 		Sound             string
