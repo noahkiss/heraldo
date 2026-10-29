@@ -166,8 +166,8 @@ With no tokens, the server refuses every call except `/healthz`.
 
 ### Server settings
 
-Features that later stages switch on (the LLM, quiet hours, the digest, the
-stale sweep, flap grouping) are server settings. All are off by default.
+Quiet hours, the badge scope and features that later stages switch on (the LLM, the digest, the
+stale sweep, flap grouping) are server settings. Every feature is off by default; the badge counts what needs attention.
 `GET /v1/settings` and `heraldo settings ls` list every key with its value,
 default and source.
 
@@ -227,11 +227,11 @@ any `-wal` and `-shm` files left beside the old database first.
 | `heraldo hold` | Shows the alert hold's queue: mode, dead-man, and each entry. `--pending` lists open entries only. The call is a look, not a triage poll; `--poll` makes it a poll, for a triage job. |
 | `heraldo hold release --verdict V --title t --body b --tag t <id>...` | Closes held entries with one diagnosis. In mode `on` it stores one message. Needs `HERALDO_WRITE_TOKEN`. |
 | `heraldo hold suppress [--reason r] <id>...` | Closes held entries and sends nothing. Needs `HERALDO_WRITE_TOKEN`. |
-| `heraldo state` | Prints the incidents not resolved, the progress not ended, the check-ins and the statuses. `--project` keeps those projects. |
+| `heraldo state` | Prints the badge, the incidents not resolved, the progress not ended, the check-ins and the statuses. `--project` keeps those projects. |
 | `heraldo digest [--send]` | Prints the daily digest as it would go out now: incidents, stale incidents, check-ins, finished jobs, held entries, counts per project. `--send` sends it now, besides the scheduled one; it needs `HERALDO_WRITE_TOKEN`. See [docs/api.md](docs/api.md#digest). |
 | `heraldo projects` | Lists the projects the stored events name, with counts, and the events with none (`-`). |
 | `heraldo activities [--all]` | Lists the running Live Activities; `--all` adds ended ones. `activities show <key>` prints one with its devices and timeline. |
-| `heraldo devices` | Lists the registered devices: name, platform, token suffix, active or retired. `devices retire <id>` stops pushes to one. |
+| `heraldo devices` | Lists the registered devices: name, platform, token suffix, active or retired, and the Focus filter in force. `devices retire <id>` stops pushes to one. |
 | `heraldo mute` | Mutes a source, key or project for a while: `--source`, `--key`, `--project`, and `--for` (default `1h`) or `--until`. Needs `HERALDO_WRITE_TOKEN`. |
 | `heraldo mutes`, `mutes end <id>` | Lists the mutes in force, or ends one now. Snoozes show `(snooze)`. Needs `HERALDO_WRITE_TOKEN`. |
 | `heraldo snooze <key or event id>` | Mutes one incident key, `--for` (default `1h`) or `--until`, then pushes its last event again if it is still open. An event id names its event's key. Needs `HERALDO_WRITE_TOKEN`. |
@@ -342,7 +342,7 @@ app group.
   filter menu, or a kind filter of their kind, asks the server for them. The
   filters you choose are saved and synced (see "Display"). Each row shows its project. A swipe marks events read up to that one; the
   menu marks all read. Both move the shared `inbox` cursor, so the CLI and the
-  app share one unread state. The badge is the cursor's `unread`.
+  app share one unread state. The Inbox count is the cursor's `unread`; the icon badge is its `badge`.
 - **Incidents**: open incidents first, then acknowledged ones, from
   `/v1/state`, with Ack; then a Stale section, the incidents the server marks
   stale (`stale.enabled`); then the ones resolved in the last day, with how
@@ -369,7 +369,18 @@ app group.
   notification; it waits in the inbox. The extension fetches the full
   event by id and attaches the image, else the source's icon from the
   server's registry. A digest keeps its one line; a tap opens the full text.
-- **Settings**: the mutes in force, with End.
+- **Settings**: the mutes in force, with End. Quiet hours and the badge are
+  server settings, shown here for every device: with an admin token (an
+  optional field beside the read and write tokens) the app changes them;
+  without one they are read-only.
+- **Focus filter**: Settings > Focus > a Focus > Focus Filters > Heraldo
+  picks the projects and the level (Time Sensitive and up, or Critical only)
+  that break through that Focus. While the Focus is on, the server sends this
+  device's other pushes at `active`, which the Focus silences; critical always
+  breaks through. Off by default. The system Focus works as usual without one.
+- **Badge**: the icon badge follows the server's `badge.scope` (default:
+  open incidents, down checks and unread time-sensitive alerts). The Inbox
+  tab keeps its own unread count.
 - **Saved views**: the Inbox filter menu has Save as View, which saves the
   current filter under a name (write token), and on iOS a View picker that
   scopes the list to a view. On the Mac, the sidebar lists the views under
@@ -459,8 +470,8 @@ brew install --cask noahkiss/tap/heraldo-app
 
   The arrow keys move the selection. The Event menu's writes need the write
   token.
-- **Menu bar**: a bell with the unread count. The bell gains a badge while
-  events are unread, and fills while an incident is open or a check is down.
+- **Menu bar**: a bell with the badge count, as on the Dock. The bell gains a badge while
+  the count is above 0, and fills while an incident is open or a check is down.
   The panel shows a one-line summary, the open incidents with Ack, the checks
   that are down, and the running Live Activities. A click on an item opens it
   in the window.
@@ -476,7 +487,7 @@ brew install --cask noahkiss/tap/heraldo-app
   cannot read this Mac's login keychain item and asks you to open the app.
 - **Push**: the Mac registers its own APNs token with `platform` `macOS` and
   environment `production`, and reports the same permission health. The Dock
-  icon shows the `unread` badge.
+  icon shows the cursor's `badge` (`badge.scope`).
 - The app syncs every minute, on wake and on a push. Closing the window keeps
   the app running in the menu bar. Quit is in the menu bar item's menu.
 - **Dock**: with "Show in Dock only while a window is open" on (Settings, on by

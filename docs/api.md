@@ -263,6 +263,8 @@ push as the push table decides.
   in Notification Center with no sound. Other devices are not changed.
 - Above the filter means: `time-sensitive` under `break_through: critical`,
   and any level above `active` from a project the filter does not list.
+- A Live Activity still shows on that device, and its start has no sound
+  ("Live Activities").
 - An event sent as `critical` is never lowered, even while the server sends
   `critical` as `time-sensitive`.
 - The delivery row of a lowered device has `level: active` and a note in
@@ -522,7 +524,7 @@ Pushes:
 
 | Push | When | apns-priority | Notes |
 |---|---|---|---|
-| start | A new activity or a new link | 10 | To the push-to-start token. `alert` with the title and the body or status; the first start on a device sounds when the start's `level` is set and not `passive`. A chain link, a retry, and a start from a resync (a new push-to-start token, a server restart) have no sound. Expires after 15 minutes. |
+| start | A new activity or a new link | 10 | To the push-to-start token. `alert` with the title and the body or status; the first start on a device sounds when the start's `level` is set and not `passive`. A chain link, a retry, and a start from a resync (a new push-to-start token, a server restart) have no sound, and so does any start on a device with a Focus filter in force. Expires after 15 minutes. |
 | update, catch-up | The app reported a token | 10 | At once, to that instance. |
 | update | Any other update, a new `status` or `tint` included | 5 | At most one per 15 seconds per activity. Updates in between merge; the last content goes out when the 15 seconds are up. A changing status text, such as a layer counter, cannot raise the rate or the priority. |
 | end | The activity ended, a link was handed over, or a start replaced it | 10 | `dismissal-date` is now plus `keep_for` when set, now on a hand-off, else the system default. |

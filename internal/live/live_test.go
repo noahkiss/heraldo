@@ -845,6 +845,28 @@ func TestOnlyTheFirstStartSounds(t *testing.T) {
 	}
 }
 
+// TestFocusFilterStartIsSilent: on a device in a Focus filter, the activity
+// starts with its alert text and no sound.
+func TestFocusFilterStartIsSilent(t *testing.T) {
+	r := newRig(t)
+	id := r.phone(t)
+	rec := r.do(t, http.MethodPut, "/v1/devices/"+id, readTok, fmt.Sprintf(
+		`{"token":%q,"environment":"production","topic":%q,"platform":"iOS","live_activity_token":%q,"focus_filter":{"active":true,"name":"Sleep"}}`,
+		phoneToken, topic, startToken))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("focus: %d %s", rec.Code, rec.Body)
+	}
+	r.apns.take()
+	r.post(t, start)
+	got := r.apns.take()
+	if len(got) != 1 || got[0].event() != "start" || sound(got[0]) != "" {
+		t.Fatalf("start in focus = %+v", got)
+	}
+	if alert, _ := got[0].APS["alert"].(map[string]any); alert["title"] != "bracket.3mf" {
+		t.Errorf("alert = %v, want a title and no sound", alert)
+	}
+}
+
 // instanceOf returns the instance id in a start push.
 func instanceOf(p sent) string {
 	attrs, _ := p.APS["attributes"].(map[string]any)

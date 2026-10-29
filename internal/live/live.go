@@ -463,7 +463,9 @@ func (m *Manager) start(ctx context.Context, a store.Activity, dev store.Device,
 	} else if s, _ := content["status"].(string); s != "" {
 		alert.Body = s
 	}
-	if first && a.Level != "" && a.Level != "passive" {
+	// A device in a Focus filter gets a silent start: the activity shows,
+	// and never buzzes.
+	if first && a.Level != "" && a.Level != "passive" && dev.FocusFilter == nil {
 		alert.Sound = "default"
 	}
 	body, err := payload{
