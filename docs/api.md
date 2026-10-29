@@ -123,7 +123,7 @@ Routine events:
 - The answer carries a `Heraldo-Routine` header with the filter applied. A
   server before the filter ignores `routine` and sends no header, so a client
   can tell and filter on its own.
-- The apps' Inbox, `heraldo ls` and `tail`, and the MCP `events_search` tool
+- The apps' Inbox, `heraldo ls` and the MCP `events_search` tool
   leave routine events out by default. A check's pings stay in its history:
   `GET /v1/events?key=<slug>` lists them.
 

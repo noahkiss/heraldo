@@ -25,7 +25,8 @@ const usage = `usage: heraldo <command> [flags]
 reading (HERALDO_URL, HERALDO_TOKEN):
   peek             events since this client's read cursor; --mark moves it
   show <id>        one event with its full body
-  ls               the newest events; --kind --source --host --key --tag -q --open
+  ls               the newest events, without routine ones; --kind --source --host
+                   --key --tag --project -q --open --routine
   held             events held for triage
   checkins         every check: state, next due, last run, last log
   checkins show <slug>

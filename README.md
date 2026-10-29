@@ -42,7 +42,11 @@ Three principles follow, and every feature is judged against them:
 - Dead-man's-switch check-ins.
 - An Apprise-compatible front door: an Apprise sender changes only its URL.
   An alert hold lets a triage job read alerts before they page.
-- A full history that the apps and the `heraldo` CLI sync by cursor.
+- A full history that the apps and the `heraldo` CLI sync by cursor. Routine
+  events (passing check-ins, progress, status) stay out of the main list;
+  each check keeps its own history.
+- Projects: events filed by project, with a project filter and per-project
+  mutes.
 
 ## Layout
 
@@ -182,7 +186,7 @@ any `-wal` and `-shm` files left beside the old database first.
 |---|---|
 | `heraldo peek [--mark]` | Lists the events after the read cursor. `--mark` moves the cursor past them. With no cursor yet, it lists the newest events. `--project` keeps the unread events in those projects; not with `--mark`. |
 | `heraldo show [--json] <id>` | Prints one event with its full body. |
-| `heraldo ls` | Lists the newest events (20 by default, oldest first). Filters: `--kind`, `--source`, `--host`, `--key`, `--tag`, `--project` (a comma-separated list; `-` for none), `-q` (full text). `--open` lists the incidents that are not resolved. |
+| `heraldo ls` | Lists the newest events (20 by default, oldest first). Filters: `--kind`, `--source`, `--host`, `--key`, `--tag`, `--project` (a comma-separated list; `-` for none), `-q` (full text). `--open` lists the incidents that are not resolved. Routine events (passing check-ins, progress, status) stay out unless `--routine` is given, or `--kind` or `--key` names them. |
 | `heraldo held` | Lists events held for triage (`hold.state` is `held`). |
 | `heraldo checkins` | Lists every check: state, next due time, last run length, first line of the last log. `--project` keeps the checks in those projects. `checkins show <slug>` prints one check with its full last log. |
 | `heraldo checkins create <slug>` | Creates a check, or replaces a known check's schedule: `--period` or `--cron` with `--tz`, `--grace`, `--max-runtime`, `--reminder`, `--host`. Needs `HERALDO_WRITE_TOKEN`. |

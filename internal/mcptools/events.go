@@ -14,6 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/noahkiss/heraldo/internal/client"
+	"github.com/noahkiss/heraldo/internal/routine"
 )
 
 type searchIn struct {
@@ -25,6 +26,7 @@ type searchIn struct {
 	Tag     string   `json:"tag,omitempty"`
 	Project []string `json:"project,omitempty" jsonschema:"Only events of these projects. - means events with no project."`
 	Hold    string   `json:"hold,omitempty" jsonschema:"Only events whose hold.state is this, such as held."`
+	Routine string   `json:"routine,omitempty" jsonschema:"Routine events: check-ins that did not fail, progress and status. Default exclude, or include when kind or key names them."`
 	Unread  bool     `json:"unread,omitempty" jsonschema:"Events after the shared read cursor, oldest first. Never moves the cursor."`
 	Cursor  string   `json:"cursor,omitempty" jsonschema:"next_cursor from an earlier call. Pass it alone: it carries that call's filters and order."`
 	Order   string   `json:"order,omitempty"`
@@ -98,7 +100,7 @@ const searchDesc = `List or search heraldo events, with filters and full-text se
 
 Best for: "what happened with X", unread events, an incident's history (key=), held events (hold=held), events since a cursor.
 Returns: up to limit EventSummary rows (default 20, max 100), plus next_cursor and has_more. No bodies.
-Query tips: q is full-text over title, summary and body (SQLite FTS: words, "quoted phrases", prefix*). Filters combine with AND. unread=true reads from the shared read cursor and never moves it. To page, pass next_cursor alone: it keeps the filters and order.
+Query tips: q is full-text over title, summary and body (SQLite FTS: words, "quoted phrases", prefix*). Filters combine with AND. Routine events (check-in pings that did not fail, progress, status) are left out unless routine=include or only, or kind or key names them; key=<slug> gives a check's pings. unread=true reads from the shared read cursor and never moves it. To page, pass next_cursor alone: it keeps the filters and order.
 Follow up with event_read for the full body of a row.
 Not for: open incidents or down checks right now; use overview.`
 
@@ -108,6 +110,7 @@ func (t *tools) addEventsSearch(s *mcp.Server) {
 			p := is.Properties
 			enum(p["kind"], "message", "digest", "incident", "progress", "checkin", "status")
 			enum(p["order"], "newest", "oldest")
+			enum(p["routine"], "exclude", "include", "only")
 			def(p["order"], "newest")
 			p["order"].Description = "Ignored with unread, which lists oldest first."
 			between(p["limit"], 1, 100)
@@ -127,6 +130,25 @@ func (t *tools) addEventsSearch(s *mcp.Server) {
 			"notes":        arr("", str("")),
 		},
 		t.eventsSearch)
+}
+
+// routineFilter is the routine= value for a search: in.Routine, else
+// exclude unless kind or key names routine events.
+func routineFilter(in searchIn) string {
+	switch in.Routine {
+	case "include":
+		return ""
+	case routine.Exclude, routine.Only:
+		return in.Routine
+	}
+	if in.Key != "" {
+		return ""
+	}
+	switch in.Kind {
+	case "checkin", "progress", "status":
+		return ""
+	}
+	return routine.Exclude
 }
 
 func (t *tools) eventsSearch(ctx context.Context, _ *mcp.CallToolRequest, in searchIn) (result, error) {
@@ -163,7 +185,7 @@ func (t *tools) eventsSearch(ctx context.Context, _ *mcp.CallToolRequest, in sea
 	}
 	if in.Cursor == "" {
 		st.Query = client.Query{Q: in.Q, Kind: in.Kind, Source: in.Source, Host: in.Host, Key: in.Key,
-			Tag: in.Tag, Hold: in.Hold, Project: in.Project}
+			Tag: in.Tag, Hold: in.Hold, Project: in.Project, Routine: routineFilter(in)}
 	}
 	out.state = &st
 	q := st.Query

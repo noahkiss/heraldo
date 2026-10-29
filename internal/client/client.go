@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/noahkiss/heraldo/api"
+	"github.com/noahkiss/heraldo/internal/routine"
 )
 
 // Client talks to one heraldo server.
@@ -89,6 +90,9 @@ type Query struct {
 	// Project keeps events of these projects. A server without the field
 	// ignores it.
 	Project []string
+	// Routine is routine.Exclude or routine.Only. List applies it on the
+	// client when the server does not.
+	Routine string
 }
 
 func (q Query) values() url.Values {
@@ -96,6 +100,7 @@ func (q Query) values() url.Values {
 	for _, p := range []struct{ k, v string }{
 		{"after", q.After}, {"before", q.Before}, {"source", q.Source}, {"kind", q.Kind},
 		{"host", q.Host}, {"key", q.Key}, {"tag", q.Tag}, {"q", q.Q}, {"hold", q.Hold},
+		{"routine", q.Routine},
 	} {
 		if p.v != "" {
 			v.Set(p.k, p.v)
@@ -200,6 +205,17 @@ func (c *Client) List(ctx context.Context, q Query) (Page, error) {
 	hdr, err := c.doHeader(ctx, http.MethodGet, "/v1/events", q.values(), c.Token, nil, &p)
 	if err == nil && q.Desc && hdr.Get("Heraldo-Order") != "desc" {
 		return Page{}, ErrNoDesc
+	}
+	if err == nil && q.Routine != "" && hdr.Get("Heraldo-Routine") != q.Routine {
+		// A server before the filter ignored it. The page may come up
+		// short of the limit; next_cursor still continues it.
+		keep := p.Events[:0]
+		for _, e := range p.Events {
+			if routine.Is(&e.Event) == (q.Routine == routine.Only) {
+				keep = append(keep, e)
+			}
+		}
+		p.Events = keep
 	}
 	return p, err
 }

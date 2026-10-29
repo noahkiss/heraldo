@@ -10,6 +10,7 @@ import (
 
 	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/client"
+	"github.com/noahkiss/heraldo/internal/routine"
 )
 
 // filters are the event filters ls and tail share.
@@ -176,6 +177,7 @@ func (a *app) ls(ctx context.Context, args []string) error {
 	f.add(fs)
 	q := fs.String("q", "", "full-text search over title, summary and body")
 	open := fs.Bool("open", false, "open incidents only: those not resolved, newest event per key")
+	withRoutine := fs.Bool("routine", false, "include routine events: passing check-ins, progress and status")
 	limit := fs.Int("limit", 20, "how many events, 1 to 500")
 	asJSON := fs.Bool("json", false, "print each event's JSON on one line")
 	if pos, err := parse(fs, args); err != nil {
@@ -216,12 +218,25 @@ func (a *app) ls(ctx context.Context, args []string) error {
 	}
 	evs, err := newest(ctx, c, client.Query{
 		Kind: f.kind, Source: f.source, Host: f.host, Key: f.key, Tag: f.tag, Q: *q, Project: projectList(f.project),
+		Routine: routineFilter(f, *withRoutine),
 	}, *limit)
 	if err != nil {
 		return listErr(err)
 	}
 	a.print(evs, *asJSON)
 	return nil
+}
+
+// routineFilter is the routine filter ls applies: routine events stay out
+// unless --routine asks for them, or --kind or --key names what to list.
+func routineFilter(f filters, include bool) string {
+	switch {
+	case include, f.key != "":
+		return ""
+	case f.kind == string(api.KindCheckin), f.kind == string(api.KindProgress), f.kind == string(api.KindStatus):
+		return ""
+	}
+	return routine.Exclude
 }
 
 // listErr explains a 400 from a server that does not know order=desc yet.

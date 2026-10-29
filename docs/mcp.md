@@ -98,6 +98,16 @@ to do>.`, and `structuredContent.error` with `code`, `status`, `message` and
 | `server_too_old` | The server cannot list newest first; pass `order: oldest` |
 | `unsupported_filter` | The server has no `project` field yet |
 
+## Routine events
+
+`events_search` leaves routine events out by default: check-in pings that did
+not fail, progress and status (docs/api.md, "Routine events"). It keeps them
+when `kind` is `checkin`, `progress` or `status`, or when `key` is set, so
+`key: <slug>` gives a check's pings. `routine` overrides both: `exclude`,
+`include` or `only`. The cursor keeps the choice. A server before the filter
+ignores it; the client then drops the rows itself, and a page can come back
+shorter than `limit`.
+
 ## Projects
 
 `events_search`, `overview` and `send` take `project`. The MCP server sends it
