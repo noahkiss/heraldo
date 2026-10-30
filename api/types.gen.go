@@ -1107,19 +1107,25 @@ type ActivityInstance struct {
 	LastPushAt  *time.Time `json:"last_push_at,omitempty"`
 	RequestedAt time.Time  `json:"requested_at"`
 
-	// State starting: push-to-start sent, no update token yet. active: the app reported
-	// the update token. ended: the server or the system ended it. dismissed: the
-	// person removed it; never started again. never-started: no update token came
-	// within 15 minutes; a later update tries again, three times at most. dead:
-	// APNs refused its update token; never started again.
+	// State starting: push-to-start sent without a channel, no update token yet. active:
+	// started on its broadcast channel, or the app reported the update token.
+	// ended: the server or the system ended it. dismissed: the person removed it;
+	// never started again. never-started: no update token came within 15 minutes
+	// (never started again: it may be on the screen), or APNs refused the
+	// push-to-start token (a new token tries again, three times at most). dead:
+	// APNs refused its update token, or its channel was lost with no token to
+	// fall back on; never started again.
 	State ActivityInstanceState `json:"state"`
 }
 
-// ActivityInstanceState starting: push-to-start sent, no update token yet. active: the app reported
-// the update token. ended: the server or the system ended it. dismissed: the
-// person removed it; never started again. never-started: no update token came
-// within 15 minutes; a later update tries again, three times at most. dead:
-// APNs refused its update token; never started again.
+// ActivityInstanceState starting: push-to-start sent without a channel, no update token yet. active:
+// started on its broadcast channel, or the app reported the update token.
+// ended: the server or the system ended it. dismissed: the person removed it;
+// never started again. never-started: no update token came within 15 minutes
+// (never started again: it may be on the screen), or APNs refused the
+// push-to-start token (a new token tries again, three times at most). dead:
+// APNs refused its update token, or its channel was lost with no token to
+// fall back on; never started again.
 type ActivityInstanceState string
 
 // ActivityList defines model for ActivityList.

@@ -45,6 +45,10 @@ type Config struct {
 	// ProductionURL and SandboxURL replace Apple's hosts. Tests use them.
 	ProductionURL string
 	SandboxURL    string
+	// ManageProductionURL and ManageSandboxURL replace Apple's broadcast
+	// channel management hosts. Tests use them.
+	ManageProductionURL string
+	ManageSandboxURL    string
 	// HTTPClient must speak HTTP/2; nil means a client with a 30-second
 	// timeout. The default transport negotiates HTTP/2 with Apple.
 	HTTPClient *http.Client
@@ -86,6 +90,12 @@ func New(cfg Config) *Pusher {
 	}
 	if cfg.SandboxURL == "" {
 		cfg.SandboxURL = SandboxURL
+	}
+	if cfg.ManageProductionURL == "" {
+		cfg.ManageProductionURL = ManageProductionURL
+	}
+	if cfg.ManageSandboxURL == "" {
+		cfg.ManageSandboxURL = ManageSandboxURL
 	}
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = &http.Client{Timeout: 30 * time.Second}

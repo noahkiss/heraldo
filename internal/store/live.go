@@ -221,23 +221,33 @@ type Instance struct {
 	ConfirmedAt time.Time
 	EndedAt     time.Time
 	LastPushAt  time.Time
+	// Channel is the APNs broadcast channel the instance was started on;
+	// empty for one started with input-push-token.
+	Channel string
+	// ChannelDeletedAt is when the server deleted Channel; zero while it
+	// exists.
+	ChannelDeletedAt time.Time
 }
 
 // Open reports whether the instance may still be on the device.
 func (i Instance) Open() bool { return i.State == InstanceStarting || i.State == InstanceActive }
 
+// OnChannel reports whether pushes to the instance go by its channel.
+func (i Instance) OnChannel() bool { return i.Channel != "" && i.ChannelDeletedAt.IsZero() }
+
 const instanceCols = `id, activity_id, key, device_id, chain, state, coalesce(end_reason, ''),
 	coalesce(update_token, ''), requested_at, coalesce(confirmed_at, ''), coalesce(ended_at, ''),
-	coalesce(last_push_at, '')`
+	coalesce(last_push_at, ''), coalesce(channel_id, ''), coalesce(channel_deleted_at, '')`
 
 func scanInstance(r scanner) (Instance, error) {
 	var i Instance
-	var req, conf, ended, push string
+	var req, conf, ended, push, chDel string
 	if err := r.Scan(&i.ID, &i.ActivityID, &i.Key, &i.DeviceID, &i.Chain, &i.State, &i.EndReason,
-		&i.UpdateToken, &req, &conf, &ended, &push); err != nil {
+		&i.UpdateToken, &req, &conf, &ended, &push, &i.Channel, &chDel); err != nil {
 		return Instance{}, err
 	}
 	i.RequestedAt, i.ConfirmedAt, i.EndedAt, i.LastPushAt = parseTime(req), parseTime(conf), parseTime(ended), parseTime(push)
+	i.ChannelDeletedAt = parseTime(chDel)
 	return i, nil
 }
 
@@ -246,17 +256,26 @@ func (s *Store) SaveInstance(ctx context.Context, i Instance) error {
 	s.wmu.Lock()
 	defer s.wmu.Unlock()
 	_, err := s.db.ExecContext(ctx, `INSERT INTO live_instances (`+instanceColsPlain+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET state = excluded.state, end_reason = excluded.end_reason,
 		update_token = excluded.update_token, confirmed_at = excluded.confirmed_at, ended_at = excluded.ended_at,
-		last_push_at = excluded.last_push_at`,
+		last_push_at = excluded.last_push_at, channel_id = excluded.channel_id,
+		channel_deleted_at = excluded.channel_deleted_at`,
 		i.ID, i.ActivityID, i.Key, i.DeviceID, i.Chain, i.State, nullStr(i.EndReason), nullStr(i.UpdateToken),
-		i.RequestedAt.UTC().Format(timeFormat), fmtTime(i.ConfirmedAt), fmtTime(i.EndedAt), fmtTime(i.LastPushAt))
+		i.RequestedAt.UTC().Format(timeFormat), fmtTime(i.ConfirmedAt), fmtTime(i.EndedAt), fmtTime(i.LastPushAt),
+		nullStr(i.Channel), fmtTime(i.ChannelDeletedAt))
 	return s.bumpIf(err, DomainActivities)
 }
 
 const instanceColsPlain = `id, activity_id, key, device_id, chain, state, end_reason, update_token, requested_at,
-	confirmed_at, ended_at, last_push_at`
+	confirmed_at, ended_at, last_push_at, channel_id, channel_deleted_at`
+
+// StaleChannels lists the closed instances whose channel the server has not
+// deleted yet.
+func (s *Store) StaleChannels(ctx context.Context) ([]Instance, error) {
+	return s.instances(ctx, `WHERE channel_id IS NOT NULL AND channel_deleted_at IS NULL
+		AND state NOT IN ('starting', 'active') ORDER BY requested_at`)
+}
 
 // GetInstance returns the instance id, or ErrNotFound.
 func (s *Store) GetInstance(ctx context.Context, id string) (Instance, error) {

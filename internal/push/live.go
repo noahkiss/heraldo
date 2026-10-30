@@ -14,12 +14,16 @@ import (
 const LiveTopicSuffix = ".push-type.liveactivity"
 
 // LivePush is one Live Activity push: a push-to-start to a device's
-// push-to-start token, or an update or end to one activity's token.
+// push-to-start token, or an update or end to one activity's token or its
+// broadcast channel.
 type LivePush struct {
 	// Environment is the device's APNs environment, sandbox or production.
 	Environment string
 	// Token is the push-to-start token or the activity's update token, hex.
 	Token string
+	// Channel, when set, sends the push on that broadcast channel instead of
+	// to Token (iOS 18). Only updates and ends go by channel.
+	Channel string
 	// Topic is the app's bundle id; the push goes to Topic plus
 	// LiveTopicSuffix.
 	Topic      string
@@ -64,6 +68,13 @@ func (r LiveResult) Error() string {
 // retry: the caller holds its own backoff, and a later update replaces a
 // lost one.
 func (p *Pusher) SendLive(ctx context.Context, lp LivePush) LiveResult {
+	if lp.Channel != "" {
+		a, err := p.sendBroadcast(ctx, lp, time.Time{})
+		if err == nil && a.staleToken() {
+			a, err = p.sendBroadcast(ctx, lp, p.cfg.Now())
+		}
+		return LiveResult{Status: a.status, Reason: a.reason, Err: err}
+	}
 	dev := store.Device{Token: lp.Token, Environment: lp.Environment, Topic: lp.Topic}
 	h := Headers{Priority: lp.Priority, Expiration: lp.Expiration, PushType: "liveactivity", Topic: lp.Topic + LiveTopicSuffix}
 	a, err := p.send(ctx, dev, lp.Body, h, time.Time{})

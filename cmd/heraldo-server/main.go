@@ -421,7 +421,13 @@ func startPush(ctx, pushCtx context.Context, cfg config.Config, st *store.Store,
 	} else if n > 0 {
 		log.Info("push: queued events left unpushed", "events", n)
 	}
-	lm := live.New(live.Config{Store: st, Sender: p, Logger: log})
+	lc := live.Config{Store: st, Sender: p, Logger: log}
+	if cfg.LiveChannels {
+		lc.Channels = p
+	} else {
+		log.Info("live: HERALDO_LIVE_CHANNELS is off; Live Activities update by token only")
+	}
+	lm := live.New(lc)
 	go lm.Run(ctx)
 	return p, lm, api.HealthPushOn
 }

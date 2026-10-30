@@ -41,6 +41,7 @@ const (
 // fakeReq is one request the fake APNs got.
 type fakeReq struct {
 	Path, Topic, PushType, Priority, CollapseID, Expiration, Auth string
+	Method, Channel                                               string
 	Proto                                                         int
 	Body                                                          []byte
 }
@@ -63,6 +64,7 @@ func newFake(t *testing.T) *fakeAPNs {
 			Path: r.URL.Path, Topic: r.Header.Get("apns-topic"), PushType: r.Header.Get("apns-push-type"),
 			Priority: r.Header.Get("apns-priority"), CollapseID: r.Header.Get("apns-collapse-id"),
 			Expiration: r.Header.Get("apns-expiration"), Auth: r.Header.Get("authorization"),
+			Method: r.Method, Channel: r.Header.Get("apns-channel-id"),
 			Proto: r.ProtoMajor, Body: body,
 		}
 		f.mu.Lock()
@@ -75,6 +77,9 @@ func newFake(t *testing.T) *fakeAPNs {
 			status, reason = reply(n, req)
 		}
 		w.Header().Set("apns-id", fmt.Sprintf("00000000-0000-0000-0000-%012d", n))
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/channels") {
+			w.Header().Set("apns-channel-id", fmt.Sprintf("Y2hhbm5lbC0%d==", n))
+		}
 		w.WriteHeader(status)
 		if reason != "" {
 			fmt.Fprintf(w, `{"reason":%q}`, reason)

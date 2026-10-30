@@ -1,6 +1,8 @@
 // Package live drives Live Activities for kind progress: one activity per
 // progress key, shown on each iOS device as a chain of ActivityKit
-// activities. It starts them with push-to-start, pushes updates (throttled),
+// activities. It starts them with push-to-start, each on its own APNs
+// broadcast channel when it can (else it waits for the app's update token),
+// pushes updates (throttled),
 // ends them, hands a long activity over to a new one before Apple's 8 hour
 // limit, and notices activities that never started, were dismissed, or whose
 // token died.
@@ -47,18 +49,42 @@ const (
 	// end push that failed for a passing reason (429, 5xx, no answer).
 	minBackoff = 30 * time.Second
 	maxBackoff = 10 * time.Minute
+	// channelOffFor is how long the manager stops making channels for an
+	// environment and topic after APNs refused one for good (the App ID
+	// lacks the broadcast capability, or the 10,000 channel limit), and
+	// channelRetryIn after any other failure. Starts go by token meanwhile.
+	channelOffFor  = time.Hour
+	channelRetryIn = 5 * time.Minute
+	// channelKeep is the longest APNs stores a push on a channel.
+	channelKeep = 8 * time.Hour
 )
+
+// reasonNoToken is the end reason of a token-started instance whose update
+// token never came. It may well be on the device: the app could not reach
+// the server.
+const reasonNoToken = "no update token from the device"
 
 // Sender sends one Live Activity push. *push.Pusher is one.
 type Sender interface {
 	SendLive(context.Context, push.LivePush) push.LiveResult
 }
 
+// Channels makes and deletes APNs broadcast channels. *push.Pusher is one.
+type Channels interface {
+	CreateChannel(ctx context.Context, environment, topic string, policy int) push.ChannelResult
+	DeleteChannel(ctx context.Context, environment, topic, id string) push.ChannelResult
+}
+
 // Config configures a Manager.
 type Config struct {
 	Store  *store.Store
 	Sender Sender
-	Logger *slog.Logger
+	// Channels, when set, starts each instance on its own broadcast channel
+	// and sends its updates and end there, so the device need not reach the
+	// server. Nil starts with input-push-token and waits for the app to
+	// report the update token. A failed channel create falls back to that.
+	Channels Channels
+	Logger   *slog.Logger
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 	// Emit stores a server-made event (the history event at an activity's
@@ -86,6 +112,11 @@ type Manager struct {
 	// endRetry holds end pushes that failed for a passing reason, by
 	// instance id. Tick sends them again.
 	endRetry map[string]endRetry
+	// channelOff holds back channel creates per environment and topic
+	// until the time given; deleteBackoff holds back channel deletes by
+	// instance id.
+	channelOff    map[string]time.Time
+	deleteBackoff map[string]backoff
 }
 
 type backoff struct {
@@ -137,8 +168,10 @@ func New(cfg Config) *Manager {
 		lastPush: map[string]time.Time{},
 		pending:  map[string]time.Time{},
 
-		startBackoff: map[string]backoff{},
-		endRetry:     map[string]endRetry{},
+		startBackoff:  map[string]backoff{},
+		endRetry:      map[string]endRetry{},
+		channelOff:    map[string]time.Time{},
+		deleteBackoff: map[string]backoff{},
 	}
 }
 
@@ -237,6 +270,7 @@ func (m *Manager) Tick(ctx context.Context) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.retryEnds(ctx)
+	defer m.reapChannels(ctx)
 	for _, a := range acts {
 		if now.Sub(a.UpdatedAt) >= m.cfg.AbandonAfter {
 			m.abandon(ctx, a)
@@ -249,7 +283,7 @@ func (m *Manager) Tick(ctx context.Context) {
 		}
 		for _, in := range insts {
 			if in.State == store.InstanceStarting && now.Sub(in.RequestedAt) >= m.cfg.StartTimeout {
-				in.State, in.EndReason, in.EndedAt = store.InstanceNeverStarted, "no update token from the device", now
+				in.State, in.EndReason, in.EndedAt = store.InstanceNeverStarted, reasonNoToken, now
 				m.save(ctx, in)
 			}
 		}
@@ -309,6 +343,18 @@ func (m *Manager) Confirm(ctx context.Context, id, token string) error {
 			return nil
 		}
 		in.EndReason, in.EndedAt = "", time.Time{}
+	}
+	if in.OnChannel() && in.State == store.InstanceActive {
+		// Its updates go by channel and its content went with the start;
+		// keep the token as the fallback should the channel go.
+		if in.UpdateToken != token {
+			in.UpdateToken = token
+			if in.ConfirmedAt.IsZero() {
+				in.ConfirmedAt = m.cfg.Now()
+			}
+			m.save(ctx, in)
+		}
+		return nil
 	}
 	known := in.UpdateToken == token && in.State == store.InstanceActive
 	in.UpdateToken = token
@@ -396,7 +442,10 @@ func (m *Manager) sync(ctx context.Context, a store.Activity, start, now, loud b
 		case latest.State == store.InstanceStarting:
 			// No update token yet; Confirm pushes the content when it comes.
 		case latest.State == store.InstanceNeverStarted:
-			if count(mine, store.InstanceNeverStarted) < m.cfg.MaxStarts {
+			// Start again only after refused push-to-starts. One that timed
+			// out waiting for its token may be on the screen: a second start
+			// would stack a copy. A late token report revives it (Confirm).
+			if !anyReason(mine, reasonNoToken) && count(mine, store.InstanceNeverStarted) < m.cfg.MaxStarts {
 				pushed = m.start(ctx, a, dev, latest.Chain, false) || pushed
 			}
 		case latest.State == store.InstanceEnded && latest.EndReason == "ended on the device":
@@ -472,12 +521,14 @@ func (m *Manager) start(ctx context.Context, a store.Activity, dev store.Device,
 	if first && (a.Level == "time-sensitive" || a.Level == "critical") && dev.FocusFilter == nil {
 		alert.Sound = "default"
 	}
+	in.Channel = m.newChannel(ctx, dev)
 	body, err := payload{
 		event: "start", now: now, content: content, stale: m.staleDate(a, content),
-		attrs: &Attributes{Key: a.Key, Instance: in.ID, Source: a.Source}, alert: alert,
+		attrs: &Attributes{Key: a.Key, Instance: in.ID, Source: a.Source}, alert: alert, channel: in.Channel,
 	}.marshal()
 	if err != nil {
 		m.cfg.Logger.Error("live: payload", "err", err)
+		m.dropChannel(ctx, dev, in.Channel)
 		return false
 	}
 	r := m.cfg.Sender.SendLive(ctx, push.LivePush{
@@ -488,8 +539,17 @@ func (m *Manager) start(ctx context.Context, a store.Activity, dev store.Device,
 	if r.Sent() || r.Gone() {
 		delete(m.startBackoff, bk)
 	}
+	if !r.Sent() && in.Channel != "" {
+		// No activity will listen on it.
+		m.dropChannel(ctx, dev, in.Channel)
+		in.Channel = ""
+	}
 	switch {
 	case r.Sent():
+		if in.Channel != "" {
+			// It takes updates on its channel at once: no token to wait for.
+			in.State = store.InstanceActive
+		}
 	case r.Gone():
 		// The push-to-start token is dead, such as after a reinstall. The
 		// app reports a new one when it next runs, and a later update
@@ -519,12 +579,21 @@ func (m *Manager) update(ctx context.Context, a store.Activity, dev store.Device
 		m.cfg.Logger.Error("live: payload", "err", err)
 		return false
 	}
-	r := m.cfg.Sender.SendLive(ctx, push.LivePush{
-		Environment: dev.Environment, Token: in.UpdateToken, Topic: dev.Topic, Body: body, Priority: prio,
-		Expiration: m.staleDate(a, content).Unix(),
-	})
+	lp := m.target(dev, *in)
+	lp.Body, lp.Priority, lp.Expiration = body, prio, m.staleDate(a, content).Unix()
+	if lp.Channel != "" {
+		lp.Expiration = min(lp.Expiration, now.Add(channelKeep).Unix())
+	}
+	r := m.cfg.Sender.SendLive(ctx, lp)
 	in.LastPushAt = time.Unix(stamp, 0)
-	if r.Gone() {
+	if lp.Channel != "" && m.channelLost(in, r) {
+		if in.UpdateToken == "" {
+			in.State, in.EndReason, in.EndedAt = store.InstanceDead, "channel refused: "+r.Error(), now
+		} else if _, ok := m.pending[a.ID]; !ok {
+			// The token takes over from the next push.
+			m.pending[a.ID] = now
+		}
+	} else if r.Gone() {
 		in.State, in.EndReason, in.EndedAt = store.InstanceDead, "update token refused: "+r.Error(), now
 	} else if !r.Sent() {
 		// The next update carries the same content; send it after the
@@ -543,16 +612,16 @@ func (m *Manager) update(ctx context.Context, a store.Activity, dev store.Device
 // screen; zero leaves it to the system.
 func (m *Manager) end(ctx context.Context, a store.Activity, dev store.Device, in store.Instance, dismissal time.Time, state, reason string) {
 	now := m.cfg.Now()
-	if in.State == store.InstanceActive && in.UpdateToken != "" {
+	if in.State == store.InstanceActive && (in.OnChannel() || in.UpdateToken != "") {
 		m.sendEnd(ctx, a, dev, &in, dismissal)
 	}
 	in.State, in.EndReason, in.EndedAt = state, reason, now
 	m.save(ctx, in)
 }
 
-// sendEnd sends the end push to in's update token. Its timestamp is later
-// than any push before it, so the device does not drop it as old. A passing
-// failure queues it for retryEnds. It does not save in.
+// sendEnd sends the end push to in's channel, else its update token. Its
+// timestamp is later than any push before it, so the device does not drop
+// it as old. A passing failure queues it for retryEnds. It does not save in.
 func (m *Manager) sendEnd(ctx context.Context, a store.Activity, dev store.Device, in *store.Instance, dismissal time.Time) bool {
 	now := m.cfg.Now()
 	stamp := nextStamp(now, in.LastPushAt)
@@ -561,10 +630,23 @@ func (m *Manager) sendEnd(ctx context.Context, a store.Activity, dev store.Devic
 		m.cfg.Logger.Error("live: payload", "err", err)
 		return false
 	}
-	r := m.cfg.Sender.SendLive(ctx, push.LivePush{
-		Environment: dev.Environment, Token: in.UpdateToken, Topic: dev.Topic, Body: body, Priority: 10,
-	})
+	lp := m.target(dev, *in)
+	lp.Body, lp.Priority = body, 10
+	if lp.Channel != "" {
+		// A channel needs apns-expiration; keep the end for a device that
+		// is offline as long as APNs keeps anything.
+		lp.Expiration = now.Add(channelKeep).Unix()
+	}
+	r := m.cfg.Sender.SendLive(ctx, lp)
 	in.LastPushAt = time.Unix(stamp, 0)
+	if lp.Channel != "" && m.channelLost(in, r) {
+		if in.UpdateToken != "" {
+			// Try the token at once.
+			return m.sendEnd(ctx, a, dev, in, dismissal)
+		}
+		delete(m.endRetry, in.ID)
+		return false
+	}
 	if r.Sent() || r.Gone() {
 		delete(m.endRetry, in.ID)
 		return r.Sent()
@@ -588,7 +670,7 @@ func (m *Manager) retryEnds(ctx context.Context) {
 			continue
 		}
 		in, err := m.cfg.Store.GetInstance(ctx, id)
-		if err != nil || in.UpdateToken == "" {
+		if err != nil || (!in.OnChannel() && in.UpdateToken == "") {
 			delete(m.endRetry, id)
 			continue
 		}
@@ -708,6 +790,110 @@ func (m *Manager) save(ctx context.Context, in store.Instance) {
 	}
 }
 
+// ---- channels, with m.mu held -------------------------------------------
+
+// target is where a push to in goes: its channel while it has one, else
+// its update token.
+func (m *Manager) target(dev store.Device, in store.Instance) push.LivePush {
+	lp := push.LivePush{Environment: dev.Environment, Topic: dev.Topic}
+	if in.OnChannel() {
+		lp.Channel = in.Channel
+	} else {
+		lp.Token = in.UpdateToken
+	}
+	return lp
+}
+
+// newChannel makes a channel for one new instance on dev. It returns "" when
+// channels are off, held back, or the create failed: the start then asks
+// for an update token instead.
+func (m *Manager) newChannel(ctx context.Context, dev store.Device) string {
+	if m.cfg.Channels == nil {
+		return ""
+	}
+	now := m.cfg.Now()
+	k := dev.Environment + "/" + dev.Topic
+	if now.Before(m.channelOff[k]) {
+		return ""
+	}
+	// Store the latest push: a phone offline for a while gets the newest
+	// content, and the end, when it is back.
+	r := m.cfg.Channels.CreateChannel(ctx, dev.Environment, dev.Topic, push.ChannelStoreLatest)
+	if r.ChannelCreated() {
+		delete(m.channelOff, k)
+		return r.ID
+	}
+	wait := channelRetryIn
+	if r.FeatureOff() || r.Reason == "CannotCreateChannelConfig" {
+		wait = channelOffFor
+	}
+	m.channelOff[k] = now.Add(wait)
+	m.cfg.Logger.Warn("live: channel not created; starting with an update token", "environment", dev.Environment,
+		"error", r.Error(), "retry_in", wait)
+	return ""
+}
+
+// dropChannel deletes a channel no instance kept, best effort.
+func (m *Manager) dropChannel(ctx context.Context, dev store.Device, id string) {
+	if id == "" || m.cfg.Channels == nil {
+		return
+	}
+	if r := m.cfg.Channels.DeleteChannel(ctx, dev.Environment, dev.Topic, id); !r.ChannelDeleted() {
+		m.cfg.Logger.Warn("live: unused channel not deleted", "environment", dev.Environment, "error", r.Error())
+	}
+}
+
+// channelLost reports whether r says in's channel is unusable for good: APNs
+// does not know it, or the App ID lost the broadcast capability, which
+// deletes every channel. It then marks the channel gone, so pushes fall
+// back to the update token.
+func (m *Manager) channelLost(in *store.Instance, r push.LiveResult) bool {
+	if !r.ChannelGone() && !r.FeatureOff() {
+		return false
+	}
+	in.ChannelDeletedAt = m.cfg.Now()
+	m.cfg.Logger.Warn("live: channel refused", "instance", in.ID, "error", r.Error(), "fallback_token", in.UpdateToken != "")
+	return true
+}
+
+// reapChannels deletes the channels of closed instances whose end is not
+// waiting for a retry. APNs still delivers an end it stored after the
+// delete.
+func (m *Manager) reapChannels(ctx context.Context) {
+	if m.cfg.Channels == nil {
+		return
+	}
+	insts, err := m.cfg.Store.StaleChannels(ctx)
+	if err != nil {
+		m.cfg.Logger.Error("live: stale channels", "err", err)
+		return
+	}
+	now := m.cfg.Now()
+	for _, in := range insts {
+		if _, ok := m.endRetry[in.ID]; ok {
+			continue
+		}
+		if b, ok := m.deleteBackoff[in.ID]; ok && now.Before(b.next) {
+			continue
+		}
+		dev, err := m.cfg.Store.GetDevice(ctx, in.DeviceID)
+		if err != nil {
+			m.deleteBackoff[in.ID] = m.deleteBackoff[in.ID].grow(now)
+			continue
+		}
+		r := m.cfg.Channels.DeleteChannel(ctx, dev.Environment, dev.Topic, in.Channel)
+		if !r.ChannelDeleted() {
+			m.deleteBackoff[in.ID] = m.deleteBackoff[in.ID].grow(now)
+			m.cfg.Logger.Warn("live: channel not deleted", "instance", in.ID, "error", r.Error(),
+				"retry_in", m.deleteBackoff[in.ID].delay)
+			continue
+		}
+		delete(m.deleteBackoff, in.ID)
+		in.ChannelDeletedAt = now
+		m.save(ctx, in)
+	}
+}
+
 // ---- helpers ------------------------------------------------------------
 
 func contentMap(raw json.RawMessage) map[string]any {
@@ -739,6 +925,15 @@ func lastOf(insts []store.Instance) *store.Instance {
 		}
 	}
 	return best
+}
+
+func anyReason(insts []store.Instance, reason string) bool {
+	for _, in := range insts {
+		if in.EndReason == reason {
+			return true
+		}
+	}
+	return false
 }
 
 func count(insts []store.Instance, state string) int {

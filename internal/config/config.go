@@ -42,6 +42,11 @@ type Config struct {
 	// Push turns APNs pushes on. Off by default, so a server with a key
 	// still sends nothing until it is set. HERALDO_PUSH.
 	Push bool
+	// LiveChannels starts each Live Activity on its own APNs broadcast
+	// channel, so updates reach a device that cannot reach the server. On
+	// by default; it needs the App ID's broadcast capability, and without
+	// it the server falls back to update tokens. HERALDO_LIVE_CHANNELS.
+	LiveChannels bool
 	// APNsKeyFile is the APNs auth key, a .p8 file. HERALDO_APNS_KEY_FILE.
 	APNsKeyFile string
 	// APNsKey is the APNs auth key inline, the .p8 file's PEM text.
@@ -147,6 +152,13 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		c.Push = true
 	default:
 		return Config{}, fmt.Errorf("HERALDO_PUSH %q: want on or off", getenv("HERALDO_PUSH"))
+	}
+	switch strings.ToLower(getenv("HERALDO_LIVE_CHANNELS")) {
+	case "", "on", "true", "1":
+		c.LiveChannels = true
+	case "off", "false", "0":
+	default:
+		return Config{}, fmt.Errorf("HERALDO_LIVE_CHANNELS %q: want on or off", getenv("HERALDO_LIVE_CHANNELS"))
 	}
 	if c.APNsKeyFile != "" && c.APNsKey != "" {
 		return Config{}, errors.New("set HERALDO_APNS_KEY_FILE or HERALDO_APNS_KEY, not both")

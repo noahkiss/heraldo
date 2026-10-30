@@ -643,21 +643,44 @@ Activities:
   them all.
 
 On each device an activity is a chain of instances. Each instance is one
-ActivityKit activity, with its own id (`lai_` plus a ULID) in its attributes:
+ActivityKit activity, with its own id (`lai_` plus a ULID) in its attributes.
+
+Each instance is reached one of two ways:
+
+- **Channel** (the default). Before the push-to-start, the server makes an
+  APNs broadcast channel for the instance and starts it with
+  `input-push-channel`. Its updates and its end go on that channel. The
+  device never has to reach the server, so a phone off the server's network
+  still gets every update. The server deletes the channel once the instance
+  closes.
+- **Token** (the fallback). The push-to-start asks for an update token
+  (`input-push-token: 1`). The app reports the token with
+  `PUT /v1/activity-instances/{id}`, and the server pushes to it. The server
+  uses this path when `HERALDO_LIVE_CHANNELS=off`, or when APNs refuses to
+  make a channel. After `FeatureNotEnabled` (the App ID lacks the broadcast
+  capability) or `CannotCreateChannelConfig` (the 10,000 channel limit), it
+  makes no channel for that environment and app for an hour; after any other
+  failure, for 5 minutes.
 
 | state | Means | The server |
 |---|---|---|
-| `starting` | The push-to-start went out; no update token yet. | Waits for the token. |
-| `active` | The app reported the update token. | Pushes updates to it. |
+| `starting` | Token path: the push-to-start went out; no update token yet. | Waits for the token. |
+| `active` | Started on its channel, or the app reported the update token. | Pushes updates to it. |
 | `ended` | The server ended it, or the system did (the app reported `ended`). | After a system end, starts the next link while the activity runs. |
 | `dismissed` | The person removed it (the app reported `dismissed`). | Never starts it again on that device. |
-| `never-started` | No update token within 15 minutes, or APNs refused the push-to-start token. | Starts it again on the next update, three times at most per device. |
-| `dead` | APNs refused its update token (410, `BadDeviceToken`, `ExpiredToken`). | Never starts it again on that device. |
+| `never-started` | Token path: no update token within 15 minutes. Either path: APNs refused the push-to-start token. | After a timeout, never starts it again on that device for this activity. After a refused token, starts it again when a new push-to-start token comes, three times at most per device. |
+| `dead` | APNs refused its update token (410, `BadDeviceToken`, `ExpiredToken`), or refused its channel with no update token to fall back on. | Never starts it again on that device. |
 
 - A refused push-to-start token is cleared from the device. A new one, sent
   with the next registration, starts every running activity on that device.
+- A timed-out instance may well be on the screen: the app may only have
+  failed to reach the server. A second push-to-start would stack a copy, so
+  the server sends none. The next activity on the key starts as usual.
 - An update token that comes after `never-started` revives the instance when
   it is still the newest on the device. Otherwise the server ends it.
+- An update token for a channel instance is stored and pushes nothing. It is
+  the fallback should APNs refuse the channel (`ChannelNotRegistered`,
+  `BadChannelId`, `FeatureNotEnabled`): the next push then goes to the token.
 - An update token for an instance the server ended while it was starting (an
   end, an abandon or a restart before the app reported) gets the end push at
   once, with `dismissal-date` now. The activity came up on the device anyway,
@@ -667,12 +690,29 @@ Pushes:
 
 | Push | When | apns-priority | Notes |
 |---|---|---|---|
-| start | A new activity or a new link | 10 | To the push-to-start token. `alert` with the title and the body or status; the first start on a device sounds only when the start's `level` is `time-sensitive` or `critical`; an `active` start comes up silently, so a job started at night wakes no one. A chain link, a retry, and a start from a resync (a new push-to-start token, a server restart) have no sound, and so does any start on a device with a Focus filter in force. Expires after 15 minutes. |
-| update, catch-up | The app reported a token | 10 | At once, to that instance. |
+| start | A new activity or a new link | 10 | To the push-to-start token, never on a channel (APNs cannot start an activity by broadcast). `alert` with the title and the body or status; the first start on a device sounds only when the start's `level` is `time-sensitive` or `critical`; an `active` start comes up silently, so a job started at night wakes no one. A chain link, a retry, and a start from a resync (a new push-to-start token, a server restart) have no sound, and so does any start on a device with a Focus filter in force. Expires after 15 minutes. |
+| update, catch-up | The app reported a token (token path) | 10 | At once, to that instance. |
 | update | Any other update, a new `status` or `tint` included | 5 | At most one per 15 seconds per activity. Updates in between merge; the last content goes out when the 15 seconds are up. A changing status text, such as a layer counter, cannot raise the rate or the priority. |
 | end | The activity ended, a link was handed over, or a start replaced it | 10 | `dismissal-date` is now plus `keep_for` when set, now on a hand-off, else the system default. |
 
-- Headers: `apns-push-type: liveactivity`, `apns-topic: <bundle id>.push-type.liveactivity`.
+- Token headers: `POST /3/device/<token>`, `apns-push-type: liveactivity`,
+  `apns-topic: <bundle id>.push-type.liveactivity`.
+- Channel headers: `POST /4/broadcasts/apps/<bundle id>` on the same APNs
+  host, `apns-channel-id`, `apns-push-type: liveactivity`, and
+  `apns-expiration`, which a broadcast requires. The provider token is the
+  same one. Channels keep the most recent push (storage policy 1), for at
+  most 8 hours, so an update expires at its stale date or in 8 hours,
+  whichever is sooner, and an end in 8 hours.
+- Channel management: `POST`, and `DELETE` with `apns-channel-id`, on
+  `/1/apps/<bundle id>/channels` at `api-manage-broadcast.push.apple.com:2196`
+  (production) or `api-manage-broadcast.sandbox.push.apple.com:2195`
+  (sandbox). A channel exists in one environment only, so each instance's
+  channel is made in its device's environment. A delete that fails is tried
+  again from 30 seconds, doubling to 10 minutes. APNs still delivers an end
+  it stored after the delete.
+- Throttle and priority are per activity, the same on both paths: each
+  instance has its own channel, so a push on one channel reaches one link on
+  one device.
 - `stale-date` is now plus `stale_after` when the content has it, else twice
   the gap between the sender's last two events (15 seconds to 1 hour; 10
   minutes before there are two). An update push expires at its stale date.
@@ -711,10 +751,12 @@ The payload, a start:
     "attributes-type": "ProgressAttributes",
     "attributes": {"key": "print/42", "instance": "lai_01JBA6Y8Q2K9M3T4V5W6X7Y8Z9", "source": "printer"},
     "alert": {"title": "bracket.3mf", "body": "Printing", "sound": "default"},
-    "input-push-token": 1
+    "input-push-channel": "dHN0LWNoYW5uZWw="
   }
 }
 ```
+
+- On the token path, `"input-push-token": 1` replaces `input-push-channel`.
 
 - `content-state` has the LiveContent fields except `stale_after` and
   `keep_for`. `ends_at` is Unix seconds, because ActivityKit decodes the state
@@ -729,7 +771,14 @@ The app's side:
 - For each activity, it sends the update token with
   `PUT /v1/activity-instances/{id}` and `{"device": "<id>", "token": "<hex>"}`,
   and later `{"state": "dismissed"}` or `{"state": "ended"}`. A report that
-  fails goes again on the next foreground.
+  fails goes again on the next foreground. An activity started on a channel
+  has no update token, so only the state reports come. Without them the
+  server keeps pushing on the channel of a dismissed activity until the
+  activity ends; nothing shows.
+- The app needs no code or entitlement for channels. The App ID needs the
+  broadcast capability: in the Apple developer portal, Certificates, IDs &
+  Profiles, Identifiers, the app's App ID, Push Notifications, Broadcast
+  Capability. Xcode cannot set it.
 - `PUT` answers the instance. 400 for a bad body or another device's
   instance, 404 for an unknown id, 503 with push off. A report on an instance
   the server already closed changes nothing.

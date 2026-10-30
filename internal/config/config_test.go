@@ -111,6 +111,18 @@ func TestFromEnvPush(t *testing.T) {
 	}
 }
 
+func TestFromEnvLiveChannels(t *testing.T) {
+	if c, err := FromEnv(env(nil)); err != nil || !c.LiveChannels {
+		t.Fatalf("default: live channels %v err %v", c.LiveChannels, err)
+	}
+	if c, err := FromEnv(env(map[string]string{"HERALDO_LIVE_CHANNELS": "off"})); err != nil || c.LiveChannels {
+		t.Fatalf("off: live channels %v err %v", c.LiveChannels, err)
+	}
+	if _, err := FromEnv(env(map[string]string{"HERALDO_LIVE_CHANNELS": "maybe"})); err == nil {
+		t.Fatal("accepted HERALDO_LIVE_CHANNELS=maybe")
+	}
+}
+
 func TestFromEnvMCPHTTP(t *testing.T) {
 	if c, err := FromEnv(env(nil)); err != nil || c.MCPHTTP {
 		t.Fatalf("default: %v %v", c.MCPHTTP, err)

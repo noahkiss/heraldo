@@ -29,6 +29,9 @@ type apsLive struct {
 	Attributes     *Attributes    `json:"attributes,omitempty"`
 	Alert          *liveAlert     `json:"alert,omitempty"`
 	InputPushToken int            `json:"input-push-token,omitempty"`
+	// InputPushChannel subscribes the started activity to a broadcast
+	// channel (iOS 18) in place of asking for an update token.
+	InputPushChannel string `json:"input-push-channel,omitempty"`
 }
 
 type liveAlert struct {
@@ -48,6 +51,9 @@ type payload struct {
 	dismissal time.Time
 	attrs     *Attributes
 	alert     *liveAlert
+	// channel, on a start, is the channel the activity listens on; empty
+	// asks for an update token.
+	channel string
 }
 
 func (p payload) marshal() ([]byte, error) {
@@ -71,8 +77,13 @@ func (p payload) marshal() ([]byte, error) {
 	if p.event == "start" {
 		a.AttributesType = AttributesType
 		a.Attributes = p.attrs
-		// iOS 18: ask the device to send this activity's update token.
-		a.InputPushToken = 1
+		if p.channel != "" {
+			// iOS 18: listen for updates on the channel.
+			a.InputPushChannel = p.channel
+		} else {
+			// iOS 18: ask the device to send this activity's update token.
+			a.InputPushToken = 1
+		}
 	}
 	return json.Marshal(map[string]any{"aps": a})
 }

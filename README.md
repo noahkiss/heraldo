@@ -153,6 +153,7 @@ The server reads its configuration from the environment.
 | `HERALDO_TOKENS` | none | The same entries inline, separated by commas. Set this or the file, not both. |
 | `HERALDO_RULES` | none | Ingest rules file (YAML) that types untyped inputs (no `kind`), and can set the level or a hold on ping events; without it untyped inputs are stored as `message`. The server reloads it within 5 s of a change; a file that does not parse keeps the rules in force and logs an error. A broken file at startup stops the server. Format: [docs/api.md](docs/api.md#ingest-rules), example: `deploy/rules.example.yaml`. |
 | `HERALDO_PUSH` | `off` | `on` sends APNs pushes to the registered devices. Off, the server registers devices and pushes nothing. |
+| `HERALDO_LIVE_CHANNELS` | `on` | `on` starts each Live Activity on its own APNs broadcast channel, so updates reach a phone that cannot reach the server. Needs the App ID's broadcast capability; without it the server falls back to update tokens. `off` uses update tokens only. |
 | `HERALDO_APNS_KEY_FILE` | none | The APNs auth key, the `.p8` file from Apple. Mount it read-only. |
 | `HERALDO_APNS_KEY` | none | The same key inline, the `.p8` file's PEM text, for a secret store that passes values as environment variables. A value with no line breaks has each literal `\n` turned into one. Set this or the file, not both. |
 | `HERALDO_APNS_KEY_ID` | none | The key's id, 10 characters. |
@@ -509,9 +510,11 @@ app group.
   copy. A sync or a push reloads only the widgets whose content changed.
 - **Live Activities**: a `progress` key shows as a Live Activity on the Lock
   Screen, in the Dynamic Island and in the Watch Smart Stack. The server starts
-  it with push-to-start, so the app need not be open. The app reports its
+  it with push-to-start, so the app need not be open. Each activity takes its
+  updates on its own APNs broadcast channel, so a phone that cannot reach the
+  server still gets them (`HERALDO_LIVE_CHANNELS`). The app reports its
   push-to-start token with the registration, and each activity's update token
-  and dismissal (docs/api.md, "Live Activities"). The inbox leaves progress
+  and dismissal when it can (docs/api.md, "Live Activities"). The inbox leaves progress
   events out; each activity leaves one message when it ends, and its History
   lists the progress.
 - **Share in**: Heraldo is in the share sheet. It takes text, a link,

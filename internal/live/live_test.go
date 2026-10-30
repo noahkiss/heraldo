@@ -71,6 +71,8 @@ type fakeAPNs struct {
 	mu    sync.Mutex
 	got   []sent
 	reply func(token string) push.LiveResult
+	// replyChannel answers the pushes on a channel; nil is 200.
+	replyChannel func(channel string) push.LiveResult
 }
 
 func (f *fakeAPNs) SendLive(_ context.Context, lp push.LivePush) push.LiveResult {
@@ -81,6 +83,12 @@ func (f *fakeAPNs) SendLive(_ context.Context, lp push.LivePush) push.LiveResult
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.got = append(f.got, sent{LivePush: lp, APS: body.APS})
+	if lp.Channel != "" {
+		if f.replyChannel != nil {
+			return f.replyChannel(lp.Channel)
+		}
+		return push.LiveResult{Status: http.StatusOK}
+	}
 	if f.reply != nil {
 		return f.reply(lp.Token)
 	}
@@ -110,9 +118,25 @@ type rig struct {
 	m    *live.Manager
 	apns *fakeAPNs
 	clk  *clock
+	// chans is the fake channel API; nil unless newChannelRig made the rig.
+	chans *fakeChannels
 }
 
 func newRig(t *testing.T) *rig {
+	t.Helper()
+	return newRigWith(t, nil)
+}
+
+// newChannelRig is a rig whose manager starts activities on channels.
+func newChannelRig(t *testing.T) *rig {
+	t.Helper()
+	fc := &fakeChannels{}
+	r := newRigWith(t, fc)
+	r.chans = fc
+	return r
+}
+
+func newRigWith(t *testing.T, chans live.Channels) *rig {
 	t.Helper()
 	ctx := context.Background()
 	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
@@ -124,7 +148,7 @@ func newRig(t *testing.T) *rig {
 	st.SetClock(clk.now)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	r := &rig{st: st, apns: &fakeAPNs{}, clk: clk}
-	r.m = live.New(live.Config{Store: st, Sender: r.apns, Logger: log, Now: clk.now})
+	r.m = live.New(live.Config{Store: st, Sender: r.apns, Channels: chans, Logger: log, Now: clk.now})
 	tokens, err := auth.Parse(strings.NewReader(fmt.Sprintf("sender write %s,phone read %s",
 		auth.Hash(writeTok), auth.Hash(readTok))), ',')
 	if err != nil {
@@ -424,15 +448,65 @@ func (r *rig) messages(t *testing.T) []api.Event {
 	return page.Events
 }
 
-func TestNeverStartedRetriesThenStops(t *testing.T) {
+func TestTimedOutStartIsNotRepeated(t *testing.T) {
+	// The phone could not report the token, so the server never learned
+	// whether the activity is up. A second push-to-start would stack a copy.
 	r := newRig(t)
 	r.phone(t)
 	r.post(t, start)
 	r.apns.take()
+	r.clk.add(live.DefaultStartTimeout)
+	r.tick()
 	for i := 1; i <= 3; i++ {
-		r.clk.add(live.DefaultStartTimeout)
-		r.tick()
 		r.post(t, update(float64(i)/10))
+		r.clk.add(time.Minute)
+		r.tick()
+	}
+	if got := r.apns.take(); len(got) != 0 {
+		t.Fatalf("pushes after a timed-out start = %+v", got)
+	}
+	a := r.activity(t, "print/42")
+	if len(a.Instances) != 1 || a.Instances[0].State != "never-started" {
+		t.Fatalf("instances = %+v", a.Instances)
+	}
+}
+
+// newStartToken registers the phone again with its push-to-start token, as
+// the app does after the server cleared a refused one.
+func (r *rig) newStartToken(t *testing.T) {
+	t.Helper()
+	rec := r.do(t, http.MethodPost, "/v1/devices", readTok, fmt.Sprintf(
+		`{"token":%q,"environment":"production","topic":%q,"platform":"iOS","live_activity_token":%q}`,
+		phoneToken, topic, startToken))
+	if rec.Code != http.StatusOK && rec.Code != http.StatusCreated {
+		t.Fatalf("register phone: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// refuseStarts makes the fake APNs refuse the push-to-start token, as after
+// a reinstall.
+func (r *rig) refuseStarts() {
+	r.apns.mu.Lock()
+	r.apns.reply = func(token string) push.LiveResult {
+		if token == startToken {
+			return push.LiveResult{Status: http.StatusGone, Reason: "Unregistered"}
+		}
+		return push.LiveResult{Status: http.StatusOK}
+	}
+	r.apns.mu.Unlock()
+}
+
+func TestRefusedStartRetriesThenStops(t *testing.T) {
+	r := newRig(t)
+	r.phone(t)
+	r.refuseStarts()
+	r.post(t, start)
+	if got := r.apns.take(); len(got) != 1 || got[0].event() != "start" {
+		t.Fatalf("first start = %+v", got)
+	}
+	for i := 1; i <= 3; i++ {
+		// The app reports a new push-to-start token; the server tries again.
+		r.newStartToken(t)
 		got := r.apns.take()
 		want := 1
 		if i == 3 {
@@ -810,13 +884,15 @@ func TestOnlyTheFirstStartSounds(t *testing.T) {
 	}
 	r := newRig(t)
 	r.phone(t)
+	r.refuseStarts()
 	r.post(t, strings.Replace(start, `"level":"active"`, `"level":"time-sensitive"`, 1))
 	if got := r.apns.take(); len(got) != 1 || sound(got[0]) != "default" {
 		t.Fatalf("first start = %+v", got)
 	}
-	r.clk.add(live.DefaultStartTimeout)
-	r.tick()
-	r.post(t, update(0.1))
+	r.apns.mu.Lock()
+	r.apns.reply = nil
+	r.apns.mu.Unlock()
+	r.newStartToken(t) // a new push-to-start token: the server starts it again
 	got := r.apns.take()
 	if len(got) != 1 || got[0].event() != "start" || sound(got[0]) != "" {
 		t.Fatalf("retry = %+v", got)
