@@ -35,6 +35,12 @@ const (
 	// Frequent Updates budget.
 	loudStep  = 0.05
 	loudEvery = 5 * time.Minute
+	// loudGap is the shortest time between two priority-10 pushes for a
+	// progress step, so a job that moves 5 points every few seconds still
+	// sends at most one every 2 minutes (30 an hour). loudTintGap is the
+	// shorter floor for a tint change (paused, failed), which matters sooner.
+	loudGap     = 2 * time.Minute
+	loudTintGap = 30 * time.Second
 	// DefaultChainAfter is the age at which an activity is ended and
 	// started again. Apple ends one after 8 hours.
 	DefaultChainAfter = 7*time.Hour + 30*time.Minute
@@ -161,22 +167,31 @@ func fraction(content map[string]any) (float64, bool) {
 	return 0, false
 }
 
-// loudPriority is the priority of a routine update to instance id: 10 when
-// the progress moved loudStep or more, loudEvery passed, or the tint
-// changed since the last priority-10 push to it; else 5. A status change
-// alone stays at 5: a status that counts, such as layers, would spend the
-// budget every throttle window. An instance with no priority-10 push on
-// record gets 10.
+// loudPriority is the priority of a routine update to instance id. It is
+// 10 when, since the last priority-10 push to the instance:
+//   - the tint changed, and loudTintGap passed;
+//   - the progress moved loudStep or more, and loudGap passed;
+//   - loudEvery passed.
+//
+// Otherwise it is 5. A status change alone stays at 5: a status that counts,
+// such as layers, would spend the budget every throttle window. An instance
+// with no priority-10 push on record gets 10.
 func (m *Manager) loudPriority(id string, content map[string]any, now time.Time) int {
 	last, ok := m.loud[id]
 	if !ok {
 		return 10
 	}
 	cur := markOf(content, now)
+	since := now.Sub(last.at)
 	switch {
-	case now.Sub(last.at) >= loudEvery,
-		cur.tint != last.tint,
-		cur.hasFraction != last.hasFraction,
+	case since >= loudEvery:
+		return 10
+	case cur.tint != last.tint:
+		if since >= loudTintGap {
+			return 10
+		}
+	case since < loudGap:
+	case cur.hasFraction != last.hasFraction,
 		// The margin keeps 0.30 - 0.25 a full step in floating point.
 		cur.hasFraction && math.Abs(cur.fraction-last.fraction) >= loudStep-1e-9:
 		return 10

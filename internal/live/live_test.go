@@ -348,8 +348,9 @@ func TestThrottleAndPriority(t *testing.T) {
 	r.clk.add(5 * time.Second)
 	r.tick()
 	got := r.apns.take()
-	// 0 to 30%: past the 5-point step, so priority 10.
-	if len(got) != 1 || got[0].Priority != 10 || got[0].state()["progress"] != 0.3 {
+	// 0 to 30%: past the 5-point step, but within loudGap of the catch-up
+	// push, so priority 5.
+	if len(got) != 1 || got[0].Priority != 5 || got[0].state()["progress"] != 0.3 {
 		t.Fatalf("coalesced push = %+v", got)
 	}
 	// Two updates 1 s apart: stale after twice the 15 s floor.
@@ -372,10 +373,11 @@ func TestThrottleAndPriority(t *testing.T) {
 	}
 
 	// Sender events 75 s apart (the status, then this): stale after 150 s.
+	// 20 points, but 1 minute after the tint push is within loudGap: 5.
 	r.clk.add(time.Minute)
 	r.post(t, update(0.5))
 	got = r.apns.take()
-	if len(got) != 1 || got[0].Priority != 10 || got[0].num("stale-date") != r.clk.now().Add(150*time.Second).Unix() {
+	if len(got) != 1 || got[0].Priority != 5 || got[0].num("stale-date") != r.clk.now().Add(150*time.Second).Unix() {
 		t.Fatalf("minute update = %+v", got)
 	}
 	if got[0].Expiration != got[0].num("stale-date") {
@@ -1189,9 +1191,9 @@ func TestLoudSteps(t *testing.T) {
 	r := newRig(t)
 	r.phone(t)
 	r.begin(t, 1) // the catch-up push at priority 10 marks 0%
-	step := func(body string) int {
+	step := func(dt time.Duration, body string) int {
 		t.Helper()
-		r.clk.add(20 * time.Second)
+		r.clk.add(dt)
 		r.post(t, body)
 		got := r.apns.take()
 		if len(got) != 1 {
@@ -1199,30 +1201,32 @@ func TestLoudSteps(t *testing.T) {
 		}
 		return got[0].Priority
 	}
+	tint := `{"source":"printer","kind":"progress","key":"print/42","action":"update","content":{"progress":%v,"tint":"%s"}}`
 	for _, c := range []struct {
+		dt   time.Duration
 		body string
 		want int
 	}{
-		{update(0.02), 5},
-		{update(0.04), 5},
-		{update(0.05), 10}, // 5 points over 0%
-		{update(0.09), 5},
-		{update(0.10), 10},
-		{`{"source":"printer","kind":"progress","key":"print/42","action":"update","content":{"progress":0.11,"tint":"orange"}}`, 10},
-		{update(0.12), 5},
-		{`{"source":"printer","kind":"progress","key":"print/42","action":"update","content":{"status":"Printing"}}`, 5}, // the same status
-		{`{"source":"printer","kind":"progress","key":"print/42","action":"update","content":{"status":"Layer 12"}}`, 5}, // a new status
+		{20 * time.Second, `{"source":"printer","kind":"progress","key":"print/42","action":"update","content":{"status":"Layer 12"}}`, 5}, // a new status
+		{20 * time.Second, update(0.02), 5},
+		{20 * time.Second, update(0.05), 5},                       // 5 points, but within loudGap
+		{20 * time.Second, update(0.20), 5},                       // still within loudGap
+		{80 * time.Second, update(0.21), 10},                      // loudGap passed, 21 points over 0%
+		{20 * time.Second, update(0.30), 5},                       // within loudGap again
+		{2 * time.Minute, update(0.31), 10},                       // loudGap passed, 10 points
+		{2 * time.Minute, update(0.33), 5},                        // loudGap passed, only 2 points
+		{20 * time.Second, fmt.Sprintf(tint, 0.34, "orange"), 10}, // a tint change after loudTintGap
+		{20 * time.Second, fmt.Sprintf(tint, 0.35, "red"), 5},     // a tint change within loudTintGap
 	} {
-		if got := step(c.body); got != c.want {
+		if got := step(c.dt, c.body); got != c.want {
 			t.Errorf("%s: priority %d, want %d", c.body, got, c.want)
 		}
 	}
 	// 5 minutes after the last priority-10 push, without a 5-point move.
-	r.clk.add(5 * time.Minute)
-	if got := step(update(0.13)); got != 10 {
+	if got := step(5*time.Minute, update(0.36)); got != 10 {
 		t.Errorf("after 5 minutes: priority %d, want 10", got)
 	}
-	if got := step(update(0.14)); got != 5 {
+	if got := step(20*time.Second, update(0.37)); got != 5 {
 		t.Errorf("right after: priority %d, want 5", got)
 	}
 }
