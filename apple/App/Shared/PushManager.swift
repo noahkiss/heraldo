@@ -20,8 +20,6 @@ final class PushManager {
 
     private(set) var authorization: UNAuthorizationStatus = .notDetermined
     private(set) var permissions = Permissions()
-    /// Live Activities may update often: ActivityKit's frequentPushesEnabled.
-    private(set) var frequentPushes: Bool?
     private(set) var apnsToken: String?
     private(set) var device: Device?
     private(set) var lastError: String?
@@ -182,7 +180,6 @@ final class PushManager {
         #if os(iOS)
         let la = ActivityAuthorizationInfo()
         p.liveActivities = la.areActivitiesEnabled
-        frequentPushes = la.frequentPushesEnabled
         #endif
         permissions = p
     }
