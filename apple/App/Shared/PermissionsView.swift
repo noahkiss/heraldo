@@ -58,6 +58,13 @@ struct PermissionsSheet: View {
                             if let url = Self.appSettingsURL { openURL(url) }
                         }
                     }
+                    if push.permissions.liveActivities == true, push.frequentPushes == false {
+                        row("Frequent Updates", state: false) {
+                            Button("Open Settings") {
+                                if let url = Self.appSettingsURL { openURL(url) }
+                            }
+                        }
+                    }
                     #endif
                 } footer: {
                     if push.permissions.timeSensitive == false {
