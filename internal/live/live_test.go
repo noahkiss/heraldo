@@ -348,7 +348,8 @@ func TestThrottleAndPriority(t *testing.T) {
 	r.clk.add(5 * time.Second)
 	r.tick()
 	got := r.apns.take()
-	if len(got) != 1 || got[0].Priority != 5 || got[0].state()["progress"] != 0.3 {
+	// 0 to 30%: past the 5-point step, so priority 10.
+	if len(got) != 1 || got[0].Priority != 10 || got[0].state()["progress"] != 0.3 {
 		t.Fatalf("coalesced push = %+v", got)
 	}
 	// Two updates 1 s apart: stale after twice the 15 s floor.
@@ -356,8 +357,8 @@ func TestThrottleAndPriority(t *testing.T) {
 		t.Errorf("stale-date = %d, want now + 30 s", got[0].num("stale-date"))
 	}
 
-	// A new status is not a state change: it waits out the 15 s, at
-	// priority 5, like progress.
+	// A new status waits out the 15 s like progress, then goes at
+	// priority 10.
 	r.clk.add(time.Second)
 	r.post(t, `{"source":"printer","kind":"progress","key":"print/42","action":"update","content":{"status":"Paused","tint":"orange"}}`)
 	if got := r.apns.take(); len(got) != 0 {
@@ -366,7 +367,7 @@ func TestThrottleAndPriority(t *testing.T) {
 	r.clk.add(15 * time.Second)
 	r.tick()
 	got = r.apns.take()
-	if len(got) != 1 || got[0].Priority != 5 || got[0].state()["status"] != "Paused" || got[0].state()["progress"] != 0.3 {
+	if len(got) != 1 || got[0].Priority != 10 || got[0].state()["status"] != "Paused" || got[0].state()["progress"] != 0.3 {
 		t.Fatalf("status change = %+v", got)
 	}
 
@@ -374,7 +375,7 @@ func TestThrottleAndPriority(t *testing.T) {
 	r.clk.add(time.Minute)
 	r.post(t, update(0.5))
 	got = r.apns.take()
-	if len(got) != 1 || got[0].Priority != 5 || got[0].num("stale-date") != r.clk.now().Add(150*time.Second).Unix() {
+	if len(got) != 1 || got[0].Priority != 10 || got[0].num("stale-date") != r.clk.now().Add(150*time.Second).Unix() {
 		t.Fatalf("minute update = %+v", got)
 	}
 	if got[0].Expiration != got[0].num("stale-date") {
@@ -1097,6 +1098,8 @@ func TestResyncAbandonsStaleAndStartsSilently(t *testing.T) {
 	}
 }
 
+// A status that counts (each post a new status) is held to one push per
+// throttle; each of those goes at priority 10, because the status changed.
 func TestStatusCountersAreThrottled(t *testing.T) {
 	r := newRig(t)
 	r.phone(t)
@@ -1107,7 +1110,7 @@ func TestStatusCountersAreThrottled(t *testing.T) {
 		r.post(t, fmt.Sprintf(`{"source":"printer","kind":"progress","key":"print/42","action":"update","content":{"status":"Layer %d"}}`, i))
 		r.tick()
 		for _, p := range r.apns.take() {
-			if p.Priority != 5 {
+			if p.Priority != 10 {
 				t.Fatalf("a status change went at priority %d", p.Priority)
 			}
 			n++
@@ -1176,5 +1179,49 @@ func TestContentStateCarriesUpdatedAt(t *testing.T) {
 	}
 	if at := got[0].state()["updated_at"]; at != float64(r.clk.now().Unix()) {
 		t.Errorf("end updated_at = %v, want %d", at, r.clk.now().Unix())
+	}
+}
+
+// A routine update goes at priority 5 until progress moved 5 points, or 5
+// minutes passed, since the instance's last priority-10 push, or the status or
+// tint changed.
+func TestLoudSteps(t *testing.T) {
+	r := newRig(t)
+	r.phone(t)
+	r.begin(t, 1) // the catch-up push at priority 10 marks 0%
+	step := func(body string) int {
+		t.Helper()
+		r.clk.add(20 * time.Second)
+		r.post(t, body)
+		got := r.apns.take()
+		if len(got) != 1 {
+			t.Fatalf("pushes = %d, want 1", len(got))
+		}
+		return got[0].Priority
+	}
+	for _, c := range []struct {
+		body string
+		want int
+	}{
+		{update(0.02), 5},
+		{update(0.04), 5},
+		{update(0.05), 10}, // 5 points over 0%
+		{update(0.09), 5},
+		{update(0.10), 10},
+		{`{"source":"printer","kind":"progress","key":"print/42","action":"update","content":{"progress":0.11,"tint":"orange"}}`, 10},
+		{update(0.12), 5},
+		{`{"source":"printer","kind":"progress","key":"print/42","action":"update","content":{"status":"Printing"}}`, 5}, // the same status
+	} {
+		if got := step(c.body); got != c.want {
+			t.Errorf("%s: priority %d, want %d", c.body, got, c.want)
+		}
+	}
+	// 5 minutes after the last priority-10 push, without a 5-point move.
+	r.clk.add(5 * time.Minute)
+	if got := step(update(0.13)); got != 10 {
+		t.Errorf("after 5 minutes: priority %d, want 10", got)
+	}
+	if got := step(update(0.14)); got != 5 {
+		t.Errorf("right after: priority %d, want 5", got)
 	}
 }

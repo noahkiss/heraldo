@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,13 @@ const (
 	// DefaultThrottle is the least time between two progress pushes to one
 	// activity. A start, a catch-up and an end go out at once.
 	DefaultThrottle = 15 * time.Second
+	// loudStep and loudEvery set when a routine update goes at priority 10
+	// instead of 5: progress moved loudStep or more, or loudEvery passed,
+	// since the instance's last priority-10 push. iOS delivers priority 5
+	// late while the phone is locked; priority 10 counts against the
+	// Frequent Updates budget.
+	loudStep  = 0.05
+	loudEvery = 5 * time.Minute
 	// DefaultChainAfter is the age at which an activity is ended and
 	// started again. Apple ends one after 8 hours.
 	DefaultChainAfter = 7*time.Hour + 30*time.Minute
@@ -106,6 +114,10 @@ type Manager struct {
 	// when a throttled update is due.
 	lastPush map[string]time.Time
 	pending  map[string]time.Time
+	// loud is what each instance's last priority-10 push carried, by
+	// instance id. It is not stored: after a restart the first update to
+	// each instance goes at priority 10.
+	loud map[string]loudMark
 	// startBackoff holds back push-to-starts per activity and device after
 	// one failed for a reason other than a dead token.
 	startBackoff map[string]backoff
@@ -117,6 +129,58 @@ type Manager struct {
 	// instance id.
 	channelOff    map[string]time.Time
 	deleteBackoff map[string]backoff
+}
+
+// loudMark is the content of a priority-10 push that the next update's
+// priority is judged against.
+type loudMark struct {
+	at           time.Time
+	fraction     float64
+	hasFraction  bool
+	status, tint string
+}
+
+func markOf(content map[string]any, at time.Time) loudMark {
+	f, ok := fraction(content)
+	status, _ := content["status"].(string)
+	tint, _ := content["tint"].(string)
+	return loudMark{at: at, fraction: f, hasFraction: ok, status: status, tint: tint}
+}
+
+// fraction is the content's progress, else steps current over total.
+func fraction(content map[string]any) (float64, bool) {
+	if p, ok := content["progress"].(float64); ok {
+		return p, true
+	}
+	if st, ok := content["steps"].(map[string]any); ok {
+		total, _ := st["total"].(float64)
+		cur, _ := st["current"].(float64)
+		if total > 0 {
+			return cur / total, true
+		}
+	}
+	return 0, false
+}
+
+// loudPriority is the priority of a routine update to instance id: 10 when
+// the progress moved loudStep or more, loudEvery passed, or the status or
+// tint changed since the last priority-10 push to it; else 5. An instance
+// with no priority-10 push on record gets 10.
+func (m *Manager) loudPriority(id string, content map[string]any, now time.Time) int {
+	last, ok := m.loud[id]
+	if !ok {
+		return 10
+	}
+	cur := markOf(content, now)
+	switch {
+	case now.Sub(last.at) >= loudEvery,
+		cur.status != last.status, cur.tint != last.tint,
+		cur.hasFraction != last.hasFraction,
+		// The margin keeps 0.30 - 0.25 a full step in floating point.
+		cur.hasFraction && math.Abs(cur.fraction-last.fraction) >= loudStep-1e-9:
+		return 10
+	}
+	return 5
 }
 
 type backoff struct {
@@ -167,6 +231,7 @@ func New(cfg Config) *Manager {
 		jobs:     make(chan func(context.Context), 256),
 		lastPush: map[string]time.Time{},
 		pending:  map[string]time.Time{},
+		loud:     map[string]loudMark{},
 
 		startBackoff:  map[string]backoff{},
 		endRetry:      map[string]endRetry{},
@@ -405,8 +470,9 @@ func (m *Manager) Report(ctx context.Context, id, state string) error {
 
 // sync starts the activity on each device that lacks it and pushes the
 // content to each instance that is open. A start goes at priority 10, never
-// throttled. Every other update, a new status or tint included, goes at
-// priority 5, at most once per Throttle unless now is set. loud lets the
+// throttled. Every other update goes at most once per Throttle unless now is
+// set, at priority 5, or 10 when update's loudPriority says so: progress
+// moved 5 points, 5 minutes passed, or the status or tint changed. loud lets the
 // first start on a device sound; Resync and timers start silently.
 func (m *Manager) sync(ctx context.Context, a store.Activity, start, now, loud bool) {
 	prio := 5
@@ -546,6 +612,7 @@ func (m *Manager) start(ctx context.Context, a store.Activity, dev store.Device,
 	}
 	switch {
 	case r.Sent():
+		m.loud[in.ID] = markOf(content, now)
 		if in.Channel != "" {
 			// It takes updates on its channel at once: no token to wait for.
 			in.State = store.InstanceActive
@@ -573,6 +640,9 @@ func (m *Manager) start(ctx context.Context, a store.Activity, dev store.Device,
 func (m *Manager) update(ctx context.Context, a store.Activity, dev store.Device, in *store.Instance, prio int) bool {
 	now := m.cfg.Now()
 	content := contentMap(a.Content)
+	if prio < 10 {
+		prio = m.loudPriority(in.ID, content, now)
+	}
 	stamp := nextStamp(now, in.LastPushAt)
 	body, err := payload{event: "update", now: now, stamp: stamp, asOf: a.UpdatedAt, content: content, stale: m.staleDate(a, content)}.marshal()
 	if err != nil {
@@ -586,6 +656,9 @@ func (m *Manager) update(ctx context.Context, a store.Activity, dev store.Device
 	}
 	r := m.cfg.Sender.SendLive(ctx, lp)
 	in.LastPushAt = time.Unix(stamp, 0)
+	if r.Sent() && prio == 10 {
+		m.loud[in.ID] = markOf(content, now)
+	}
 	if lp.Channel != "" && m.channelLost(in, r) {
 		if in.UpdateToken == "" {
 			in.State, in.EndReason, in.EndedAt = store.InstanceDead, "channel refused: "+r.Error(), now
@@ -615,6 +688,7 @@ func (m *Manager) end(ctx context.Context, a store.Activity, dev store.Device, i
 	if in.State == store.InstanceActive && (in.OnChannel() || in.UpdateToken != "") {
 		m.sendEnd(ctx, a, dev, &in, dismissal)
 	}
+	delete(m.loud, in.ID)
 	in.State, in.EndReason, in.EndedAt = state, reason, now
 	m.save(ctx, in)
 }

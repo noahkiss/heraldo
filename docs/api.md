@@ -692,9 +692,14 @@ Pushes:
 |---|---|---|---|
 | start | A new activity or a new link | 10 | To the push-to-start token, never on a channel (APNs cannot start an activity by broadcast). `alert` with the title and the body or status; the first start on a device sounds only when the start's `level` is `time-sensitive` or `critical`; an `active` start comes up silently, so a job started at night wakes no one. A chain link, a retry, and a start from a resync (a new push-to-start token, a server restart) have no sound, and so does any start on a device with a Focus filter in force. Expires after 15 minutes. |
 | update, catch-up | The app reported a token (token path) | 10 | At once, to that instance. |
-| update | Any other update, a new `status` or `tint` included | 5 | At most one per 15 seconds per activity. Updates in between merge; the last content goes out when the 15 seconds are up. A changing status text, such as a layer counter, cannot raise the rate or the priority. |
+| update | Any other update | 5, or 10 at a coarse step | At most one per 15 seconds per activity. Updates in between merge; the last content goes out when the 15 seconds are up. A changing status text, such as a layer counter, cannot raise the rate. Priority 10 when, since the instance's last priority-10 push, the fraction moved 5 points or more, 5 minutes passed, or the `status` or `tint` changed; else 5. The server keeps the last priority-10 push per instance in memory, so after a restart each instance's first update goes at 10. |
 | end | The activity ended, a link was handed over, or a start replaced it | 10 | `dismissal-date` is now plus `keep_for` when set, now on a hand-off, else the system default. |
 
+- iOS delivers priority 5 late or in batches while the phone is locked, and
+  counts priority 10 against a budget. The app sets
+  `NSSupportsLiveActivitiesFrequentUpdates`, which raises that budget; the
+  owner can turn it off in Settings, and the app's Permissions sheet then
+  shows a Frequent Updates row.
 - Token headers: `POST /3/device/<token>`, `apns-push-type: liveactivity`,
   `apns-topic: <bundle id>.push-type.liveactivity`.
 - Channel headers: `POST /4/broadcasts/apps/<bundle id>` on the same APNs
