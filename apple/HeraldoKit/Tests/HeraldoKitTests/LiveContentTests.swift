@@ -36,10 +36,12 @@ final class LiveContentTests: XCTestCase {
 
     func testStateRoundTrips() throws {
         let s = LiveState(title: "Backup", progress: 0.5, endsAt: Date(timeIntervalSince1970: 1_800_000_000),
-                          status: "Copying", metrics: [LiveMetric(label: "Files", value: "1.2k")])
+                          status: "Copying", metrics: [LiveMetric(label: "Files", value: "1.2k")],
+                          updatedAt: Date(timeIntervalSince1970: 1_799_990_000))
         let data = try JSONEncoder().encode(s)
         let raw = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertEqual(raw["ends_at"] as? Double, 1_800_000_000, "ends_at stays Unix seconds")
+        XCTAssertEqual(raw["updated_at"] as? Double, 1_799_990_000, "updated_at is Unix seconds")
         XCTAssertEqual(try JSONDecoder().decode(LiveState.self, from: data), s)
     }
 
@@ -62,6 +64,34 @@ final class LiveContentTests: XCTestCase {
                        now...Date(timeIntervalSince1970: 1600))
         XCTAssertNil(LiveState(endsAt: Date(timeIntervalSince1970: 900)).countdown(at: now))
         XCTAssertNil(LiveState().countdown(at: now))
+    }
+
+    func testDecodesUpdatedAt() throws {
+        let s = try JSONDecoder().decode(LiveState.self, from: Data(#"{"progress": 0.5, "updated_at": 1793127000}"#.utf8))
+        XCTAssertEqual(s.updatedAt, Date(timeIntervalSince1970: 1_793_127_000))
+        let bad = try JSONDecoder().decode(LiveState.self, from: Data(#"{"progress": 0.5, "updated_at": "soon"}"#.utf8))
+        XCTAssertNil(bad.updatedAt, "a bad updated_at is dropped, not the state")
+        XCTAssertEqual(bad.progress, 0.5)
+    }
+
+    func testProgressTimer() {
+        let d = { Date(timeIntervalSince1970: $0) }
+        let now = d(1100)
+        // 40% at t=1000, ending at 1600: 60% takes 600 s, so 100% takes 1000 s.
+        let s = LiveState(progress: 0.4, endsAt: d(1600), updatedAt: d(1000))
+        XCTAssertEqual(s.progressTimer(at: now), d(600)...d(1600))
+        XCTAssertEqual(LiveState(progress: 0, endsAt: d(1600), updatedAt: d(1000)).progressTimer(at: now),
+                       d(1000)...d(1600), "at 0% the timer starts at updated_at")
+        XCTAssertEqual(LiveState(steps: LiveSteps(total: 4, current: 2), endsAt: d(1600), updatedAt: d(1100))
+            .progressTimer(at: now), d(600)...d(1600), "steps count as the fraction")
+        XCTAssertNil(LiveState(progress: 0.4, endsAt: d(1600)).progressTimer(at: now), "no updated_at")
+        XCTAssertNil(LiveState(progress: 0.4, updatedAt: d(1000)).progressTimer(at: now), "no ends_at")
+        XCTAssertNil(LiveState(endsAt: d(1600), updatedAt: d(1000)).progressTimer(at: now), "no progress")
+        XCTAssertNil(LiveState(progress: 1, endsAt: d(1600), updatedAt: d(1000)).progressTimer(at: now), "done")
+        XCTAssertNil(LiveState(progress: 1.2, endsAt: d(1600), updatedAt: d(1000)).progressTimer(at: now), "over 1")
+        XCTAssertNil(LiveState(progress: 0.4, endsAt: d(1050), updatedAt: d(1000)).progressTimer(at: now), "ended")
+        XCTAssertNil(LiveState(progress: 0.4, endsAt: d(1600), updatedAt: d(1700)).progressTimer(at: d(1500)),
+                     "updated_at after ends_at")
     }
 
     func testTint() {

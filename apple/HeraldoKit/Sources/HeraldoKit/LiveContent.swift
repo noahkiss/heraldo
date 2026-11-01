@@ -17,15 +17,20 @@ public struct LiveState: Codable, Hashable, Sendable {
     public var status: String?
     public var metrics: [LiveMetric]?
     public var button: LiveButton?
+    /// When the server last knew the progress to be true: the sender's last
+    /// event. The server sets it on every push; older servers leave it out.
+    public var updatedAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case title, symbol, tint, body, progress, steps, trailing, status, metrics, button
         case endsAt = "ends_at"
+        case updatedAt = "updated_at"
     }
 
     public init(title: String? = nil, symbol: String? = nil, tint: String? = nil, body: String? = nil,
                 progress: Double? = nil, steps: LiveSteps? = nil, endsAt: Date? = nil, trailing: String? = nil,
-                status: String? = nil, metrics: [LiveMetric]? = nil, button: LiveButton? = nil) {
+                status: String? = nil, metrics: [LiveMetric]? = nil, button: LiveButton? = nil,
+                updatedAt: Date? = nil) {
         self.title = title
         self.symbol = symbol
         self.tint = tint
@@ -37,6 +42,7 @@ public struct LiveState: Codable, Hashable, Sendable {
         self.status = status
         self.metrics = metrics
         self.button = button
+        self.updatedAt = updatedAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -53,6 +59,7 @@ public struct LiveState: Codable, Hashable, Sendable {
         // A metric the app cannot read is left out, not the whole state.
         metrics = try c.decodeIfPresent([Lenient<LiveMetric>].self, forKey: .metrics)?.compactMap(\.value)
         button = try? c.decodeIfPresent(LiveButton.self, forKey: .button)
+        updatedAt = try? c.decodeIfPresent(Double.self, forKey: .updatedAt).map { Date(timeIntervalSince1970: $0) }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -68,6 +75,7 @@ public struct LiveState: Codable, Hashable, Sendable {
         try c.encodeIfPresent(status, forKey: .status)
         try c.encodeIfPresent(metrics, forKey: .metrics)
         try c.encodeIfPresent(button, forKey: .button)
+        try c.encodeIfPresent(updatedAt.map { $0.timeIntervalSince1970.rounded() }, forKey: .updatedAt)
     }
 
     /// The fraction to draw: progress, else steps, clamped to 0...1. Nil
@@ -87,6 +95,18 @@ public struct LiveState: Codable, Hashable, Sendable {
 
     /// The metrics to show: at most six.
     public var shownMetrics: [LiveMetric] { Array((metrics ?? []).prefix(6)) }
+
+    /// The interval a local progress timer runs over, so the bar moves between
+    /// pushes. The fraction was true at `updatedAt` and reaches 1 at `endsAt`,
+    /// at a steady rate: start = endsAt - (endsAt - updatedAt) / (1 - fraction).
+    /// Nil without both times, when the end is not after `now` and
+    /// `updatedAt`, or when the fraction is already 1; the bar then draws the
+    /// fraction as it is.
+    public func progressTimer(at now: Date) -> ClosedRange<Date>? {
+        guard let end = endsAt, let t = updatedAt, let f = fraction, f < 1, end > now, end > t else { return nil }
+        let start = end.addingTimeInterval(-end.timeIntervalSince(t) / (1 - f))
+        return start...end
+    }
 
     /// The countdown, while it is still running at `now`.
     public func countdown(at now: Date) -> ClosedRange<Date>? {

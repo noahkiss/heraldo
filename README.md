@@ -514,7 +514,9 @@ app group.
   updates on its own APNs broadcast channel, so a phone that cannot reach the
   server still gets them (`HERALDO_LIVE_CHANNELS`). The app reports its
   push-to-start token with the registration, and each activity's update token
-  and dismissal when it can (docs/api.md, "Live Activities"). The inbox leaves progress
+  and dismissal when it can (docs/api.md, "Live Activities"). With an end
+  time, the progress bar moves on a local timer between pushes, and each push
+  corrects it. The inbox leaves progress
   events out; each activity leaves one message when it ends, and its History
   lists the progress.
 - **Share in**: Heraldo is in the share sheet. It takes text, a link,

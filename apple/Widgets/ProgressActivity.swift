@@ -29,7 +29,7 @@ struct ProgressActivityWidget: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(spacing: 6) {
-                        if let f = s.fraction { ProgressView(value: f).tint(s.color) }
+                        ProgressBar(state: s)
                         MetricsRow(metrics: s.shownMetrics)
                         ButtonRow(button: s.button)
                     }
@@ -39,8 +39,8 @@ struct ProgressActivityWidget: Widget {
             } compactTrailing: {
                 TrailingText(state: s, short: true)
             } minimal: {
-                if let f = s.fraction {
-                    ProgressView(value: f).progressViewStyle(.circular).tint(s.color)
+                if s.fraction != nil {
+                    ProgressBar(state: s).progressViewStyle(.circular)
                 } else {
                     SymbolView(state: s)
                 }
@@ -76,7 +76,7 @@ struct ActivityView: View {
                 Spacer(minLength: 2)
                 TrailingText(state: state, short: true).font(.caption)
             }
-            if let f = state.fraction { ProgressView(value: f).tint(state.color) }
+            ProgressBar(state: state)
         }
         .padding(8)
     }
@@ -100,12 +100,33 @@ struct ActivityView: View {
             } else if let body = state.body {
                 Text(body).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
             }
-            if let f = state.fraction {
-                ProgressView(value: f).tint(state.color)
-            }
+            ProgressBar(state: state)
             ButtonRow(button: state.button)
         }
         .padding(14)
+    }
+}
+
+/// The progress bar, in the activity's tint. With an end time and the time
+/// the fraction was true, a local timer moves it between pushes, and each push
+/// re-anchors it. Without them it draws the fraction as pushed. Nothing
+/// without a fraction.
+struct ProgressBar: View {
+    let state: LiveState
+
+    var body: some View {
+        Group {
+            if let range = state.progressTimer(at: .now) {
+                ProgressView(timerInterval: range, countsDown: false) {
+                    EmptyView()
+                } currentValueLabel: {
+                    EmptyView()
+                }
+            } else if let f = state.fraction {
+                ProgressView(value: f)
+            }
+        }
+        .tint(state.color)
     }
 }
 
@@ -228,7 +249,8 @@ extension LiveTint {
     LiveState(title: "bracket.3mf", symbol: "printer.fill", tint: "blue", body: "PLA, 0.2 mm layers", progress: 0.42,
               endsAt: .now.addingTimeInterval(5400), status: "Printing",
               metrics: [LiveMetric(label: "Nozzle", value: "215", unit: "°C"), LiveMetric(label: "Bed", value: "60", unit: "°C")],
-              button: LiveButton(id: "pause", title: "Pause", type: "http", url: "http://192.0.2.20/pause"))
+              button: LiveButton(id: "pause", title: "Pause", type: "http", url: "http://192.0.2.20/pause"),
+              updatedAt: .now)
     LiveState(title: "bracket.3mf", symbol: "printer.fill", tint: "orange", progress: 0.42, status: "Paused")
 }
 #endif
