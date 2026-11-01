@@ -134,17 +134,16 @@ type Manager struct {
 // loudMark is the content of a priority-10 push that the next update's
 // priority is judged against.
 type loudMark struct {
-	at           time.Time
-	fraction     float64
-	hasFraction  bool
-	status, tint string
+	at          time.Time
+	fraction    float64
+	hasFraction bool
+	tint        string
 }
 
 func markOf(content map[string]any, at time.Time) loudMark {
 	f, ok := fraction(content)
-	status, _ := content["status"].(string)
 	tint, _ := content["tint"].(string)
-	return loudMark{at: at, fraction: f, hasFraction: ok, status: status, tint: tint}
+	return loudMark{at: at, fraction: f, hasFraction: ok, tint: tint}
 }
 
 // fraction is the content's progress, else steps current over total.
@@ -163,9 +162,11 @@ func fraction(content map[string]any) (float64, bool) {
 }
 
 // loudPriority is the priority of a routine update to instance id: 10 when
-// the progress moved loudStep or more, loudEvery passed, or the status or
-// tint changed since the last priority-10 push to it; else 5. An instance
-// with no priority-10 push on record gets 10.
+// the progress moved loudStep or more, loudEvery passed, or the tint
+// changed since the last priority-10 push to it; else 5. A status change
+// alone stays at 5: a status that counts, such as layers, would spend the
+// budget every throttle window. An instance with no priority-10 push on
+// record gets 10.
 func (m *Manager) loudPriority(id string, content map[string]any, now time.Time) int {
 	last, ok := m.loud[id]
 	if !ok {
@@ -174,7 +175,7 @@ func (m *Manager) loudPriority(id string, content map[string]any, now time.Time)
 	cur := markOf(content, now)
 	switch {
 	case now.Sub(last.at) >= loudEvery,
-		cur.status != last.status, cur.tint != last.tint,
+		cur.tint != last.tint,
 		cur.hasFraction != last.hasFraction,
 		// The margin keeps 0.30 - 0.25 a full step in floating point.
 		cur.hasFraction && math.Abs(cur.fraction-last.fraction) >= loudStep-1e-9:
@@ -472,7 +473,7 @@ func (m *Manager) Report(ctx context.Context, id, state string) error {
 // content to each instance that is open. A start goes at priority 10, never
 // throttled. Every other update goes at most once per Throttle unless now is
 // set, at priority 5, or 10 when update's loudPriority says so: progress
-// moved 5 points, 5 minutes passed, or the status or tint changed. loud lets the
+// moved 5 points, 5 minutes passed, or the tint changed. loud lets the
 // first start on a device sound; Resync and timers start silently.
 func (m *Manager) sync(ctx context.Context, a store.Activity, start, now, loud bool) {
 	prio := 5

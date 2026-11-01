@@ -357,8 +357,8 @@ func TestThrottleAndPriority(t *testing.T) {
 		t.Errorf("stale-date = %d, want now + 30 s", got[0].num("stale-date"))
 	}
 
-	// A new status waits out the 15 s like progress, then goes at
-	// priority 10.
+	// A new status and tint wait out the 15 s like progress; the tint
+	// change sends them at priority 10.
 	r.clk.add(time.Second)
 	r.post(t, `{"source":"printer","kind":"progress","key":"print/42","action":"update","content":{"status":"Paused","tint":"orange"}}`)
 	if got := r.apns.take(); len(got) != 0 {
@@ -1099,7 +1099,7 @@ func TestResyncAbandonsStaleAndStartsSilently(t *testing.T) {
 }
 
 // A status that counts (each post a new status) is held to one push per
-// throttle; each of those goes at priority 10, because the status changed.
+// throttle, at priority 5: a status change does not raise the priority.
 func TestStatusCountersAreThrottled(t *testing.T) {
 	r := newRig(t)
 	r.phone(t)
@@ -1110,7 +1110,7 @@ func TestStatusCountersAreThrottled(t *testing.T) {
 		r.post(t, fmt.Sprintf(`{"source":"printer","kind":"progress","key":"print/42","action":"update","content":{"status":"Layer %d"}}`, i))
 		r.tick()
 		for _, p := range r.apns.take() {
-			if p.Priority != 10 {
+			if p.Priority != 5 {
 				t.Fatalf("a status change went at priority %d", p.Priority)
 			}
 			n++
@@ -1183,8 +1183,8 @@ func TestContentStateCarriesUpdatedAt(t *testing.T) {
 }
 
 // A routine update goes at priority 5 until progress moved 5 points, or 5
-// minutes passed, since the instance's last priority-10 push, or the status or
-// tint changed.
+// minutes passed, since the instance's last priority-10 push, or the tint
+// changed. A status change alone stays at 5.
 func TestLoudSteps(t *testing.T) {
 	r := newRig(t)
 	r.phone(t)
@@ -1211,6 +1211,7 @@ func TestLoudSteps(t *testing.T) {
 		{`{"source":"printer","kind":"progress","key":"print/42","action":"update","content":{"progress":0.11,"tint":"orange"}}`, 10},
 		{update(0.12), 5},
 		{`{"source":"printer","kind":"progress","key":"print/42","action":"update","content":{"status":"Printing"}}`, 5}, // the same status
+		{`{"source":"printer","kind":"progress","key":"print/42","action":"update","content":{"status":"Layer 12"}}`, 5}, // a new status
 	} {
 		if got := step(c.body); got != c.want {
 			t.Errorf("%s: priority %d, want %d", c.body, got, c.want)
