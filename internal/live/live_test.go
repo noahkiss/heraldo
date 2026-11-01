@@ -1133,3 +1133,48 @@ func TestEndTimestampFollowsUpdate(t *testing.T) {
 		t.Errorf("end timestamp %d is not after the update's %d", got[1].num("timestamp"), got[0].num("timestamp"))
 	}
 }
+
+// Every push carries updated_at, the time of the sender's last event, so the
+// app can anchor its local progress timer. A throttled update keeps the time
+// the progress arrived, not the time it went out.
+func TestContentStateCarriesUpdatedAt(t *testing.T) {
+	r := newRig(t)
+	r.phone(t)
+	r.post(t, start)
+	got := r.apns.take()
+	if len(got) != 1 || got[0].event() != "start" {
+		t.Fatalf("start pushes = %+v", got)
+	}
+	if at := got[0].state()["updated_at"]; at != float64(r.clk.now().Unix()) {
+		t.Errorf("start updated_at = %v, want %d", at, r.clk.now().Unix())
+	}
+	attrs, _ := got[0].APS["attributes"].(map[string]any)
+	r.report(t, attrs["instance"].(string), fmt.Sprintf(`{"token":%q}`, updateToken(1)))
+	r.apns.take()
+
+	r.clk.add(time.Second)
+	r.post(t, update(0.3))
+	posted := r.clk.now().Unix()
+	if got := r.apns.take(); len(got) != 0 {
+		t.Fatalf("throttled pushes = %d", len(got))
+	}
+	r.clk.add(20 * time.Second)
+	r.tick()
+	got = r.apns.take()
+	if len(got) != 1 || got[0].state()["progress"] != 0.3 {
+		t.Fatalf("coalesced push = %+v", got)
+	}
+	if at := got[0].state()["updated_at"]; at != float64(posted) {
+		t.Errorf("update updated_at = %v, want the post time %d, not the push time %d", at, posted, r.clk.now().Unix())
+	}
+
+	r.clk.add(time.Minute)
+	r.post(t, `{"source":"printer","kind":"progress","key":"print/42","action":"end","content":{"progress":1}}`)
+	got = r.apns.take()
+	if len(got) != 1 || got[0].event() != "end" {
+		t.Fatalf("end pushes = %+v", got)
+	}
+	if at := got[0].state()["updated_at"]; at != float64(r.clk.now().Unix()) {
+		t.Errorf("end updated_at = %v, want %d", at, r.clk.now().Unix())
+	}
+}

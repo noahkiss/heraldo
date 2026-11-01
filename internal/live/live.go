@@ -523,7 +523,7 @@ func (m *Manager) start(ctx context.Context, a store.Activity, dev store.Device,
 	}
 	in.Channel = m.newChannel(ctx, dev)
 	body, err := payload{
-		event: "start", now: now, content: content, stale: m.staleDate(a, content),
+		event: "start", now: now, asOf: a.UpdatedAt, content: content, stale: m.staleDate(a, content),
 		attrs: &Attributes{Key: a.Key, Instance: in.ID, Source: a.Source}, alert: alert, channel: in.Channel,
 	}.marshal()
 	if err != nil {
@@ -574,7 +574,7 @@ func (m *Manager) update(ctx context.Context, a store.Activity, dev store.Device
 	now := m.cfg.Now()
 	content := contentMap(a.Content)
 	stamp := nextStamp(now, in.LastPushAt)
-	body, err := payload{event: "update", now: now, stamp: stamp, content: content, stale: m.staleDate(a, content)}.marshal()
+	body, err := payload{event: "update", now: now, stamp: stamp, asOf: a.UpdatedAt, content: content, stale: m.staleDate(a, content)}.marshal()
 	if err != nil {
 		m.cfg.Logger.Error("live: payload", "err", err)
 		return false
@@ -625,7 +625,7 @@ func (m *Manager) end(ctx context.Context, a store.Activity, dev store.Device, i
 func (m *Manager) sendEnd(ctx context.Context, a store.Activity, dev store.Device, in *store.Instance, dismissal time.Time) bool {
 	now := m.cfg.Now()
 	stamp := nextStamp(now, in.LastPushAt)
-	body, err := payload{event: "end", now: now, stamp: stamp, content: contentMap(a.Content), dismissal: dismissal}.marshal()
+	body, err := payload{event: "end", now: now, stamp: stamp, asOf: a.UpdatedAt, content: contentMap(a.Content), dismissal: dismissal}.marshal()
 	if err != nil {
 		m.cfg.Logger.Error("live: payload", "err", err)
 		return false

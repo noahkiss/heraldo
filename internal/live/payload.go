@@ -45,8 +45,11 @@ type payload struct {
 	event string // start, update or end
 	now   time.Time
 	// stamp replaces now as the timestamp when set.
-	stamp     int64
-	content   map[string]any
+	stamp   int64
+	content map[string]any
+	// asOf is when content was true: the sender's last event. It goes in
+	// the content state as updated_at; zero means now.
+	asOf      time.Time
 	stale     time.Time
 	dismissal time.Time
 	attrs     *Attributes
@@ -63,6 +66,13 @@ func (p payload) marshal() ([]byte, error) {
 		ContentState: ContentState(p.content),
 		Alert:        p.alert,
 	}
+	asOf := p.now
+	if !p.asOf.IsZero() && p.asOf.Before(p.now) {
+		asOf = p.asOf
+	}
+	// The app draws the bar from a local timer anchored here, so each push
+	// corrects it.
+	a.ContentState["updated_at"] = asOf.Unix()
 	if p.stamp != 0 {
 		a.Timestamp = p.stamp
 	}
@@ -89,7 +99,8 @@ func (p payload) marshal() ([]byte, error) {
 }
 
 // stateFields are the LiveContent fields the content state carries. stale_after
-// and keep_for steer the server and stay out.
+// and keep_for steer the server and stay out. The server adds updated_at
+// itself (payload.marshal).
 var stateFields = []string{"title", "symbol", "tint", "body", "progress", "steps", "trailing", "status", "metrics", "button"}
 
 // ContentState turns merged LiveContent into the content-state the app

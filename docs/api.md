@@ -745,6 +745,7 @@ The payload, a start:
     "content-state": {
       "title": "bracket.3mf", "symbol": "printer.fill", "tint": "blue",
       "progress": 0.42, "status": "Printing", "ends_at": 1793127600,
+      "updated_at": 1793091600,
       "metrics": [{"label": "Nozzle", "value": "215", "unit": "°C"}]
     },
     "stale-date": 1793092800,
@@ -761,6 +762,14 @@ The payload, a start:
 - `content-state` has the LiveContent fields except `stale_after` and
   `keep_for`. `ends_at` is Unix seconds, because ActivityKit decodes the state
   without the app's date format.
+- The server adds `updated_at` to every `content-state`: when the sender's
+  last event arrived, in Unix seconds. A throttled push keeps that time, not
+  the push time. With `progress` (or `steps`) and an `ends_at` still ahead,
+  the app runs the bar on a local timer between pushes. The fraction was true
+  at `updated_at` and reaches 1 at `ends_at`, so the timer starts at
+  `ends_at - (ends_at - updated_at) / (1 - fraction)`. Each push re-anchors
+  it. Without `updated_at`, from an older server, the bar shows the pushed
+  fraction. An older app ignores the field.
 - `attributes-type` and the attribute names are the app's
   `ProgressAttributes`. Renaming either breaks push-to-start.
 
