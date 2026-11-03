@@ -252,8 +252,8 @@ final class AppModel {
             }
             if parts.contains(.views) { await reloadViews(client) }
             if parts.contains(.llm) { update(\.chatAvailable, (try? await client.llmStatus())?.chat ?? false) }
-            #if os(macOS)
             if parts.contains(.activities) { update(\.activities, (try? await client.activities()) ?? []) }
+            #if os(macOS)
             if parts.contains(.held) {
                 update(\.held, (try? await client.heldEntries())?.held.filter(\.isOpen) ?? [])
             }

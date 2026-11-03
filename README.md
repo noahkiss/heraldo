@@ -518,7 +518,8 @@ app group.
   time, the progress bar moves on a local timer between pushes, and each push
   corrects it. The inbox leaves progress
   events out; each activity leaves one message when it ends, and its History
-  lists the progress.
+  lists the progress. While an activity runs, the Inbox pins it to the top in
+  its Lock Screen layout, on the iPhone and the Mac (the unfiltered list only).
 - **Share in**: Heraldo is in the share sheet. It takes text, a link,
   images and files (images, plain text, PDF or JSON; 5 MB each, 8 at most;
   a larger image goes up as a smaller JPEG). The sheet has a title, a project

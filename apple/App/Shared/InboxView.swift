@@ -33,7 +33,9 @@ struct InboxView: View {
                     if feed.filtering { await feed.search(model) }
                 }
                 .toolbar { toolbar }
-                .overlay { InboxEmptyView(feed: feed, isEmpty: events.isEmpty) }
+                .overlay {
+                    InboxEmptyView(feed: feed, isEmpty: events.isEmpty && (feed.filtering || model.activities.isEmpty))
+                }
         }
         .onChange(of: model.openEventID) { _, id in Task { await open(id) } }
         // A view deleted elsewhere leaves the filter.
@@ -49,6 +51,9 @@ struct InboxView: View {
                 Label(error, systemImage: "exclamationmark.icloud")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            }
+            if !feed.filtering {
+                PinnedActivities(activities: model.activities) { ActivityRow(activity: $0) }
             }
             ForEach(events) { e in
                 NavigationLink(value: e) {

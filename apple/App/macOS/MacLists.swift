@@ -64,7 +64,11 @@ struct MacEventList: View {
 
     var body: some View {
         let events = feed.events(model)
+        let pinned = feed.filtering ? [] : model.activities
         List(selection: $state.selection) {
+            PinnedActivities(activities: pinned) { a in
+                ActivityRow(activity: a).tag(MacDetailItem.activity(a.key))
+            }
             ForEach(events) { e in
                 MacEventRow(event: e, unread: model.isUnread(e))
                     .tag(MacDetailItem.event(e.id))
@@ -76,7 +80,7 @@ struct MacEventList: View {
                     .task { await feed.loadMore(model) }
             }
         }
-        .overlay { InboxEmptyView(feed: feed, isEmpty: events.isEmpty) }
+        .overlay { InboxEmptyView(feed: feed, isEmpty: events.isEmpty && pinned.isEmpty) }
     }
 }
 

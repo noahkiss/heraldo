@@ -241,32 +241,6 @@ struct MacActivityRow: View {
     private var tint: Color { activityTint(activity.content?.tint) }
 }
 
-/// An activity's tint as a color, the accent color by default.
-func activityTint(_ s: String?) -> Color {
-    switch LiveTint(s) {
-    case .named(let name):
-        switch name {
-        case "red": return .red
-        case "orange": return .orange
-        case "yellow": return .yellow
-        case "green": return .green
-        case "mint": return .mint
-        case "teal": return .teal
-        case "cyan": return .cyan
-        case "blue": return .blue
-        case "indigo": return .indigo
-        case "purple": return .purple
-        case "pink": return .pink
-        case "brown": return .brown
-        case "gray": return .gray
-        case "secondary": return .secondary
-        default: return .primary
-        }
-    case .rgba(let r, let g, let b, let a): return Color(red: r, green: g, blue: b, opacity: a)
-    case nil: return .accentColor
-    }
-}
-
 /// One held alert: its title, source and when it forwards.
 struct MacHeldRow: View {
     let entry: HoldEntry
