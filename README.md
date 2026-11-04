@@ -88,7 +88,10 @@ apple/scripts/check.sh             # builds for the iOS Simulator and macOS, run
 apple/scripts/test-server.sh       # HeraldoKit tests against a local heraldo-server
 ```
 
-Container (the published image is `ghcr.io/noahkiss/heraldo`, linux/amd64):
+The published container image is `ghcr.io/noahkiss/heraldo`, for linux/amd64.
+
+The image uses Go 1.27.3 and the Debian 13 distroless certificate bundle.
+CI rejects images containing the emSign ECC Root CA - G3 or AAA Certificate Services roots.
 
 ```sh
 cp deploy/heraldo.example.env deploy/heraldo.env    # then add a token, below

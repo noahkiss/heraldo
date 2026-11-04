@@ -3,7 +3,7 @@
 #   docker build -t heraldo .
 # The build stage runs on the build host and cross-compiles, so a
 # linux/amd64 image builds fast on an arm64 machine (no cgo: pure-Go SQLite).
-FROM --platform=$BUILDPLATFORM golang:1.27 AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.3 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -16,7 +16,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
     -o /out/heraldo-server ./cmd/heraldo-server \
  && mkdir -p /out/data
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian13:nonroot
 COPY --from=build /out/heraldo-server /heraldo-server
 # The nonroot user (65532) owns /data, so a fresh named volume is writable.
 COPY --from=build --chown=65532:65532 /out/data /data

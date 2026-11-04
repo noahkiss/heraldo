@@ -41,7 +41,18 @@ jobs:
       platforms: linux/amd64
       build_args: |
         VERSION=${{ github.ref_type == 'tag' && github.ref_name || format('main-{0}', github.sha) }}
-      smoke_command: docker run --rm "$IMAGE" version
+      smoke_command: |
+        docker run --rm "$IMAGE" version
+        container=$(docker create "$IMAGE")
+        bundle=$(mktemp)
+        trap 'docker rm "$container" >/dev/null; rm -f "$bundle"' EXIT
+        docker cp "$container:/etc/ssl/certs/ca-certificates.crt" "$bundle"
+        subjects=$(openssl crl2pkcs7 -nocrl -certfile "$bundle" | openssl pkcs7 -print_certs -noout)
+        test -n "$subjects"
+        if grep -Eq 'emSign ECC Root CA - G3|AAA Certificate Services' <<< "$subjects"; then
+          echo 'Image trusts roots associated with compromised eMudhra intermediates' >&2
+          exit 1
+        fi
 
   bump-tap:
     needs: image
