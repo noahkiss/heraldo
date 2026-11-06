@@ -13,11 +13,17 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/noahkiss/heraldo/api"
+	"github.com/noahkiss/heraldo/internal/checkin"
 )
 
 const logCap = 8 << 10
 
+// slugRe is a slug a new check may take. A call on an existing check
+// takes any stored key (slugSchema); older releases stored some outside it.
 var slugRe = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,200}$`)
+
+// slugSchema bounds a slug argument: 1 to 255 characters, as an event key.
+func slugSchema(s *jsonschema.Schema) { s.MinLength, s.MaxLength = ptr(1), ptr(255) }
 
 var checkSchema = map[string]*jsonschema.Schema{
 	"key": str("The check's slug."), "state": str("new, up, late, started, down or paused."),
@@ -85,7 +91,7 @@ Follow up with events_search kind=checkin key=<slug> for run history.`
 
 func (t *tools) addCheckinRead(s *mcp.Server) {
 	addTool(t, s, &mcp.Tool{Name: "checkin_read", Description: checkinReadDesc, Annotations: readOnly("Read check")},
-		func(is *jsonschema.Schema) { is.Properties["slug"].Pattern = slugRe.String() },
+		func(is *jsonschema.Schema) { slugSchema(is.Properties["slug"]) },
 		checkSchema, t.checkinRead)
 }
 
@@ -127,7 +133,7 @@ func (t *tools) addCheckinUpdate(s *mcp.Server) {
 		Annotations: &mcp.ToolAnnotations{Title: "Update check", IdempotentHint: true,
 			DestructiveHint: ptr(true), OpenWorldHint: &noAnnot}},
 		func(is *jsonschema.Schema) {
-			is.Properties["slug"].Pattern = slugRe.String()
+			slugSchema(is.Properties["slug"])
 			enum(is.Properties["operation"], "pause", "resume", "configure")
 			sc := is.Properties["schedule"]
 			sc.Types, sc.Type = nil, "object"
@@ -149,8 +155,11 @@ func durS(name, v string) (*int, error) {
 }
 
 func (t *tools) checkinUpdate(ctx context.Context, _ *mcp.CallToolRequest, in checkinUpdateIn) (result, error) {
-	if !slugRe.MatchString(in.Slug) {
-		return result{}, toolErr("invalid", "slug must be 1 to 200 of A-Z a-z 0-9 . _ : -", "")
+	if !checkin.StoredKey(in.Slug) {
+		return result{}, toolErr("invalid", "slug must be 1 to 255 characters with no control characters", "")
+	}
+	if in.Operation == "configure" && !slugRe.MatchString(in.Slug) {
+		return result{}, toolErr("invalid", "configure: slug must be 1 to 200 of A-Z a-z 0-9 . _ : -", "")
 	}
 	if in.Operation == "configure" && in.Schedule == nil {
 		return result{}, toolErr("invalid", "configure needs schedule", "read the check with checkin_read and send its whole schedule")

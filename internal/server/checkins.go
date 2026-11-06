@@ -293,7 +293,7 @@ func (s *server) mintPingKey(w http.ResponseWriter, r *http.Request) {
 
 // removePingKey is DELETE /v1/checkins/{slug}/key.
 func (s *server) removePingKey(w http.ResponseWriter, r *http.Request) {
-	slug, ok := s.slug(w, r)
+	slug, ok := s.storedSlug(w, r)
 	if !ok {
 		return
 	}
@@ -403,6 +403,8 @@ func (s *server) checkAnswer(w http.ResponseWriter, r *http.Request, slug string
 	writeJSON(w, status, checkJSON(v))
 }
 
+// slug is the path's slug for a call that may create a check: it must be
+// a valid slug.
 func (s *server) slug(w http.ResponseWriter, r *http.Request) (string, bool) {
 	slug := r.PathValue("slug")
 	if !checkin.Slug.MatchString(slug) {
@@ -412,8 +414,20 @@ func (s *server) slug(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return slug, true
 }
 
+// storedSlug is the path's slug for a call on an existing check. It also
+// takes a key an older release stored that slug rejects
+// (checkin.StoredKey); an unknown one gets a 404 from the store.
+func (s *server) storedSlug(w http.ResponseWriter, r *http.Request) (string, bool) {
+	slug := r.PathValue("slug")
+	if !checkin.StoredKey(slug) {
+		writeError(w, http.StatusBadRequest, "slug: 1 to 255 characters, no control characters")
+		return "", false
+	}
+	return slug, true
+}
+
 func (s *server) getCheck(w http.ResponseWriter, r *http.Request) {
-	if slug, ok := s.slug(w, r); ok {
+	if slug, ok := s.storedSlug(w, r); ok {
 		s.checkAnswer(w, r, slug, http.StatusOK)
 	}
 }
@@ -471,7 +485,7 @@ func (s *server) pauseCheck(w http.ResponseWriter, r *http.Request)  { s.setPaus
 func (s *server) resumeCheck(w http.ResponseWriter, r *http.Request) { s.setPaused(w, r, false) }
 
 func (s *server) setPaused(w http.ResponseWriter, r *http.Request, paused bool) {
-	slug, ok := s.slug(w, r)
+	slug, ok := s.storedSlug(w, r)
 	if !ok {
 		return
 	}

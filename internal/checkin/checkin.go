@@ -18,7 +18,10 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/robfig/cron/v3"
 )
@@ -52,6 +55,46 @@ const IncidentPrefix = "checkin:"
 // Slug is what a check's key may hold. It stays well under the 255 of an
 // event key, so the incident key fits too.
 var Slug = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,200}$`)
+
+// slugJunk is a run of characters a slug may not hold.
+var slugJunk = regexp.MustCompile(`[^A-Za-z0-9._:-]+`)
+
+// SlugFrom makes a slug from free text, such as a key a rule fills in from
+// a message's title. A valid slug comes back unchanged. Otherwise each run
+// of other characters becomes one dash, a dash next to a colon or at either
+// end goes, and the result is cut to 200 bytes. "" means nothing was left.
+//
+//	pbs:node:Sync remote 'a' datastore 'b'  ->  pbs:node:Sync-remote-a-datastore-b
+func SlugFrom(s string) string {
+	if Slug.MatchString(s) {
+		return s
+	}
+	s = slugJunk.ReplaceAllString(s, "-")
+	for strings.Contains(s, "-:") || strings.Contains(s, ":-") {
+		s = strings.ReplaceAll(strings.ReplaceAll(s, "-:", ":"), ":-", ":")
+	}
+	s = strings.Trim(s, "-")
+	if len(s) > 200 {
+		s = strings.TrimRight(s[:200], "-")
+	}
+	return s
+}
+
+// StoredKey is what a lookup of an existing check accepts: any key an event
+// may carry (1 to 255 characters, no control characters). Releases before
+// SlugFrom stored check keys that Slug rejects; they can still be read,
+// paused and resumed. Creating a check still needs Slug.
+func StoredKey(s string) bool {
+	if s == "" || !utf8.ValidString(s) || utf8.RuneCountInString(s) > 255 {
+		return false
+	}
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
+}
 
 // Schedule is when a check expects a ping. Period and Cron are exclusive;
 // with neither, the check is unscheduled and only a failed or overrun run

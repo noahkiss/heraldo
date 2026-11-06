@@ -2616,6 +2616,9 @@ type Rid = string
 // Slug defines model for Slug.
 type Slug = string
 
+// StoredSlug defines model for StoredSlug.
+type StoredSlug = string
+
 // AppriseSent defines model for AppriseSent.
 type AppriseSent = AppriseAnswer
 

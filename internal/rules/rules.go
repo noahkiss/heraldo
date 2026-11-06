@@ -25,6 +25,8 @@
 // set gives kind, key, action, level, thread, host and project. kind is
 // required and must be message, digest, incident or checkin. A field left
 // out keeps the sender's value, and a sender's project wins over the rule's.
+// A checkin rule's key is made a valid check slug (checkin.SlugFrom): each
+// run of other characters becomes a dash.
 // An incident rule may also set realert, a Go duration of a
 // minute or more: an open time-sensitive or critical incident is pushed
 // again at that interval until it is acked or resolved. It is stored as
@@ -93,6 +95,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/noahkiss/heraldo/api"
+	"github.com/noahkiss/heraldo/internal/checkin"
 	"github.com/noahkiss/heraldo/internal/validate"
 )
 
@@ -745,6 +748,11 @@ func (r *Rule) result(caps map[string]string) Result {
 			if v = validate.FoldProject(v); !validate.ValidProject(v) {
 				continue
 			}
+		}
+		if field == "key" && r.kind == api.KindCheckin {
+			// A check's key is its slug, which the check API validates:
+			// free text from a capture must not make one it then rejects.
+			v = checkin.SlugFrom(v)
 		}
 		if v == "" {
 			continue

@@ -161,6 +161,25 @@ func TestKeyIsCut(t *testing.T) {
 	}
 }
 
+// A checkin rule's key is the check's slug, so free text in a capture is
+// made a valid slug. An incident key keeps its text.
+func TestCheckinKeyIsSlug(t *testing.T) {
+	s, err := Parse([]byte(`rules:
+  - {name: c, match: {title: '^\[(?P<node>[\w-]+)\] (?P<job>.+?) failed'}, set: {kind: checkin, action: fail, key: 'pbs:{node}:{job}'}}
+  - {name: i, match: {title: '^(?P<all>.+)$'}, set: {kind: incident, key: 'i:{all}'}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, _ := s.Match(map[string]any{"title": "[pbs-b] Sync remote 'a' datastore 'a' failed"})
+	if got := res.Fields["key"]; got != "pbs:pbs-b:Sync-remote-a-datastore-a" {
+		t.Fatalf("checkin key %q", got)
+	}
+	res, _ = s.Match(map[string]any{"title": "a 'b'"})
+	if got := res.Fields["key"]; got != "i:a 'b'" {
+		t.Fatalf("incident key %q", got)
+	}
+}
+
 func TestMatchDedup(t *testing.T) {
 	s, err := Parse([]byte(`rules: [{name: page, match: {tag: '^page$', dedup: '^(?P<id>.+)$'}, set: {kind: incident, key: 'page:{id}'}}]`))
 	if err != nil {

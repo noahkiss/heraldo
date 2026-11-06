@@ -1802,7 +1802,11 @@ A check is a job that pings heraldo when it runs. When the pings stop, or a
 run fails or takes too long, the check goes down and an incident opens. A
 check's slug is the key of its check-in events: `/ping/nightly-db` and a
 `POST /v1/events` with `kind: checkin, key: nightly-db` feed the same check.
-A slug is 1 to 200 of `A-Z a-z 0-9 . _ : -`.
+A slug is 1 to 200 of `A-Z a-z 0-9 . _ : -`. A rule that types an input as
+`kind: checkin` makes its key a valid slug: each run of other characters
+becomes a dash, so `pbs:node:Sync remote 'a'` becomes `pbs:node:Sync-remote-a`.
+A check that an older release stored under a key outside those characters
+can still be read, paused and resumed by that key, URL-escaped.
 
 ### Pings
 

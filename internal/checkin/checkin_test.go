@@ -1,6 +1,7 @@
 package checkin
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -311,5 +312,41 @@ func TestCronFallBack(t *testing.T) {
 	n, _ = Schedule{Cron: "30 2 * * *", TZ: "America/New_York"}.Next(time.Date(2026, 3, 8, 1, 0, 0, 0, ny))
 	if n.Before(time.Date(2026, 3, 8, 3, 0, 0, 0, ny)) {
 		t.Fatalf("spring: %v", n)
+	}
+}
+
+func TestSlugFrom(t *testing.T) {
+	long := strings.Repeat("a", 199) + " b"
+	for in, want := range map[string]string{
+		"db-backup:saturn":                       "db-backup:saturn",
+		"pbs:node:Sync remote 'a' datastore 'b'": "pbs:node:Sync-remote-a-datastore-b",
+		"pbs:node: 'GC' ":                        "pbs:node:GC",
+		"  x  ":                                  "x",
+		"é/ü":                                    "",
+		"a::'b'":                                 "a::b",
+		long:                                     strings.Repeat("a", 199),
+	} {
+		got := SlugFrom(in)
+		if got != want {
+			t.Errorf("SlugFrom(%q) = %q, want %q", in, got, want)
+		}
+		if got != "" && !Slug.MatchString(got) {
+			t.Errorf("SlugFrom(%q) = %q is not a slug", in, got)
+		}
+	}
+}
+
+func TestStoredKey(t *testing.T) {
+	for in, want := range map[string]bool{
+		"job":                    true,
+		"pbs:n:Sync remote 'a'":  true,
+		"":                       false,
+		"a\nb":                   false,
+		strings.Repeat("é", 255): true,
+		strings.Repeat("é", 256): false,
+	} {
+		if got := StoredKey(in); got != want {
+			t.Errorf("StoredKey(%q) = %v", in, got)
+		}
 	}
 }

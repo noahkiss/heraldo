@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -338,6 +339,38 @@ func TestPauseResume(t *testing.T) {
 	}
 	if rec := e.do(t, http.MethodPost, "/v1/checkins/nope/pause", writeTok, nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("pause unknown: %d", rec.Code)
+	}
+}
+
+// A check an older release stored under a key that is not a valid slug
+// (a rule filled it from message text) can still be read, paused and
+// resumed. Creating one under such a key is still refused.
+func TestStoredBadSlug(t *testing.T) {
+	e := newEnv(t)
+	const key = "pbs:node:Sync remote 'a' datastore 'b'"
+	if rec := e.post(t, `{"source":"s","kind":"checkin","key":"`+key+`","action":"fail"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("post: %d %s", rec.Code, rec.Body)
+	}
+	path := "/v1/checkins/" + url.PathEscape(key)
+	if c := e.check(t, url.PathEscape(key)); c.Key != key || c.State != api.CheckStateDown {
+		t.Fatalf("get: %+v", c)
+	}
+	rec := e.do(t, http.MethodPost, path+"/pause", writeTok, nil)
+	if rec.Code != http.StatusOK || decode[api.Check](t, rec).State != api.CheckStatePaused {
+		t.Fatalf("pause: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = e.do(t, http.MethodPost, path+"/resume", writeTok, nil)
+	if rec.Code != http.StatusOK || decode[api.Check](t, rec).State != api.CheckStateNew {
+		t.Fatalf("resume: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := e.do(t, http.MethodPut, "/v1/checkins/"+url.PathEscape("new one"), writeTok, []byte(`{"period_s":3600}`)); rec.Code != http.StatusBadRequest {
+		t.Fatalf("put bad slug: %d", rec.Code)
+	}
+	if rec := e.do(t, http.MethodGet, "/v1/checkins/"+url.PathEscape("no such one"), readTok, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("get unknown bad slug: %d", rec.Code)
+	}
+	if rec := e.do(t, http.MethodGet, "/v1/checkins/a%01b", readTok, nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("control character: %d", rec.Code)
 	}
 }
 

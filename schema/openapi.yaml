@@ -1760,7 +1760,7 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/checkins/{slug}:
     parameters:
-      - $ref: "#/components/parameters/Slug"
+      - $ref: "#/components/parameters/StoredSlug"
     get:
       operationId: getCheckin
       summary: One check.
@@ -1780,6 +1780,8 @@ paths:
           $ref: "#/components/responses/Error"
     put:
       operationId: putCheckin
+      parameters:
+        - $ref: "#/components/parameters/Slug"
       summary: Create a check, or replace a known check's host and schedule.
       description: |
         Every field is replaced: a field left out takes its default. A changed schedule
@@ -1813,7 +1815,7 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/checkins/{slug}/pause:
     parameters:
-      - $ref: "#/components/parameters/Slug"
+      - $ref: "#/components/parameters/StoredSlug"
     post:
       operationId: pauseCheckin
       summary: Stop judging a check. Pings are still recorded; an open incident resolves.
@@ -1833,9 +1835,11 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/checkins/{slug}/key:
     parameters:
-      - $ref: "#/components/parameters/Slug"
+      - $ref: "#/components/parameters/StoredSlug"
     post:
       operationId: mintPingKey
+      parameters:
+        - $ref: "#/components/parameters/Slug"
       summary: Mint the check's ping key, replacing the old one.
       description: |
         The answer is the only time the server shows the key; it stores the SHA-256.
@@ -1873,7 +1877,7 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/checkins/{slug}/resume:
     parameters:
-      - $ref: "#/components/parameters/Slug"
+      - $ref: "#/components/parameters/StoredSlug"
     post:
       operationId: resumeCheckin
       summary: Judge a paused check again. It is new, due at its first slot after the resume.
@@ -2429,6 +2433,18 @@ components:
       schema:
         type: string
         pattern: "^[A-Za-z0-9._:-]{1,200}$"
+    StoredSlug:
+      name: slug
+      in: path
+      required: true
+      description: |
+        A known check's name. Besides a Slug, it takes a key an older release stored
+        that Slug rejects (a rule filled it from message text): 1 to 255 characters
+        and no control characters, URL-escaped.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
     Rid:
       name: rid
       in: query
