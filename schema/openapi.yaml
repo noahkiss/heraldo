@@ -1953,9 +1953,9 @@ paths:
   /recent:
     get:
       operationId: notifyRecent
-      summary: The newest events in the apprise-tee catalogue's shape.
+      summary: The newest events in the catalogue line shape.
       description: |
-        The newest n events, newest last, as apprise-tee's /recent gave them.
+        The newest n events, newest last, in the catalogue line shape (docs/api.md, "Backfill from a catalogue").
         `tag=none` keeps untagged events; `source` matches exactly or by the part
         before "/", ignoring case. `routine=exclude` leaves routine events out
         (passing check-in pings, progress, status) and `only` keeps only them, as on
@@ -2412,8 +2412,8 @@ components:
         DELETE /v1/icons and /v1/settings/{key}). A missing or unknown token gets 401; a token without the
         scope gets 403.
 
-        A write token can carry the trusted-ingest capability, for a bridge such as
-        apprise-tee. The server copies its details.tee.hold object into hold, and
+        A write token can carry the trusted-ingest capability, for a relay that
+        receives notifications first and forwards them. The server copies its details.tee.hold object into hold, and
         marks it store_only only when it is state held and not forwarded. It matches
         its dedup ids at any age instead of the last 24 hours.
     tokenQuery:
@@ -3862,7 +3862,7 @@ components:
             $ref: "#/components/schemas/Check"
     AppriseNotify:
       type: object
-      description: An Apprise API notify request, plus the apprise-tee message fields. Other fields are ignored.
+      description: An Apprise API notify request, plus heraldo's message fields. Other fields are ignored.
       properties:
         title:
           type: string

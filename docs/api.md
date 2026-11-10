@@ -25,7 +25,7 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `POST /v1/checkins/{slug}/pause`, `/resume` | Pauses or resumes a check. | served |
 | `POST`, `DELETE /v1/checkins/{slug}/key` | Mints a check's ping key (replacing the old one), or removes it. | served |
 | `POST /notify/{key}`, `POST /v1/notify` | Apprise-compatible ingest: JSON, form or multipart. Answers 200 with a `Sent` line, or 424. See "Apprise compatibility". | served |
-| `GET /recent?n=&tag=&source=&routine=`, `GET /entry/{id}` | The newest events, or one, in the apprise-tee catalogue's shape. | served |
+| `GET /recent?n=&tag=&source=&routine=`, `GET /entry/{id}` | The newest events, or one, in the catalogue line shape ("Backfill from a catalogue"). | served |
 | `GET /v1/hold?state=&peek=`, `POST /v1/hold/release`, `POST /v1/hold/suppress` | The alert hold: its queue, and closing entries. Also served as `/held`, `/held/release` and `/held/suppress`. See "Hold". | served |
 | `GET /v1/state?project=&stale=` | Flat arrays of the latest event per key: incidents not resolved, progress not ended, every check-in, set statuses, and the `badge` ("Badge"). `stale=1` keeps only the stale incidents (see "Stale incidents"). The shape is a stand-in until stage 12. | served |
 | `GET /v1/digest/preview` | The daily digest as it would go out now. Stores and sends nothing. See "Digest". | served |
@@ -79,18 +79,19 @@ Auth:
   token with the `notify-key` capability as the `{key}` of `/notify/{key}`,
   and, with no credential at all, a client address in
   `HERALDO_NOTIFY_TRUSTED_NETS`.
-- A write token with the `trusted-ingest` capability is a bridge, such as
-  apprise-tee. Its events get two extras:
+- A write token with the `trusted-ingest` capability is a relay: a service that
+  receives notifications first, runs its own hold, and forwards every one to
+  heraldo. Its events get two extras:
   - `details.tee.hold`, an object, is copied into `hold`. Only an alert the
     hold kept back (`state: held` without `forwarded: true`) gets
     `store_only: true`; a store-only event is never pushed. Every other
     shape went out on arrival and pushes at its level: `state: bypass`,
     `state: held` with `forwarded: true` (shadow mode, or the dead-man
     tripped), and a later forward, `{forward, ids}` (release, deadline,
-    dead-man and the dead-man notice). A `store_only` the bridge sends on
+    dead-man and the dead-man notice). A `store_only` the relay sends on
     those is dropped.
   - Its `dedup` id matches every earlier event, not only the last 24 hours.
-    The tee sends its catalogue id as `dedup`.
+    The relay sends its own record id as `dedup`.
 - `POST /v1/mcp` takes a token of any scope. Its tools call the API in the
   server's own process with that token. There, and only there, a `write`
   token may also read: an HTTP MCP client sends one token, and a write tool
@@ -839,7 +840,7 @@ Field mapping, Notify! to LiveContent: `progress` 0–100 to 0–1; `steps` and
 
 ## Apprise compatibility
 
-A sender written for apprise-api, or for an apprise-tee in front of it, works
+A sender written for apprise-api, or for a relay in front of it, works
 with heraldo after one change: its URL. heraldo answers in Apprise's shape, so
 a sender that checks for HTTP 200 and a `Sent` line keeps working.
 
@@ -847,7 +848,7 @@ a sender that checks for HTTP 200 and a `Sent` line keeps working.
 |---|---|
 | `POST /notify/{key}` | Apprise's keyed notify. `key` is `apprise` (Apprise's default key) or a `notify-key` token. |
 | `POST /v1/notify` | The same message, `body` required. The answer adds `id` (the event), `delivered` (false when held), `backends` and `hold_id`. |
-| `GET /recent?n=50&tag=&source=&routine=` | The newest `n` events (1 to 1000), newest last, in the tee catalogue's shape. `routine=exclude` leaves out routine events (see "Routine events"), so `n` counts alerts and messages only; `only` keeps only them. Without `routine` the list holds both, as the tee's did. |
+| `GET /recent?n=50&tag=&source=&routine=` | The newest `n` events (1 to 1000), newest last, in the catalogue line shape. `routine=exclude` leaves out routine events (see "Routine events"), so `n` counts alerts and messages only; `only` keeps only them. Without `routine` the list holds both. |
 | `GET /entry/{id}` | One event in that shape, by event id. 404 for an unknown id. |
 
 The body is a JSON object, a form (`application/x-www-form-urlencoded`) or
@@ -875,8 +876,8 @@ multipart (files are dropped). Its fields:
 | an envelope level, such as `passive` | that level |
 | anything else | none (`active` when pushed) |
 
-The post is untyped, so the ingest rules type it, as they typed the tee's
-copies. Answers:
+The post is untyped, so the ingest rules type it, as they type any untyped
+post. Answers:
 
 - **200** with `{"error": null, "details": [["INFO", "<time>", "Sent via heraldo as <event id>."]]}`.
   A held alert answers 200 with `Held for triage as h-...; Sent to the hold
@@ -888,8 +889,8 @@ copies. Answers:
 - **400** for a body that does not parse or has no text. **401** and **403**
   as for any call.
 
-"Sent" means stored, as it did for the tee's heraldo backend: an event with no
-registered device, or push off, still answers `Sent`.
+"Sent" means stored: an event with no registered device, or push off, still
+answers `Sent`.
 
 `/recent` entries carry `id`, `ts` (epoch seconds), `time`, `client`, `path`,
 `tag` (the tags joined with commas, `null` untagged), `title`, `body`,
@@ -897,8 +898,8 @@ registered device, or push off, still answers `Sent`.
 `kind`, `key`, `level`, `url`, `image`, and `hold`, `hold_id`, `hold_reason`,
 `hold_ids` for hold traffic. `tag=none` keeps untagged events; `source`
 matches exactly or by the part before `/`, ignoring case. A filtered call reads
-at most the newest 5000 events. An event imported from the tee shows the
-tee's `client` and `path`.
+at most the newest 5000 events. An event imported from a catalogue shows the
+catalogue line's `client` and `path`.
 
 ### Sender auth
 
@@ -929,8 +930,7 @@ there.
 ## Hold
 
 The hold keeps alert-rung posts from paging until triage has read them, so
-the owner gets one diagnosis instead of a push per symptom. It replaces the
-apprise-tee hold and keeps its contract.
+the owner gets one diagnosis instead of a push per symptom.
 
 A post is a candidate when it arrives on the Apprise compatibility ingest with
 the rung (`level`, else `tag`) exactly `alert`, ignoring case. Other rungs,
@@ -952,8 +952,7 @@ tag lists and `POST /v1/events` are never held.
 
 A JSON list of rules; a rule matches when every key it sets matches: `tag`
 (equal, ignoring case), `title_regex` and `body_regex` (Go RE2, anywhere in
-the text). `why` is a comment. The file format is the tee's
-`hold-bypass.json`, so that file moves as it is. A bypassed post pushes at
+the text). `why` is a comment. A bypassed post pushes at
 once and is stored with `hold` `{state: "bypass"}`. Example:
 `deploy/hold-bypass.example.json`.
 
@@ -981,16 +980,15 @@ curl -H "Authorization: Bearer $WRITE_TOKEN" -X POST "$HERALDO_URL/v1/hold/suppr
   -d '{"ids":["h-..."],"reason":"BLIP: recovered before triage looked"}'
 ```
 
-`/held`, `/held/release` and `/held/suppress` are the same calls under the
-tee's paths, so a triage job switches by changing its base URL.
+`/held`, `/held/release` and `/held/suppress` are the same calls under shorter
+paths.
 
 The queue answers `mode`, `last_poll_ts`, `oldest_unforwarded_ts` (null when
 no open or expired entry is waiting to push; a freshness check should age
 this), `deadman_active`, and `held`: entries with `id`, `event_id`, `ts`,
 `deadline_ts`, `tag`, `title`, `body`, `client`, `source`, `forwarded`,
 `shadow`, `status` (`held`, `released`, `suppressed`, `expired`), and once
-closed `closed_ts`, `verdict` and `reason`. Times are epoch seconds, as the
-tee gave them.
+closed `closed_ts`, `verdict` and `reason`. Times are epoch seconds.
 
 - A release takes `ids`, `verdict` (`REAL`, `BLIP`, `MAINTENANCE`, `FALSE`,
   any case), `title`, `body` and `tag`; otherwise 400. In `on` it stores one
@@ -2115,7 +2113,12 @@ that, the check's config lives on the server. See "Check-ins".
   `$defs` references, so `api/internal/bundle` inlines the JSON Schema into the
   OpenAPI document first.
 
-## Backfill from apprise-tee
+## Backfill from a catalogue
+
+A catalogue is a directory of monthly JSONL files, `notifications-YYYY-MM.jsonl`,
+one notification per line, in the shape of the table below. A relay that logs
+every notification it forwards can write one; `GET /recent` answers in the
+same line shape.
 
 `heraldo-server import-tee [-since YYYY-MM] <dir>` reads every
 `notifications-YYYY-MM.jsonl` file in `dir`, or with `-since` that month's
@@ -2144,11 +2147,11 @@ used as `dedup` is skipped, so live forwarding and the backfill store each
 record once. A line that is not JSON, has no `ts`, or does not make a
 valid envelope, is logged and skipped, and counts as `bad` in the summary.
 
-The tee wrote lines without an `id` until it learned ids. Such a line gets the
+A catalogue line may have no `id`. Such a line gets the
 legacy id `legacy-` plus the first 20 hex characters of the SHA-256 of the
 line, without its line ending. A rerun over the same files makes the same
-legacy ids, so it stores nothing twice. The tee's own ids start with `n-`, so a
-legacy id never matches one. The summary counts these lines as `legacy_ids`.
+legacy ids, so it stores nothing twice. A legacy id never matches a catalogue
+id that starts with `n-`. The summary counts these lines as `legacy_ids`.
 
 ## Ingest rules
 

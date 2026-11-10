@@ -9,7 +9,7 @@ Do Not Disturb and the mute switch.
 - **Name:** Heraldo
 - **Bundle ID:** com.nkmkdigital.heraldo
 - **Developer:** NKMK Digital Co.
-- **Distribution:** internal, through TestFlight. One household's devices.
+- **Distribution:** internal, through TestFlight.
 
 ## Request text
 

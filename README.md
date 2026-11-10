@@ -65,7 +65,7 @@ Three principles follow, and every feature is judged against them:
 | `api/` | Go types generated from `schema/` |
 | `cmd/heraldo-server` | The server |
 | `cmd/heraldo` | The CLI |
-| `internal/` | Server packages: store, settings, validation, auth, ingest rules, the tee import and replay; `client`, the API client the CLI uses; `mcptools`, the MCP tools |
+| `internal/` | Server packages: store, settings, validation, auth, ingest rules, the catalogue import and replay; `client`, the API client the CLI uses; `mcptools`, the MCP tools |
 | `apple/` | Xcode project (XcodeGen): the Heraldo app for iOS and macOS, its extensions, HeraldoKit |
 | `deploy/` | A generic compose file, an example env file and an example rules file |
 | `docs/` | Design notes |
@@ -125,9 +125,9 @@ docker compose -f deploy/compose.yml up --build
    history, mark events read and register for push, and a `write` token for
    the notification actions (Ack) and for sending an event.
 
-   A fourth field, `trusted-ingest`, marks a bridge such as apprise-tee. Its
-   `details.tee.hold` becomes the event's `hold`, and its `dedup` ids never
-   expire. `notify-key` instead lets a `write` token be the key in an Apprise
+   A fourth field, `trusted-ingest`, marks a relay that receives notifications
+   first and forwards them to heraldo. Its `details.tee.hold` becomes the
+   event's `hold`, and its `dedup` ids never expire. `notify-key` instead lets a `write` token be the key in an Apprise
    URL, `/notify/<token>`, for a sender that cannot set a header. `critical`
    lets a `write` token send level `critical`, an emergency; from any other
    token, `critical` is pushed as time-sensitive.
@@ -277,7 +277,7 @@ the server logs an error, keeps running and pushes nothing. `/healthz` reports
 |---|---|
 | `heraldo-server [--<setting> <value> ...]` | Runs the server. SIGTERM or SIGINT shuts it down cleanly: it pushes what is still queued first. Each flag sets and locks one server setting, such as `--llm-mode shadow`; `heraldo-server serve -h` lists them. |
 | `heraldo-server backup <path>` | Copies the database to a new file with SQLite's online backup. The server keeps running. The copy is one file in rollback-journal mode, with no `-wal` or `-shm` beside it. |
-| `heraldo-server import-tee [-since YYYY-MM] <dir>` | Backfills an apprise-tee catalogue (`notifications-YYYY-MM.jsonl`), typed by `HERALDO_RULES` when set. `-since` reads that month and later only. A rerun stores nothing twice, and an imported event never pushes. |
+| `heraldo-server import-tee [-since YYYY-MM] <dir>` | Backfills a catalogue: monthly `notifications-YYYY-MM.jsonl` files, one notification per line ([docs/api.md](docs/api.md#backfill-from-a-catalogue)), typed by `HERALDO_RULES` when set. `-since` reads that month and later only. A rerun stores nothing twice, and an imported event never pushes. |
 | `heraldo-server replay-tee [-rules <file>] <dir>` | Runs a catalogue through a rules file (default `HERALDO_RULES`) in memory and reports how many recoveries paired with their failure, the unpaired ones, the hits per rule, every source and tag no rule matched, and the events per project. It opens no database. |
 | `heraldo-server backfill-projects [-dry-run] [-rules <file>]` | Gives the stored events with no project one, from the rules file's projects map (default `HERALDO_RULES`) and from earlier events with the same key. `-dry-run` prints the counts and changes nothing. See [docs/api.md](docs/api.md#projects). |
 | `heraldo-server hash-token` | Prints the SHA-256 of a token read from stdin. |
@@ -291,7 +291,7 @@ any `-wal` and `-shm` files left beside the old database first.
 
 ## CLI
 
-`heraldo` is an inbox over a server, and a drop-in for a notify script.
+`heraldo` is an inbox over a server, and a drop-in for a shell script that posts to Apprise.
 
 | Command | Does |
 |---|---|
@@ -373,12 +373,13 @@ No shell runs. The command gets the event's JSON on stdin, and these variables:
 
 ### send
 
-`heraldo send` keeps the contract of a notify script that posts to Apprise:
+`heraldo send` posts one message to an Apprise-compatible notify URL. It can
+replace a shell script that posts to Apprise:
 
 - `-t`/`--title` (default `System Notification`), `-m`/`--message`. Without
   `-m`, the message comes from stdin; with a terminal on stdin, `send` fails.
-- `--tag`, `--source`, `--url`, `--image` and `--level` add those fields, for an
-  apprise-tee front door.
+- `--tag`, `--source`, `--url`, `--image` and `--level` add those fields, which heraldo's
+  `/notify` paths read.
 - `--project`, else `HERALDO_PROJECT`, adds `project`, folded to lower case.
   A name that is not valid is dropped with a warning on stderr; the message
   still goes. `send` never reads a project from the working directory.

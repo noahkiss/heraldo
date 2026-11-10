@@ -1143,7 +1143,7 @@ type AppriseAnswer struct {
 	Id        *string                   `json:"id,omitempty"`
 }
 
-// AppriseNotify An Apprise API notify request, plus the apprise-tee message fields. Other fields are ignored.
+// AppriseNotify An Apprise API notify request, plus heraldo's message fields. Other fields are ignored.
 type AppriseNotify struct {
 	// Body Required on /v1/notify; /notify/{key} takes a title alone.
 	Body   *string `json:"body,omitempty"`

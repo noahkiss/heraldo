@@ -2,7 +2,6 @@
 
 A self-hosted notification hub: one Go server stores every event and delivers it
 to a native iOS and macOS app. Later, a status overview on the same event stream.
-The plan and its stages live in bm (project `heraldo`).
 
 The product principles are in README.md, "What it is for". Judge every feature against them.
 
@@ -13,7 +12,7 @@ The product principles are in README.md, "What it is for". Judge every feature a
 | `schema/` | `envelope.v1.schema.json` and `openapi.yaml`. The one source of truth for the API. |
 | `api/` | Go types generated from `schema/` (`types.gen.go`; never edit it by hand). `internal/bundle` inlines the JSON Schema's `$defs` for oapi-codegen |
 | `cmd/heraldo-server`, `cmd/heraldo` | Server and CLI |
-| `internal/` | Server packages: `config` (env), `settings` (the server settings store: key registry, precedence flag > env > table > default, encrypted secrets, `settings.Get[T]` and change notices), `server` (handlers), `store` (SQLite, migrations in `store/migrations`), `validate` (envelope checks), `auth` (tokens), `ids` (ULIDs), `teeimport` (apprise-tee backfill), `rules` (ingest rules, `HERALDO_RULES`), `hold` (the alert hold's mode and bypass list; the hold's state and endpoints are in `server`), `replay` (rules against a catalogue, in memory), `push` (APNs sender: provider token, payload, push table, queue, broadcast channels), `live` (Live Activities for kind progress: push-to-start, a broadcast channel per instance with the token fallback, throttled updates, the 8 hour chain, ghost handling), `standby` (a standby's rounds against its primary: device copy, event hand-back, the primary-down alert), `routine` (which events are routine: the push table's never-push rows; `store.RoutineWhere` is the SQL form), `llm` (the optional LLM: the OpenAI-compatible client with its guards, the call log, the chat role, versioned prompts in `llm/prompts/`, and a `Fake` provider; tests never call a real API), `decide` (the LLM's decisions role: hold triage after the deadline forward, bundle titles, the digest's paragraph; the floors and the output validator are code here, and every decision writes an `llm` trace row), `version`; `client`, the API client the CLI uses; `mcptools`, the tools `heraldo mcp` serves (docs/mcp.md); `mcphttp`, the same tools on the server at `POST /v1/mcp` (`HERALDO_MCP_HTTP`), and the chat model's read-only toolbox (`NewToolbox`) |
+| `internal/` | Server packages: `config` (env), `settings` (the server settings store: key registry, precedence flag > env > table > default, encrypted secrets, `settings.Get[T]` and change notices), `server` (handlers), `store` (SQLite, migrations in `store/migrations`), `validate` (envelope checks), `auth` (tokens), `ids` (ULIDs), `teeimport` (catalogue backfill), `rules` (ingest rules, `HERALDO_RULES`), `hold` (the alert hold's mode and bypass list; the hold's state and endpoints are in `server`), `replay` (rules against a catalogue, in memory), `push` (APNs sender: provider token, payload, push table, queue, broadcast channels), `live` (Live Activities for kind progress: push-to-start, a broadcast channel per instance with the token fallback, throttled updates, the 8 hour chain, ghost handling), `standby` (a standby's rounds against its primary: device copy, event hand-back, the primary-down alert), `routine` (which events are routine: the push table's never-push rows; `store.RoutineWhere` is the SQL form), `llm` (the optional LLM: the OpenAI-compatible client with its guards, the call log, the chat role, versioned prompts in `llm/prompts/`, and a `Fake` provider; tests never call a real API), `decide` (the LLM's decisions role: hold triage after the deadline forward, bundle titles, the digest's paragraph; the floors and the output validator are code here, and every decision writes an `llm` trace row), `version`; `client`, the API client the CLI uses; `mcptools`, the tools `heraldo mcp` serves (docs/mcp.md); `mcphttp`, the same tools on the server at `POST /v1/mcp` (`HERALDO_MCP_HTTP`), and the chat model's read-only toolbox (`NewToolbox`) |
 | `apple/` | XcodeGen project: multiplatform app `Heraldo`, `HeraldoNotificationService` (iOS only; the Mac app does not embed it), `HeraldoWidgets` (widgets and the Live Activity), `HeraldoShare` (the share extension, iOS and macOS, in `ShareExtension/`), package `HeraldoKit`; `LiveActivity/` holds code built into both the app and the widget extension |
 | `deploy/` | Generic `compose.yml`, `heraldo.example.env`, `rules.example.yaml` and `hold-bypass.example.json` |
 | `design/icon/` | App and web icon and the wordmark. `heraldo.svg` is the source of truth; `build.py` derives the masters, layers, web set, logos, wordmarks, README banners and og-images, `apple/App/AppIcon.icon` and the logo assets in `apple/App/Shared/Assets.xcassets` |
@@ -29,7 +28,7 @@ The product principles are in README.md, "What it is for". Judge every feature a
 | Run the CLI against a server | `HERALDO_URL=... HERALDO_TOKEN=... go run ./cmd/heraldo ls` (see the README, "CLI") |
 | Hash a token for the token list | `go run ./cmd/heraldo-server hash-token < token.txt` |
 | Back up a running server's database | `heraldo-server backup <new-path>` |
-| Backfill an apprise-tee catalogue | `heraldo-server import-tee [-since YYYY-MM] <dir>` |
+| Backfill a notification catalogue (docs/api.md, "Backfill from a catalogue") | `heraldo-server import-tee [-since YYYY-MM] <dir>` |
 | Check a rules file against a catalogue | `heraldo-server replay-tee -rules <file> <dir>` |
 | File stored events under projects | `heraldo-server backfill-projects -dry-run`, then without `-dry-run` |
 | Build the image | `docker build -t heraldo .` (CI pushes `ghcr.io/noahkiss/heraldo` on main and `v*` tags) |
@@ -63,6 +62,6 @@ The product principles are in README.md, "What it is for". Judge every feature a
   commit messages and CI.
 - Configuration comes from the environment or a config file. No baked-in default
   names a real machine.
-- The homelab deployment (stack, hostnames, tokens, sender rules) lives in the
-  private servers repo, not here.
+- A real deployment's stack, hostnames, tokens and sender rules stay outside
+  this repo. `deploy/` holds only generic examples.
 - Test fixtures are written by hand. Never copy real notification data into the repo.

@@ -34,7 +34,7 @@
 //	heraldo-server [serve] [--<setting> <value> ...]
 //	                                  serve (the default)
 //	heraldo-server import-tee [-since YYYY-MM] <dir>
-//	                                  backfill an apprise-tee catalogue
+//	                                  backfill a notification catalogue
 //	heraldo-server replay-tee [-rules <file>] <dir>
 //	                                  run a catalogue through the rules, in memory
 //	heraldo-server backfill-projects [-dry-run] [-rules <file>]
@@ -89,7 +89,7 @@ commands:
                      flag, such as --llm-mode shadow (heraldo-server serve -h
                      lists them)
   import-tee [-since YYYY-MM] <dir>
-                     backfill an apprise-tee catalogue directory, from month
+                     backfill a notification catalogue directory, from month
                      YYYY-MM on when -since is given
   replay-tee [-rules <file>] <dir>
                      run a catalogue through the rules file (default
