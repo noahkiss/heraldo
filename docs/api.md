@@ -824,7 +824,7 @@ activity as above.
 | `GET /live-activity/{activityId}?token=` | `{activityId, state, endReason, content, expiresAt}`. `state` is `starting`, `active`, `dismissed` or `ended`; `endReason` is `dismissed`, `script` (an end or a restart), or `abandoned`. |
 | `GET /live-activity/{deviceId}?token=` | `{activities: [...]}`: the token's running compat activities. |
 | `GET /link?id=&token=` | `{success: true, type: "device", id, name: "heraldo"}` for a write token. |
-| `POST /notify-json/{deviceId}?token=` | A `message`: `text` is the body, `title`, `groupType` the thread, `iconUrl` the icon, `timeSensitive` the level, `project` the project. |
+| `POST /notify-json/{deviceId}?token=` | An untyped notification, so the ingest rules apply; a `message` when none matches. `text` is the body, `title`, `groupType` the thread, `iconUrl` the icon, `timeSensitive` the level, `project` the project. |
 
 Field mapping, Notify! to LiveContent: `progress` 0–100 to 0–1; `steps` and
 `step` to `steps {total, current}`; `endsIn` seconds to `ends_at`, from now;
@@ -2162,7 +2162,7 @@ resolves, a digest, a check-in, or a message with another level.
 stored as a `message`.
 
 The rules apply to an untyped input, one without `kind`, on
-`POST /v1/events`, `GET /v1/send` and `import-tee` (catalogue lines are
+`POST /v1/events`, `GET /v1/send`, `POST /notify-json` and `import-tee` (catalogue lines are
 untyped). A sender that sets `kind`, `message` included, is never retyped.
 An untyped input that no rule matches is stored as `message`, with the
 sender's other fields as sent. Ping rules (below) apply to the check-in

@@ -308,14 +308,16 @@ func (s *server) compatLink(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// compatNotify stores a plain notification: a message event from the
-// token's sender.
+// compatNotify stores a plain notification from the token's sender, typed
+// by the ingest rules (a message when none matches).
 func (s *server) compatNotify(w http.ResponseWriter, r *http.Request) {
 	body, ok := compatBody(w, r)
 	if !ok {
 		return
 	}
-	f := map[string]any{"source": tokenFrom(r).Name, "kind": "message"}
+	// No kind: the ingest rules type the post (a printer fault can become
+	// an incident), and one no rule matches is stored as a message.
+	f := map[string]any{"source": tokenFrom(r).Name}
 	if t, _ := body["text"].(string); t != "" {
 		f["body"] = t
 	}
