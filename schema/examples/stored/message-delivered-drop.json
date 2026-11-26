@@ -1,0 +1,18 @@
+{
+  "id": "01JBA7C0000000000000000000",
+  "received_at": "2026-10-26T12:30:00Z",
+  "cursor": "s4",
+  "ts": "2026-10-26T12:30:00Z",
+  "source": "test-runner",
+  "kind": "message",
+  "title": "Smoke test",
+  "level": "passive",
+  "deliver": {
+    "as": "drop",
+    "by": "dlv_01JBA72000000000000000000",
+    "badge": "auto",
+    "filled": "passive",
+    "new_source": true
+  },
+  "why": "dropped by delivery setting dlv_01JBA72000000000000000000"
+}

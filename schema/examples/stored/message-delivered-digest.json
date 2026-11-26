@@ -1,0 +1,18 @@
+{
+  "id": "01JBA7B0000000000000000000",
+  "received_at": "2026-10-26T12:20:00Z",
+  "cursor": "s3",
+  "ts": "2026-10-26T12:20:00Z",
+  "source": "printer",
+  "kind": "message",
+  "key": "maint:printer-1",
+  "title": "Maintenance due",
+  "level": "passive",
+  "deliver": {
+    "as": "digest",
+    "by": "dlv_01JBA71000000000000000000",
+    "level_was": "active",
+    "badge": "off"
+  },
+  "why": "digest only: delivery setting dlv_01JBA71000000000000000000"
+}

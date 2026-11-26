@@ -181,6 +181,16 @@ paths:
           schema:
             type: string
             enum: [exclude, only]
+        - name: hidden
+          in: query
+          description: |
+            Hidden events are the ones a delivery setting filed for the digest or
+            dropped (deliver.as digest or drop). exclude leaves them out, as the inbox
+            does; only keeps only them, for a Filed list. Without it the list holds
+            both. The answer's Heraldo-Hidden header names the filter applied.
+          schema:
+            type: string
+            enum: [exclude, only]
         - name: level
           in: query
           description: |
@@ -211,6 +221,11 @@ paths:
                 type: string
             Heraldo-Routine:
               description: The routine filter applied, exclude or only. Absent without one.
+              schema:
+                type: string
+                enum: [exclude, only]
+            Heraldo-Hidden:
+              description: The hidden filter applied, exclude or only. Absent without one.
               schema:
                 type: string
                 enum: [exclude, only]
@@ -713,6 +728,27 @@ paths:
           $ref: "#/components/responses/Error"
         "403":
           $ref: "#/components/responses/Error"
+  /v1/standby/delivery:
+    get:
+      operationId: exportDelivery
+      summary: The delivery settings, their two scalar keys and the sources' review state, for a standby server to copy.
+      description: |
+        Needs an admin token, or a read token with the standby capability. The standby
+        replaces its rows with these, sets delivery.enabled and delivery.new_source_level
+        to these values, and copies each source's review state, so a failover delivers as
+        the primary does.
+      tags: [standby]
+      responses:
+        "200":
+          description: The delivery state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StandbyDelivery"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
   /v1/activities:
     get:
       operationId: listActivities
@@ -1108,6 +1144,200 @@ paths:
         "403":
           $ref: "#/components/responses/Error"
         "404":
+          $ref: "#/components/responses/Error"
+  /v1/delivery:
+    get:
+      operationId: listDelivery
+      summary: The delivery settings, by position.
+      description: |
+        Each row matches events and says how they are delivered and whether they count
+        toward the badge (docs/api.md, "Delivery settings"). The rows act only while
+        delivery.enabled is on; the answer says whether it is.
+      tags: [delivery]
+      responses:
+        "200":
+          description: The rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeliverySettingList"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: createDelivery
+      summary: Add a delivery setting. Needs an admin token.
+      description: |
+        A change re-stamps the badge of the unread events and the open incidents. A
+        standby answers 409: it copies its rows from the primary.
+      tags: [delivery]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeliverySettingInput"
+      responses:
+        "201":
+          description: The row.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeliverySetting"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/delivery/preview:
+    post:
+      operationId: previewDelivery
+      summary: Run proposed delivery settings over the stored events of the last days.
+      description: |
+        Stores nothing. Each event starts from its unstamped self: a stored stamp is
+        undone first. The answer counts each outcome, each row's hits, and the events
+        that leave or join the badge, and lists the events that would change. The rows
+        run as if delivery.enabled were on.
+      tags: [delivery]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeliveryPreviewInput"
+      responses:
+        "200":
+          description: The preview.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeliveryPreview"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/delivery/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The row's id, dlv_ plus a ULID.
+        schema:
+          type: string
+    get:
+      operationId: getDelivery
+      summary: One delivery setting.
+      tags: [delivery]
+      responses:
+        "200":
+          description: The row.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeliverySetting"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    put:
+      operationId: putDelivery
+      summary: Replace a delivery setting. Needs an admin token.
+      description: Every field is replaced; a field left out goes back to its default. A standby answers 409.
+      tags: [delivery]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeliverySettingInput"
+      responses:
+        "200":
+          description: The row.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeliverySetting"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteDelivery
+      summary: Delete a delivery setting. Needs an admin token.
+      description: A standby answers 409.
+      tags: [delivery]
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/sources:
+    get:
+      operationId: listSources
+      summary: Every source the server has stored an event from, new ones first.
+      description: |
+        A source first seen after the delivery migration is new until the owner reviews
+        it. While new, its events that carry no level get delivery.new_source_level.
+        The counts cover the last 30 days, routine events left out.
+      tags: [delivery]
+      responses:
+        "200":
+          description: The sources.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceList"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/sources/{source}/review:
+    parameters:
+      - name: source
+        in: path
+        required: true
+        description: The source, without regard to case.
+        schema:
+          type: string
+    post:
+      operationId: reviewSource
+      summary: Mark a source reviewed. Needs an admin token.
+      description: A reviewed source is no longer new. A standby answers 409.
+      tags: [delivery]
+      responses:
+        "200":
+          description: The source.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Source"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
           $ref: "#/components/responses/Error"
   /v1/icons:
     get:
@@ -2726,6 +2956,15 @@ components:
           description: Events inside the window per project, routine events left out, most first. name is empty for events with no project.
           items:
             $ref: "#/components/schemas/DigestProject"
+        filed:
+          type: array
+          description: |
+            The events a delivery setting filed for the digest (deliver.as digest) inside
+            the window, one item per key, else per source and title, newest first. A held
+            or store-only original is left out, so a held alert and its forward list once.
+            Missing from servers before delivery settings.
+          items:
+            $ref: "#/components/schemas/DigestFiled"
         enabled:
           type: boolean
           description: digest.enabled.
@@ -2743,6 +2982,34 @@ components:
         event_id:
           type: string
           description: The stored event, on POST /v1/digest/send.
+    DigestFiled:
+      type: object
+      description: One item the digest's Filed section lists.
+      required: [title, source, count, first_at, last_at, event_id]
+      properties:
+        key:
+          type: string
+          description: The events' key. Missing when the item groups by source and title.
+        title:
+          type: string
+          description: The newest event's title.
+        summary:
+          type: string
+          description: The newest event's summary.
+        source:
+          type: string
+        count:
+          type: integer
+          description: How many events the item folds.
+        first_at:
+          type: string
+          format: date-time
+        last_at:
+          type: string
+          format: date-time
+        event_id:
+          type: string
+          description: The newest event.
     DigestIncident:
       type: object
       required: [key, state, title, opened_at, last_at, event_id]
@@ -2870,8 +3137,9 @@ components:
         (new events); cursor: GET /v1/cursors; state: GET /v1/state; checks: GET
         /v1/checkins; projects: GET /v1/projects; views: GET /v1/views; held: the
         held entries; activities: GET /v1/activities; llm: GET /v1/llm/status; mutes:
-        GET /v1/mutes; settings: GET /v1/settings. A later server may add domains.
-      required: [events, cursor, state, checks, projects, views, held, activities, llm, mutes, settings]
+        GET /v1/mutes; settings: GET /v1/settings; delivery: GET /v1/delivery and GET
+        /v1/sources. A later server may add domains.
+      required: [events, cursor, state, checks, projects, views, held, activities, llm, mutes, settings, delivery]
       properties:
         events:
           type: integer
@@ -2904,6 +3172,9 @@ components:
           type: integer
           format: int64
         settings:
+          type: integer
+          format: int64
+        delivery:
           type: integer
           format: int64
     Cursor:
@@ -3384,6 +3655,10 @@ components:
           type: string
           enum: [exclude, only]
           description: exclude leaves routine events out; only keeps only them. Absent keeps both.
+        hidden:
+          type: string
+          enum: [exclude, only]
+          description: exclude leaves out the events a delivery setting filed for the digest or dropped; only keeps only them. Absent keeps both.
     ViewBundle:
       type: object
       description: |
@@ -3458,6 +3733,295 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/View"
+    DeliverOutcome:
+      type: string
+      enum: [banner, silent, digest, drop]
+      description: |
+        banner: deliver at the event's own level. silent: passive, in the inbox. digest:
+        passive, hidden from the inbox, listed in the digest (silent while digest.enabled
+        is off). drop: passive, hidden from the inbox and the digest. The floors refuse
+        every outcome but banner for an incident, an event at time-sensitive or above, a
+        failing check-in and heraldo's own events.
+    DeliveryBadge:
+      type: string
+      enum: [auto, on, off]
+      description: |
+        on: the event counts toward the badge while unread. off: it never counts. auto:
+        badge.scope decides. Applies to any matching event, incidents and time-sensitive
+        included. on is refused with digest and drop.
+    DeliveryDefaultLevel:
+      type: string
+      enum: [passive, active]
+      description: A level a delivery setting fills for an event that carries none.
+    DeliveryMatch:
+      type: object
+      description: |
+        Which events a delivery setting matches. Every field set must match; an empty
+        match matches every event that is not routine.
+      additionalProperties: false
+      properties:
+        source:
+          type: string
+          maxLength: 128
+          description: The event's source, without regard to case.
+        tag:
+          type: string
+          maxLength: 64
+          description: Any of the event's tags, without regard to case.
+        level:
+          type: array
+          maxItems: 4
+          description: Events at any of these levels. An event with no level is active, or the level a setting filled.
+          items:
+            $ref: "#/components/schemas/Level"
+        kind:
+          $ref: "#/components/schemas/Kind"
+        project:
+          type: string
+          maxLength: 64
+          description: The event's project. Aliases match, as in the project parameter.
+        rule:
+          type: string
+          maxLength: 128
+          description: The name of the ingest rule that typed the event.
+        key:
+          type: string
+          maxLength: 256
+          description: A key prefix. A check's incident has key checkin:<slug>.
+    DeliverySettingInput:
+      type: object
+      additionalProperties: false
+      properties:
+        match:
+          $ref: "#/components/schemas/DeliveryMatch"
+        deliver:
+          $ref: "#/components/schemas/DeliverOutcome"
+        badge:
+          $ref: "#/components/schemas/DeliveryBadge"
+        default_level:
+          $ref: "#/components/schemas/DeliveryDefaultLevel"
+        position:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+          description: Order, low first. The first matching row wins.
+        note:
+          type: string
+          maxLength: 256
+          description: Free text for the owner.
+    DeliverySetting:
+      type: object
+      required: [id, match, badge, position, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          description: dlv_ plus a ULID.
+        match:
+          $ref: "#/components/schemas/DeliveryMatch"
+        deliver:
+          $ref: "#/components/schemas/DeliverOutcome"
+        badge:
+          $ref: "#/components/schemas/DeliveryBadge"
+        default_level:
+          $ref: "#/components/schemas/DeliveryDefaultLevel"
+        position:
+          type: integer
+        note:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        updated_by:
+          type: string
+          description: The token that last wrote the row, or standby for a standby's copy.
+    DeliverySettingList:
+      type: object
+      required: [enabled, new_source_level, settings]
+      properties:
+        enabled:
+          type: boolean
+          description: delivery.enabled. While it is off, the rows do nothing.
+        new_source_level:
+          $ref: "#/components/schemas/DeliveryDefaultLevel"
+        settings:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeliverySetting"
+    DeliveryPreviewInput:
+      type: object
+      additionalProperties: false
+      required: [settings]
+      properties:
+        settings:
+          type: array
+          maxItems: 200
+          description: The rows to try, in order. An empty list shows what the stored events look like with no rows.
+          items:
+            $ref: "#/components/schemas/DeliverySettingInput"
+        days:
+          type: integer
+          minimum: 1
+          maximum: 90
+          default: 30
+          description: How many days of stored events to run them over.
+        limit:
+          type: integer
+          minimum: 0
+          maximum: 1000
+          default: 200
+          description: The most changed events the answer lists.
+    DeliveryPreview:
+      type: object
+      required: [days, events, outcomes, rows, badge_joined, badge_left, changed, truncated]
+      properties:
+        days:
+          type: integer
+        events:
+          type: integer
+          description: The events the rows ran over, routine events left out.
+        outcomes:
+          type: object
+          description: How many events each outcome got. unchanged counts the events no row changed.
+          required: [banner, silent, digest, drop, unchanged]
+          properties:
+            banner:
+              type: integer
+            silent:
+              type: integer
+            digest:
+              type: integer
+            drop:
+              type: integer
+            unchanged:
+              type: integer
+        rows:
+          type: array
+          description: Each row's hits, in the order given.
+          items:
+            type: object
+            required: [index, hits, refused]
+            properties:
+              index:
+                type: integer
+                description: The row's place in settings, from 0.
+              hits:
+                type: integer
+              refused:
+                type: integer
+                description: Hits a floor kept at their own level.
+        badge_joined:
+          type: integer
+          description: Events that would count toward the badge and do not without the rows.
+        badge_left:
+          type: integer
+          description: Events that count toward the badge without the rows and would not.
+        changed:
+          type: array
+          description: The events whose level, outcome or badge would change, newest first.
+          items:
+            $ref: "#/components/schemas/DeliveryPreviewEvent"
+        truncated:
+          type: boolean
+          description: True when more events changed than changed lists.
+    DeliveryPreviewEvent:
+      type: object
+      required: [id, source, kind, as, level_before, level_after, badge_before, badge_after]
+      properties:
+        id:
+          type: string
+        source:
+          type: string
+        title:
+          type: string
+        kind:
+          $ref: "#/components/schemas/Kind"
+        as:
+          $ref: "#/components/schemas/DeliverOutcome"
+        row:
+          type: integer
+          description: The index of the row that matched. Missing when only a level was filled.
+        refused:
+          type: string
+          description: The floor that kept the event at its own level.
+        level_before:
+          $ref: "#/components/schemas/Level"
+        level_after:
+          $ref: "#/components/schemas/Level"
+        badge_before:
+          type: boolean
+        badge_after:
+          type: boolean
+    Source:
+      type: object
+      required: [source, first_seen, last_seen, new, events, badge_in, badge_out]
+      properties:
+        source:
+          type: string
+          description: The source, folded to lower case.
+        first_seen:
+          type: string
+          format: date-time
+        last_seen:
+          type: string
+          format: date-time
+        reviewed_at:
+          type: string
+          format: date-time
+          description: When the owner reviewed it. Missing on a new source.
+        new:
+          type: boolean
+        events:
+          type: integer
+          description: Events in the last 30 days, routine events left out.
+        badge_in:
+          type: integer
+          description: Of those, the ones that counted toward the badge by their stamp or badge.scope's rule.
+        badge_out:
+          type: integer
+          description: Of those, the ones that did not.
+    SourceList:
+      type: object
+      required: [sources]
+      properties:
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/Source"
+    StandbySource:
+      type: object
+      required: [source, first_seen, last_seen]
+      properties:
+        source:
+          type: string
+        first_seen:
+          type: string
+          format: date-time
+        last_seen:
+          type: string
+          format: date-time
+        reviewed_at:
+          type: string
+          format: date-time
+    StandbyDelivery:
+      type: object
+      required: [enabled, new_source_level, settings, sources]
+      properties:
+        enabled:
+          type: boolean
+        new_source_level:
+          $ref: "#/components/schemas/DeliveryDefaultLevel"
+        settings:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeliverySetting"
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/StandbySource"
     GuidanceInput:
       type: object
       additionalProperties: false

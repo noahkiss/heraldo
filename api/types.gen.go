@@ -213,6 +213,99 @@ func (e CheckState) Valid() bool {
 	}
 }
 
+// Defines values for DeliverOutcome.
+const (
+	DeliverOutcomeBanner DeliverOutcome = "banner"
+	DeliverOutcomeDigest DeliverOutcome = "digest"
+	DeliverOutcomeDrop   DeliverOutcome = "drop"
+	DeliverOutcomeSilent DeliverOutcome = "silent"
+)
+
+// Valid indicates whether the value is a known member of the DeliverOutcome enum.
+func (e DeliverOutcome) Valid() bool {
+	switch e {
+	case DeliverOutcomeBanner:
+		return true
+	case DeliverOutcomeDigest:
+		return true
+	case DeliverOutcomeDrop:
+		return true
+	case DeliverOutcomeSilent:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeliverStampAs.
+const (
+	DeliverStampAsBanner DeliverStampAs = "banner"
+	DeliverStampAsDigest DeliverStampAs = "digest"
+	DeliverStampAsDrop   DeliverStampAs = "drop"
+	DeliverStampAsSilent DeliverStampAs = "silent"
+)
+
+// Valid indicates whether the value is a known member of the DeliverStampAs enum.
+func (e DeliverStampAs) Valid() bool {
+	switch e {
+	case DeliverStampAsBanner:
+		return true
+	case DeliverStampAsDigest:
+		return true
+	case DeliverStampAsDrop:
+		return true
+	case DeliverStampAsSilent:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeliverStampBadge.
+const (
+	DeliverStampBadgeAuto DeliverStampBadge = "auto"
+	DeliverStampBadgeOff  DeliverStampBadge = "off"
+	DeliverStampBadgeOn   DeliverStampBadge = "on"
+)
+
+// Valid indicates whether the value is a known member of the DeliverStampBadge enum.
+func (e DeliverStampBadge) Valid() bool {
+	switch e {
+	case DeliverStampBadgeAuto:
+		return true
+	case DeliverStampBadgeOff:
+		return true
+	case DeliverStampBadgeOn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeliverStampWanted.
+const (
+	DeliverStampWantedBanner DeliverStampWanted = "banner"
+	DeliverStampWantedDigest DeliverStampWanted = "digest"
+	DeliverStampWantedDrop   DeliverStampWanted = "drop"
+	DeliverStampWantedSilent DeliverStampWanted = "silent"
+)
+
+// Valid indicates whether the value is a known member of the DeliverStampWanted enum.
+func (e DeliverStampWanted) Valid() bool {
+	switch e {
+	case DeliverStampWantedBanner:
+		return true
+	case DeliverStampWantedDigest:
+		return true
+	case DeliverStampWantedDrop:
+		return true
+	case DeliverStampWantedSilent:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DeliveryOutcome.
 const (
 	DeliveryOutcomeFailed  DeliveryOutcome = "failed"
@@ -228,6 +321,45 @@ func (e DeliveryOutcome) Valid() bool {
 	case DeliveryOutcomeSent:
 		return true
 	case DeliveryOutcomeSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeliveryBadge.
+const (
+	DeliveryBadgeAuto DeliveryBadge = "auto"
+	DeliveryBadgeOff  DeliveryBadge = "off"
+	DeliveryBadgeOn   DeliveryBadge = "on"
+)
+
+// Valid indicates whether the value is a known member of the DeliveryBadge enum.
+func (e DeliveryBadge) Valid() bool {
+	switch e {
+	case DeliveryBadgeAuto:
+		return true
+	case DeliveryBadgeOff:
+		return true
+	case DeliveryBadgeOn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeliveryDefaultLevel.
+const (
+	DeliveryDefaultLevelActive  DeliveryDefaultLevel = "active"
+	DeliveryDefaultLevelPassive DeliveryDefaultLevel = "passive"
+)
+
+// Valid indicates whether the value is a known member of the DeliveryDefaultLevel enum.
+func (e DeliveryDefaultLevel) Valid() bool {
+	switch e {
+	case DeliveryDefaultLevelActive:
+		return true
+	case DeliveryDefaultLevelPassive:
 		return true
 	default:
 		return false
@@ -822,6 +954,24 @@ func (e TimelineEntryAction) Valid() bool {
 	}
 }
 
+// Defines values for ViewFilterHidden.
+const (
+	ViewFilterHiddenExclude ViewFilterHidden = "exclude"
+	ViewFilterHiddenOnly    ViewFilterHidden = "only"
+)
+
+// Valid indicates whether the value is a known member of the ViewFilterHidden enum.
+func (e ViewFilterHidden) Valid() bool {
+	switch e {
+	case ViewFilterHiddenExclude:
+		return true
+	case ViewFilterHiddenOnly:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ViewFilterRoutine.
 const (
 	ViewFilterRoutineExclude ViewFilterRoutine = "exclude"
@@ -939,6 +1089,24 @@ func (e ListEventsParamsRoutine) Valid() bool {
 	case ListEventsParamsRoutineExclude:
 		return true
 	case ListEventsParamsRoutineOnly:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListEventsParamsHidden.
+const (
+	ListEventsParamsHiddenExclude ListEventsParamsHidden = "exclude"
+	ListEventsParamsHiddenOnly    ListEventsParamsHidden = "only"
+)
+
+// Valid indicates whether the value is a known member of the ListEventsParamsHidden enum.
+func (e ListEventsParamsHidden) Valid() bool {
+	switch e {
+	case ListEventsParamsHiddenExclude:
+		return true
+	case ListEventsParamsHiddenOnly:
 		return true
 	default:
 		return false
@@ -1391,6 +1559,49 @@ type Cursor struct {
 	Unread *int `json:"unread,omitempty"`
 }
 
+// DeliverOutcome banner: deliver at the event's own level. silent: passive, in the inbox. digest:
+// passive, hidden from the inbox, listed in the digest (silent while digest.enabled
+// is off). drop: passive, hidden from the inbox and the digest. The floors refuse
+// every outcome but banner for an incident, an event at time-sensitive or above, a
+// failing check-in and heraldo's own events.
+type DeliverOutcome string
+
+// DeliverStamp The delivery setting's decision, stamped at ingest while delivery.enabled is on. Missing when no setting applied: delivery off, a routine event, or no row matched and no level was filled.
+type DeliverStamp struct {
+	// As What the server applied. banner: delivered at the event's own level. silent: passive, in the inbox. digest: passive, hidden from the inbox, listed in the digest's Filed section. drop: passive, hidden from the inbox and the digest.
+	As DeliverStampAs `json:"as"`
+
+	// Badge Whether the event counts toward the badge: on, off, or auto (badge.scope decides).
+	Badge DeliverStampBadge `json:"badge"`
+
+	// By The id of the delivery setting that matched. Missing when only a level was filled.
+	By *string `json:"by,omitempty"`
+
+	// Filled The level the server filled for an event that carried none.
+	Filled *Level `json:"filled,omitempty"`
+
+	// LevelWas The event's level before the setting. Missing when the event carried none.
+	LevelWas *Level `json:"level_was,omitempty"`
+
+	// NewSource True when the event's source was new: not yet reviewed.
+	NewSource *bool `json:"new_source,omitempty"`
+
+	// Refused The floor that refused the setting's outcome, such as "incident floor".
+	Refused *string `json:"refused,omitempty"`
+
+	// Wanted The outcome the setting asked for when the server applied another: a floor refused it, or digest acted as silent while the digest is off.
+	Wanted *DeliverStampWanted `json:"wanted,omitempty"`
+}
+
+// DeliverStampAs What the server applied. banner: delivered at the event's own level. silent: passive, in the inbox. digest: passive, hidden from the inbox, listed in the digest's Filed section. drop: passive, hidden from the inbox and the digest.
+type DeliverStampAs string
+
+// DeliverStampBadge Whether the event counts toward the badge: on, off, or auto (badge.scope decides).
+type DeliverStampBadge string
+
+// DeliverStampWanted The outcome the setting asked for when the server applied another: a floor refused it, or digest acted as silent while the digest is off.
+type DeliverStampWanted string
+
 // Delivery The outcome of the push on one device.
 type Delivery struct {
 	// At When the server got the outcome, RFC 3339.
@@ -1411,6 +1622,190 @@ type Delivery struct {
 
 // DeliveryOutcome sent: APNs accepted the push. failed: APNs refused it; see error. skipped: a rule or device setting held it back.
 type DeliveryOutcome string
+
+// DeliveryBadge on: the event counts toward the badge while unread. off: it never counts. auto:
+// badge.scope decides. Applies to any matching event, incidents and time-sensitive
+// included. on is refused with digest and drop.
+type DeliveryBadge string
+
+// DeliveryDefaultLevel A level a delivery setting fills for an event that carries none.
+type DeliveryDefaultLevel string
+
+// DeliveryMatch Which events a delivery setting matches. Every field set must match; an empty
+// match matches every event that is not routine.
+type DeliveryMatch struct {
+	// Key A key prefix. A check's incident has key checkin:<slug>.
+	Key *string `json:"key,omitempty"`
+
+	// Kind What the event is. message: a one-off notice. incident: a problem with a lifecycle. digest: a batch summary. progress: a Live Activity. checkin: a job run, as with healthchecks.io. status: a named live value for widgets and the status view; it never sends an alert push, only a widget push. incident, progress, checkin and status need a key.
+	Kind *Kind `json:"kind,omitempty"`
+
+	// Level Events at any of these levels. An event with no level is active, or the level a setting filled.
+	Level *[]Level `json:"level,omitempty"`
+
+	// Project The event's project. Aliases match, as in the project parameter.
+	Project *string `json:"project,omitempty"`
+
+	// Rule The name of the ingest rule that typed the event.
+	Rule *string `json:"rule,omitempty"`
+
+	// Source The event's source, without regard to case.
+	Source *string `json:"source,omitempty"`
+
+	// Tag Any of the event's tags, without regard to case.
+	Tag *string `json:"tag,omitempty"`
+}
+
+// DeliveryPreview defines model for DeliveryPreview.
+type DeliveryPreview struct {
+	// BadgeJoined Events that would count toward the badge and do not without the rows.
+	BadgeJoined int `json:"badge_joined"`
+
+	// BadgeLeft Events that count toward the badge without the rows and would not.
+	BadgeLeft int `json:"badge_left"`
+
+	// Changed The events whose level, outcome or badge would change, newest first.
+	Changed []DeliveryPreviewEvent `json:"changed"`
+	Days    int                    `json:"days"`
+
+	// Events The events the rows ran over, routine events left out.
+	Events int `json:"events"`
+
+	// Outcomes How many events each outcome got. unchanged counts the events no row changed.
+	Outcomes struct {
+		Banner    int `json:"banner"`
+		Digest    int `json:"digest"`
+		Drop      int `json:"drop"`
+		Silent    int `json:"silent"`
+		Unchanged int `json:"unchanged"`
+	} `json:"outcomes"`
+
+	// Rows Each row's hits, in the order given.
+	Rows []struct {
+		Hits int `json:"hits"`
+
+		// Index The row's place in settings, from 0.
+		Index int `json:"index"`
+
+		// Refused Hits a floor kept at their own level.
+		Refused int `json:"refused"`
+	} `json:"rows"`
+
+	// Truncated True when more events changed than changed lists.
+	Truncated bool `json:"truncated"`
+}
+
+// DeliveryPreviewEvent defines model for DeliveryPreviewEvent.
+type DeliveryPreviewEvent struct {
+	// As banner: deliver at the event's own level. silent: passive, in the inbox. digest:
+	// passive, hidden from the inbox, listed in the digest (silent while digest.enabled
+	// is off). drop: passive, hidden from the inbox and the digest. The floors refuse
+	// every outcome but banner for an incident, an event at time-sensitive or above, a
+	// failing check-in and heraldo's own events.
+	As          DeliverOutcome `json:"as"`
+	BadgeAfter  bool           `json:"badge_after"`
+	BadgeBefore bool           `json:"badge_before"`
+	Id          string         `json:"id"`
+
+	// Kind What the event is. message: a one-off notice. incident: a problem with a lifecycle. digest: a batch summary. progress: a Live Activity. checkin: a job run, as with healthchecks.io. status: a named live value for widgets and the status view; it never sends an alert push, only a widget push. incident, progress, checkin and status need a key.
+	Kind Kind `json:"kind"`
+
+	// LevelAfter Interruption level. Maps to the APNs interruption-level. Without the critical-alerts entitlement, the server sends critical as time-sensitive and records the downgrade in delivery.
+	LevelAfter Level `json:"level_after"`
+
+	// LevelBefore Interruption level. Maps to the APNs interruption-level. Without the critical-alerts entitlement, the server sends critical as time-sensitive and records the downgrade in delivery.
+	LevelBefore Level `json:"level_before"`
+
+	// Refused The floor that kept the event at its own level.
+	Refused *string `json:"refused,omitempty"`
+
+	// Row The index of the row that matched. Missing when only a level was filled.
+	Row    *int    `json:"row,omitempty"`
+	Source string  `json:"source"`
+	Title  *string `json:"title,omitempty"`
+}
+
+// DeliveryPreviewInput defines model for DeliveryPreviewInput.
+type DeliveryPreviewInput struct {
+	// Days How many days of stored events to run them over.
+	Days *int `json:"days,omitempty"`
+
+	// Limit The most changed events the answer lists.
+	Limit *int `json:"limit,omitempty"`
+
+	// Settings The rows to try, in order. An empty list shows what the stored events look like with no rows.
+	Settings []DeliverySettingInput `json:"settings"`
+}
+
+// DeliverySetting defines model for DeliverySetting.
+type DeliverySetting struct {
+	// Badge on: the event counts toward the badge while unread. off: it never counts. auto:
+	// badge.scope decides. Applies to any matching event, incidents and time-sensitive
+	// included. on is refused with digest and drop.
+	Badge     DeliveryBadge `json:"badge"`
+	CreatedAt time.Time     `json:"created_at"`
+
+	// DefaultLevel A level a delivery setting fills for an event that carries none.
+	DefaultLevel *DeliveryDefaultLevel `json:"default_level,omitempty"`
+
+	// Deliver banner: deliver at the event's own level. silent: passive, in the inbox. digest:
+	// passive, hidden from the inbox, listed in the digest (silent while digest.enabled
+	// is off). drop: passive, hidden from the inbox and the digest. The floors refuse
+	// every outcome but banner for an incident, an event at time-sensitive or above, a
+	// failing check-in and heraldo's own events.
+	Deliver *DeliverOutcome `json:"deliver,omitempty"`
+
+	// Id dlv_ plus a ULID.
+	Id string `json:"id"`
+
+	// Match Which events a delivery setting matches. Every field set must match; an empty
+	// match matches every event that is not routine.
+	Match     DeliveryMatch `json:"match"`
+	Note      *string       `json:"note,omitempty"`
+	Position  int           `json:"position"`
+	UpdatedAt time.Time     `json:"updated_at"`
+
+	// UpdatedBy The token that last wrote the row, or standby for a standby's copy.
+	UpdatedBy *string `json:"updated_by,omitempty"`
+}
+
+// DeliverySettingInput defines model for DeliverySettingInput.
+type DeliverySettingInput struct {
+	// Badge on: the event counts toward the badge while unread. off: it never counts. auto:
+	// badge.scope decides. Applies to any matching event, incidents and time-sensitive
+	// included. on is refused with digest and drop.
+	Badge *DeliveryBadge `json:"badge,omitempty"`
+
+	// DefaultLevel A level a delivery setting fills for an event that carries none.
+	DefaultLevel *DeliveryDefaultLevel `json:"default_level,omitempty"`
+
+	// Deliver banner: deliver at the event's own level. silent: passive, in the inbox. digest:
+	// passive, hidden from the inbox, listed in the digest (silent while digest.enabled
+	// is off). drop: passive, hidden from the inbox and the digest. The floors refuse
+	// every outcome but banner for an incident, an event at time-sensitive or above, a
+	// failing check-in and heraldo's own events.
+	Deliver *DeliverOutcome `json:"deliver,omitempty"`
+
+	// Match Which events a delivery setting matches. Every field set must match; an empty
+	// match matches every event that is not routine.
+	Match *DeliveryMatch `json:"match,omitempty"`
+
+	// Note Free text for the owner.
+	Note *string `json:"note,omitempty"`
+
+	// Position Order, low first. The first matching row wins.
+	Position *int `json:"position,omitempty"`
+}
+
+// DeliverySettingList defines model for DeliverySettingList.
+type DeliverySettingList struct {
+	// Enabled delivery.enabled. While it is off, the rows do nothing.
+	Enabled bool `json:"enabled"`
+
+	// NewSourceLevel A level a delivery setting fills for an event that carries none.
+	NewSourceLevel DeliveryDefaultLevel `json:"new_source_level"`
+	Settings       []DeliverySetting    `json:"settings"`
+}
 
 // Device defines model for Device.
 type Device struct {
@@ -1510,6 +1905,27 @@ type DigestCheck struct {
 	State    string `json:"state"`
 }
 
+// DigestFiled One item the digest's Filed section lists.
+type DigestFiled struct {
+	// Count How many events the item folds.
+	Count int `json:"count"`
+
+	// EventId The newest event.
+	EventId string    `json:"event_id"`
+	FirstAt time.Time `json:"first_at"`
+
+	// Key The events' key. Missing when the item groups by source and title.
+	Key    *string   `json:"key,omitempty"`
+	LastAt time.Time `json:"last_at"`
+	Source string    `json:"source"`
+
+	// Summary The newest event's summary.
+	Summary *string `json:"summary,omitempty"`
+
+	// Title The newest event's title.
+	Title string `json:"title"`
+}
+
 // DigestHeld defines model for DigestHeld.
 type DigestHeld struct {
 	At    time.Time `json:"at"`
@@ -1578,6 +1994,12 @@ type DigestPreview struct {
 	// EventId The stored event, on POST /v1/digest/send.
 	EventId *string `json:"event_id,omitempty"`
 
+	// Filed The events a delivery setting filed for the digest (deliver.as digest) inside
+	// the window, one item per key, else per source and title, newest first. A held
+	// or store-only original is left out, so a held alert and its forward list once.
+	// Missing from servers before delivery settings.
+	Filed *[]DigestFiled `json:"filed,omitempty"`
+
 	// Finished Progress keys (jobs, prints) that ended inside the window.
 	Finished []DigestJob `json:"finished"`
 	Held     struct {
@@ -1637,7 +2059,7 @@ type Error struct {
 	Error string `json:"error"`
 }
 
-// Event One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery, why, attachment_info and, on an incident, incident.
+// Event One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, deliver, delivery, why, attachment_info and, on an incident, incident.
 type Event struct {
 	// Action Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none.
 	Action *EventAction `json:"action,omitempty"`
@@ -1665,6 +2087,9 @@ type Event struct {
 
 	// Dedup Idempotency id chosen by the sender. The server drops a repeat with the same dedup within 24 hours and returns the first event. Set it when a sender may retry the same event.
 	Dedup *string `json:"dedup,omitempty"`
+
+	// Deliver The delivery setting's decision, stamped at ingest while delivery.enabled is on. Missing when no setting applied: delivery off, a routine event, or no row matched and no level was filled.
+	Deliver *DeliverStamp `json:"deliver,omitempty"`
 
 	// Delivery What happened to the push on each device.
 	Delivery *[]Delivery `json:"delivery,omitempty"`
@@ -1766,7 +2191,7 @@ type EventIncidentState string
 // EventAction Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none.
 type EventAction string
 
-// EventInput One heraldo event as a sender posts it, envelope v1. The kind field picks the meaning of key and action. An input without kind is untyped: the server's ingest rules may type it, and it is stored as kind message when no rule matches. An explicit kind, message included, is final. The server owns id, received_at, cursor, hold, delivery, why and attachment_info: an input that sets any of them is rejected. The stored form, with those fields, is $defs/Event.
+// EventInput One heraldo event as a sender posts it, envelope v1. The kind field picks the meaning of key and action. An input without kind is untyped: the server's ingest rules may type it, and it is stored as kind message when no rule matches. An explicit kind, message included, is final. The server owns id, received_at, cursor, hold, deliver, delivery, why, attachment_info and incident: an input that sets any of them is rejected. The stored form, with those fields, is $defs/Event.
 type EventInput struct {
 	// Action Step within a kind. incident: open, update, ack, resolve. progress: start, update, end. checkin: start, success, fail, log. status: set, clear (required; set needs content). message and digest take none.
 	Action *EventAction `json:"action,omitempty"`
@@ -2289,11 +2714,13 @@ type PushTrace struct {
 // (new events); cursor: GET /v1/cursors; state: GET /v1/state; checks: GET
 // /v1/checkins; projects: GET /v1/projects; views: GET /v1/views; held: the
 // held entries; activities: GET /v1/activities; llm: GET /v1/llm/status; mutes:
-// GET /v1/mutes; settings: GET /v1/settings. A later server may add domains.
+// GET /v1/mutes; settings: GET /v1/settings; delivery: GET /v1/delivery and GET
+// /v1/sources. A later server may add domains.
 type RevisionVector struct {
 	Activities int64 `json:"activities"`
 	Checks     int64 `json:"checks"`
 	Cursor     int64 `json:"cursor"`
+	Delivery   int64 `json:"delivery"`
 	Events     int64 `json:"events"`
 	Held       int64 `json:"held"`
 	Llm        int64 `json:"llm"`
@@ -2313,7 +2740,8 @@ type Revisions struct {
 	// (new events); cursor: GET /v1/cursors; state: GET /v1/state; checks: GET
 	// /v1/checkins; projects: GET /v1/projects; views: GET /v1/views; held: the
 	// held entries; activities: GET /v1/activities; llm: GET /v1/llm/status; mutes:
-	// GET /v1/mutes; settings: GET /v1/settings. A later server may add domains.
+	// GET /v1/mutes; settings: GET /v1/settings; delivery: GET /v1/delivery and GET
+	// /v1/sources. A later server may add domains.
 	Rev RevisionVector `json:"rev"`
 }
 
@@ -2416,6 +2844,42 @@ type SettingList struct {
 	Settings []Setting `json:"settings"`
 }
 
+// Source defines model for Source.
+type Source struct {
+	// BadgeIn Of those, the ones that counted toward the badge by their stamp or badge.scope's rule.
+	BadgeIn int `json:"badge_in"`
+
+	// BadgeOut Of those, the ones that did not.
+	BadgeOut int `json:"badge_out"`
+
+	// Events Events in the last 30 days, routine events left out.
+	Events    int       `json:"events"`
+	FirstSeen time.Time `json:"first_seen"`
+	LastSeen  time.Time `json:"last_seen"`
+	New       bool      `json:"new"`
+
+	// ReviewedAt When the owner reviewed it. Missing on a new source.
+	ReviewedAt *time.Time `json:"reviewed_at,omitempty"`
+
+	// Source The source, folded to lower case.
+	Source string `json:"source"`
+}
+
+// SourceList defines model for SourceList.
+type SourceList struct {
+	Sources []Source `json:"sources"`
+}
+
+// StandbyDelivery defines model for StandbyDelivery.
+type StandbyDelivery struct {
+	Enabled bool `json:"enabled"`
+
+	// NewSourceLevel A level a delivery setting fills for an event that carries none.
+	NewSourceLevel DeliveryDefaultLevel `json:"new_source_level"`
+	Settings       []DeliverySetting    `json:"settings"`
+	Sources        []StandbySource      `json:"sources"`
+}
+
 // StandbyDevice A device as a standby server copies it, with the full tokens.
 type StandbyDevice struct {
 	AppVersion  *string                  `json:"app_version,omitempty"`
@@ -2472,6 +2936,14 @@ type StandbyImportResult struct {
 
 	// Skipped Events imported before, or whose dedup id was already stored.
 	Skipped int `json:"skipped"`
+}
+
+// StandbySource defines model for StandbySource.
+type StandbySource struct {
+	FirstSeen  time.Time  `json:"first_seen"`
+	LastSeen   time.Time  `json:"last_seen"`
+	ReviewedAt *time.Time `json:"reviewed_at,omitempty"`
+	Source     string     `json:"source"`
 }
 
 // State The latest event per key, by kind. A stand-in until stage 12.
@@ -2543,7 +3015,9 @@ type ViewBundle struct {
 
 // ViewFilter A saved view's event filter, as the GET /v1/events parameters of the same names. Every field is optional; filters combine with AND.
 type ViewFilter struct {
-	Host *string `json:"host,omitempty"`
+	// Hidden exclude leaves out the events a delivery setting filed for the digest or dropped; only keeps only them. Absent keeps both.
+	Hidden *ViewFilterHidden `json:"hidden,omitempty"`
+	Host   *string           `json:"host,omitempty"`
 
 	// Kind What the event is. message: a one-off notice. incident: a problem with a lifecycle. digest: a batch summary. progress: a Live Activity. checkin: a job run, as with healthchecks.io. status: a named live value for widgets and the status view; it never sends an alert push, only a widget push. incident, progress, checkin and status need a key.
 	Kind *Kind `json:"kind,omitempty"`
@@ -2562,6 +3036,9 @@ type ViewFilter struct {
 	Source  *string            `json:"source,omitempty"`
 	Tag     *string            `json:"tag,omitempty"`
 }
+
+// ViewFilterHidden exclude leaves out the events a delivery setting filed for the digest or dropped; only keeps only them. Absent keeps both.
+type ViewFilterHidden string
 
 // ViewFilterRoutine exclude leaves routine events out; only keeps only them. Absent keeps both.
 type ViewFilterRoutine string
@@ -2622,13 +3099,13 @@ type StoredSlug = string
 // AppriseSent defines model for AppriseSent.
 type AppriseSent = AppriseAnswer
 
-// Repeat One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery, why, attachment_info and, on an incident, incident.
+// Repeat One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, deliver, delivery, why, attachment_info and, on an incident, incident.
 type Repeat = Event
 
 // SettingConflict defines model for SettingConflict.
 type SettingConflict = SettingError
 
-// Stored One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, delivery, why, attachment_info and, on an incident, incident.
+// Stored One stored heraldo event, as the read API returns it: the sender's fields plus the server-owned fields id, received_at, cursor, hold, deliver, delivery, why, attachment_info and, on an incident, incident.
 type Stored = Event
 
 // NotifyLiveActivityEndParams defines parameters for NotifyLiveActivityEnd.
@@ -3115,6 +3592,12 @@ type ListEventsParams struct {
 	// filter ignores the parameter and sends no header.
 	Routine *ListEventsParamsRoutine `form:"routine,omitempty" json:"routine,omitempty"`
 
+	// Hidden Hidden events are the ones a delivery setting filed for the digest or
+	// dropped (deliver.as digest or drop). exclude leaves them out, as the inbox
+	// does; only keeps only them, for a Filed list. Without it the list holds
+	// both. The answer's Heraldo-Hidden header names the filter applied.
+	Hidden *ListEventsParamsHidden `form:"hidden,omitempty" json:"hidden,omitempty"`
+
 	// Level Only events at these levels. Give a comma-separated list, or repeat the
 	// parameter. An event with no level is active.
 	Level *[]Level `form:"level,omitempty" json:"level,omitempty"`
@@ -3132,6 +3615,9 @@ type ListEventsParamsOrder string
 
 // ListEventsParamsRoutine defines parameters for ListEvents.
 type ListEventsParamsRoutine string
+
+// ListEventsParamsHidden defines parameters for ListEvents.
+type ListEventsParamsHidden string
 
 // ListGuidanceParams defines parameters for ListGuidance.
 type ListGuidanceParams struct {
@@ -3277,6 +3763,15 @@ type PutCheckinJSONRequestBody = CheckConfig
 
 // PutCursorJSONRequestBody defines body for PutCursor for application/json ContentType.
 type PutCursorJSONRequestBody = Cursor
+
+// CreateDeliveryJSONRequestBody defines body for CreateDelivery for application/json ContentType.
+type CreateDeliveryJSONRequestBody = DeliverySettingInput
+
+// PreviewDeliveryJSONRequestBody defines body for PreviewDelivery for application/json ContentType.
+type PreviewDeliveryJSONRequestBody = DeliveryPreviewInput
+
+// PutDeliveryJSONRequestBody defines body for PutDelivery for application/json ContentType.
+type PutDeliveryJSONRequestBody = DeliverySettingInput
 
 // RegisterDeviceJSONRequestBody defines body for RegisterDevice for application/json ContentType.
 type RegisterDeviceJSONRequestBody = DeviceRegistration

@@ -1,0 +1,17 @@
+{
+  "id": "01JBA7A0000000000000000000",
+  "received_at": "2026-10-26T12:10:00Z",
+  "cursor": "s2",
+  "ts": "2026-10-26T12:10:00Z",
+  "source": "printer",
+  "kind": "message",
+  "title": "Print finished",
+  "level": "passive",
+  "deliver": {
+    "as": "silent",
+    "by": "dlv_01JBA70000000000000000000",
+    "level_was": "active",
+    "badge": "auto"
+  },
+  "why": "passive: inbox only"
+}

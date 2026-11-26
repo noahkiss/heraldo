@@ -11,6 +11,7 @@ import (
 	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/auth"
 	"github.com/noahkiss/heraldo/internal/store"
+	"github.com/noahkiss/heraldo/internal/validate"
 )
 
 // StandbyOrigin names standby imports in the store's imports table.
@@ -178,8 +179,11 @@ func (s *server) importable(raw json.RawMessage) (store.NewEvent, error) {
 	if err != nil {
 		return store.NewEvent{}, errors.New("received_at: not a time")
 	}
-	hold := f["hold"]
-	for _, k := range []string{"id", "received_at", "cursor", "hold", "delivery", "why", "attachment_info", "incident"} {
+	// The standby's hold and delivery stamp are kept: the standby pushed by
+	// them, and the primary does not decide again. Every other server field
+	// is the importer's to set.
+	hold, deliver := f["hold"], f["deliver"]
+	for _, k := range validate.ServerFields {
 		delete(f, k)
 	}
 	in, err := s.Validator.Fields(f)
@@ -193,6 +197,9 @@ func (s *server) importable(raw json.RawMessage) (store.NewEvent, error) {
 	in.Fields["received_at"] = at
 	if hold != nil {
 		in.Fields["hold"] = hold
+	}
+	if deliver != nil {
+		in.Fields["deliver"] = deliver
 	}
 	return store.NewEvent{ID: id, ReceivedAt: received, Fields: in.Fields, Typed: in.Typed}, nil
 }

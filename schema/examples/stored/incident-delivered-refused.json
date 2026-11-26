@@ -1,0 +1,25 @@
+{
+  "id": "01JBA7D0000000000000000000",
+  "received_at": "2026-10-26T12:40:00Z",
+  "cursor": "s5",
+  "ts": "2026-10-26T12:40:00Z",
+  "source": "uptime",
+  "kind": "incident",
+  "key": "host:web-2",
+  "action": "open",
+  "title": "web-2 is down",
+  "level": "time-sensitive",
+  "deliver": {
+    "as": "banner",
+    "by": "dlv_01JBA73000000000000000000",
+    "level_was": "time-sensitive",
+    "badge": "off",
+    "wanted": "silent",
+    "refused": "incident floor"
+  },
+  "incident": {
+    "state": "open",
+    "opened_at": "2026-10-26T12:40:00Z"
+  },
+  "why": "pushed time-sensitive to 1 device"
+}
