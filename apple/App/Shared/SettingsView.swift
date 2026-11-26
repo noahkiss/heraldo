@@ -49,6 +49,8 @@ struct SettingsView: View {
 
                 ServerSettingsSection()
 
+                DeliverySection()
+
                 GuidanceSection()
 
                 MutesSection()
