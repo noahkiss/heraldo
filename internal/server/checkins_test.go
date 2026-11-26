@@ -342,6 +342,40 @@ func TestPauseResume(t *testing.T) {
 	}
 }
 
+// Deleting a down check resolves its incident, and the scheduler no longer
+// judges it. A later ping that may create checks makes it again, as new.
+func TestDeleteCheck(t *testing.T) {
+	e := newEnv(t)
+	e.ping(t, "/ping/job?create=1&period=1h&grace=0", "")
+	e.clock.add(time.Hour)
+	e.tick(t)
+	if rec := e.do(t, http.MethodDelete, "/v1/checkins/job", readTok, nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("delete with read token: %d", rec.Code)
+	}
+	if rec := e.do(t, http.MethodDelete, "/v1/checkins/job", writeTok, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
+	}
+	evs := e.incidents(t, "checkin:job")
+	if actions(evs) != "open/active resolve/passive" || *evs[1].Title != "job was deleted" {
+		t.Fatalf("delete resolves: %s", actions(evs))
+	}
+	if rec := e.do(t, http.MethodGet, "/v1/checkins/job", readTok, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("get deleted: %d", rec.Code)
+	}
+	e.clock.add(48 * time.Hour)
+	e.tick(t)
+	if n := len(e.incidents(t, "checkin:job")); n != 2 {
+		t.Fatalf("deleted check raised: %d", n)
+	}
+	if rec := e.do(t, http.MethodDelete, "/v1/checkins/job", writeTok, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("delete again: %d", rec.Code)
+	}
+	e.ping(t, "/ping/job?create=1&period=1h", "")
+	if c := e.check(t, "job"); c.State == api.CheckStateDown {
+		t.Fatalf("ping after delete: %+v", c)
+	}
+}
+
 // A check an older release stored under a key that is not a valid slug
 // (a rule filled it from message text) can still be read, paused and
 // resumed. Creating one under such a key is still refused.

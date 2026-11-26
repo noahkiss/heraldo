@@ -23,6 +23,7 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `GET /v1/checkins?project=`, `GET /v1/checkins/{slug}` | Every check, or one: schedule, state, next due time, last run length, last log. | served |
 | `PUT /v1/checkins/{slug}` | Creates a check, or replaces a known check's host and schedule. | served |
 | `POST /v1/checkins/{slug}/pause`, `/resume` | Pauses or resumes a check. | served |
+| `DELETE /v1/checkins/{slug}` | Deletes a check and its ping key. Its pings stay as events, and an open incident resolves. A ping that may create checks makes it again. | served |
 | `POST`, `DELETE /v1/checkins/{slug}/key` | Mints a check's ping key (replacing the old one), or removes it. | served |
 | `POST /notify/{key}`, `POST /v1/notify` | Apprise-compatible ingest: JSON, form or multipart. Answers 200 with a `Sent` line, or 424. See "Apprise compatibility". | served |
 | `GET /recent?n=&tag=&source=&routine=`, `GET /entry/{id}` | The newest events, or one, in the catalogue line shape ("Backfill from a catalogue"). | served |
@@ -1989,6 +1990,7 @@ answers 201 for a new check and 200 for a known one. A changed schedule moves
 is judged again under the new schedule.
 
 `POST /v1/checkins/{slug}/pause` and `/resume` answer the check, or 404.
+`DELETE /v1/checkins/{slug}` answers 204, or 404.
 
 ## Envelope v1
 

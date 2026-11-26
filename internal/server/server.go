@@ -233,6 +233,7 @@ func NewServer(o Options) *Server {
 	mux.HandleFunc("GET /v1/checkins", s.auth(auth.ScopeRead, false, s.listChecks))
 	mux.HandleFunc("GET /v1/checkins/{slug}", s.auth(auth.ScopeRead, false, s.getCheck))
 	mux.HandleFunc("PUT /v1/checkins/{slug}", s.auth(auth.ScopeWrite, false, s.putCheck))
+	mux.HandleFunc("DELETE /v1/checkins/{slug}", s.auth(auth.ScopeWrite, false, s.deleteCheck))
 	mux.HandleFunc("POST /v1/checkins/{slug}/pause", s.auth(auth.ScopeWrite, false, s.pauseCheck))
 	mux.HandleFunc("POST /v1/checkins/{slug}/resume", s.auth(auth.ScopeWrite, false, s.resumeCheck))
 	mux.HandleFunc("POST /v1/checkins/{slug}/key", s.auth(auth.ScopeWrite, false, s.mintPingKey))

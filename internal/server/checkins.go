@@ -503,6 +503,42 @@ func (s *server) setPaused(w http.ResponseWriter, r *http.Request, paused bool) 
 	s.checkAnswer(w, r, slug, http.StatusOK)
 }
 
+// deleteCheck is DELETE /v1/checkins/{slug}. It removes the check, then
+// resolves its open incident, so nothing reopens it.
+func (s *server) deleteCheck(w http.ResponseWriter, r *http.Request) {
+	slug, ok := s.storedSlug(w, r)
+	if !ok {
+		return
+	}
+	s.cmu.Lock()
+	defer s.cmu.Unlock()
+	err := s.Store.DeleteCheck(r.Context(), slug)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "no check %q", slug)
+		return
+	}
+	if err != nil {
+		s.Logger.Error("delete check", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	s.Logger.Info("check deleted", "check", slug, "by", tokenFrom(r).Name)
+	incKey := checkin.IncidentPrefix + slug
+	if st, err := s.Store.IncidentState(r.Context(), incKey); err == nil && (st == "open" || st == "acked") {
+		in, err := s.Validator.Fields(map[string]any{
+			"source": checkinSource, "kind": "incident", "key": incKey,
+			"action": "resolve", "level": "passive", "title": slug + " was deleted",
+		})
+		if err == nil {
+			_, _, err = s.ingest(r.Context(), in, false)
+		}
+		if err != nil {
+			s.Logger.Error("delete check: resolve incident", "check", slug, "err", err)
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // ---- scheduler ---------------------------------------------------------
 
 // RunCheckins judges every check each interval until ctx ends: late, down,

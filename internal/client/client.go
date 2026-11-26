@@ -316,6 +316,11 @@ func (c *Client) RemovePingKey(ctx context.Context, slug string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/checkins/"+url.PathEscape(slug)+"/key", nil, c.writeToken(), nil, nil)
 }
 
+// DeleteCheck deletes a check, with the write token.
+func (c *Client) DeleteCheck(ctx context.Context, slug string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/checkins/"+url.PathEscape(slug), nil, c.writeToken(), nil, nil)
+}
+
 func (c *Client) writeToken() string {
 	if c.WriteToken == "" {
 		return c.Token

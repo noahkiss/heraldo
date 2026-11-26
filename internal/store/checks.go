@@ -324,6 +324,22 @@ func (s *Store) SetPaused(ctx context.Context, key string, paused bool) error {
 	return s.bumpIf(saveCheck(ctx, s.db, c), checkDomains...)
 }
 
+// DeleteCheck removes check key and its ping key. Its pings stay as events.
+// A later ping that may create checks makes it again, as new.
+func (s *Store) DeleteCheck(ctx context.Context, key string) error {
+	s.wmu.Lock()
+	defer s.wmu.Unlock()
+	res, err := s.db.ExecContext(ctx, `DELETE FROM checkins WHERE key = ?`, key)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	s.changed(checkDomains...)
+	return nil
+}
+
 // JudgedChecks returns the checks whose state time can change, and every
 // check with an open incident or one that should have one, in key order.
 func (s *Store) JudgedChecks(ctx context.Context) ([]checkin.Check, error) {

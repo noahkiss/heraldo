@@ -1813,6 +1813,22 @@ paths:
           $ref: "#/components/responses/Error"
         "403":
           $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteCheckin
+      summary: Delete a check. Its pings stay as events; an open incident resolves.
+      description: |
+        The check and its ping key are removed. A later ping that may create checks
+        makes it again, as new.
+      tags: [checkins]
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
   /v1/checkins/{slug}/pause:
     parameters:
       - $ref: "#/components/parameters/StoredSlug"

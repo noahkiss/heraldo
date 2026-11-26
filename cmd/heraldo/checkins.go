@@ -16,7 +16,7 @@ import (
 
 // ---- checkins ----------------------------------------------------------
 
-const checkinsUsage = `[--json] [--project names] | show <slug> | create <slug> [flags] | pause <slug> | resume <slug> | key [--remove] <slug>`
+const checkinsUsage = `[--json] [--project names] | show <slug> | create <slug> [flags] | pause <slug> | resume <slug> | key [--remove] <slug> | delete <slug>`
 
 // checkins lists the checks, or runs one of its subcommands.
 func (a *app) checkins(ctx context.Context, args []string) error {
@@ -30,6 +30,8 @@ func (a *app) checkins(ctx context.Context, args []string) error {
 			return a.checkPause(ctx, args[0], args[1:])
 		case "key":
 			return a.checkKey(ctx, args[1:])
+		case "delete":
+			return a.checkDelete(ctx, args[1:])
 		}
 	}
 	fs := a.flags("checkins", checkinsUsage)
@@ -258,6 +260,28 @@ func (a *app) checkPause(ctx context.Context, op string, args []string) error {
 		return err
 	}
 	fmt.Fprintf(a.stdout, "%s: %s\n", oneLine(ch.Key), checkState(ch))
+	return nil
+}
+
+// checkDelete is checkins delete: DELETE /v1/checkins/<slug>.
+func (a *app) checkDelete(ctx context.Context, args []string) error {
+	fs := a.flags("checkins delete", "<slug>")
+	pos, err := parse(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		fs.Usage()
+		return errUsage
+	}
+	c, err := a.writeClient()
+	if err != nil {
+		return err
+	}
+	if err := c.DeleteCheck(ctx, pos[0]); err != nil {
+		return err
+	}
+	fmt.Fprintf(a.stdout, "%s: deleted\n", oneLine(pos[0]))
 	return nil
 }
 
