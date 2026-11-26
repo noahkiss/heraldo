@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/noahkiss/heraldo/api"
+	"github.com/noahkiss/heraldo/internal/floor"
 	"github.com/noahkiss/heraldo/internal/llm"
 	"github.com/noahkiss/heraldo/internal/settings"
 	"github.com/noahkiss/heraldo/internal/store"
@@ -148,40 +149,20 @@ func MemberOf(ev *api.Event) Member {
 	return m
 }
 
-// levelRank orders levels from quiet to loud.
-var levelRank = map[api.Level]int{
-	api.LevelPassive: 0, api.LevelActive: 1, api.LevelTimeSensitive: 2, api.LevelCritical: 3,
-}
-
 // Rank is a level's place from quiet (0) to loud (3); -1 for none.
-func Rank(l api.Level) int {
-	if r, ok := levelRank[l]; ok {
-		return r
-	}
-	return -1
-}
+func Rank(l api.Level) int { return floor.Rank(l) }
 
 // Loud reports whether l is time-sensitive or critical.
-func Loud(l api.Level) bool { return Rank(l) >= Rank(api.LevelTimeSensitive) }
+func Loud(l api.Level) bool { return floor.Loud(l) }
 
 // Own reports whether source is heraldo's own: heraldo, or heraldo-<x>.
-func Own(source string) bool {
-	return source == "heraldo" || strings.HasPrefix(source, "heraldo-")
-}
+func Own(source string) bool { return floor.Own(source) }
 
-// Protected names the floor that keeps the LLM off m entirely, or "".
+// Protected names the floor that keeps the LLM off m entirely, or "". The
+// list is floor.LLM; the delivery settings use the wider floor.Delivery.
 func Protected(m Member) string {
-	switch {
-	case Own(m.Source):
-		return "heraldo's own event"
-	case m.Level == api.LevelCritical:
-		return "critical floor"
-	case m.Kind == api.KindIncident && Loud(m.Level) && (m.Action == "open" || m.Action == "update" || m.Action == ""):
-		return "incident at time-sensitive floor"
-	case m.Kind == api.KindCheckin && m.Failed:
-		return "check-in fail floor"
-	}
-	return ""
+	return floor.Check(floor.LLM, floor.Event{Source: m.Source, Kind: m.Kind, Action: m.Action, Level: m.Level,
+		Failed: m.Failed})
 }
 
 // MaxLevel is the loudest level among ms.
