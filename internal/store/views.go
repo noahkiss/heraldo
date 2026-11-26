@@ -24,13 +24,14 @@ type ViewFilter struct {
 	Level   []string `json:"level,omitempty"`
 	Q       string   `json:"q,omitempty"`
 	Routine string   `json:"routine,omitempty"`
+	Hidden  string   `json:"hidden,omitempty"`
 }
 
 // Filter is f as a List filter. expand turns project names into the names
 // to match, aliases included; nil keeps them as they are.
 func (f ViewFilter) Filter(expand func([]string) []string) Filter {
 	out := Filter{Source: f.Source, Kind: f.Kind, Host: f.Host, Tag: f.Tag, Q: f.Q, Routine: f.Routine,
-		Levels: f.Level}
+		Levels: f.Level, Hidden: f.Hidden}
 	if len(f.Project) > 0 {
 		var names []string
 		none := false

@@ -25,12 +25,13 @@ const (
 	DomainLLM        Domain = "llm"
 	DomainMutes      Domain = "mutes"
 	DomainSettings   Domain = "settings"
+	DomainDelivery   Domain = "delivery"
 )
 
 // Domains is every domain, in the order GET /v1/revisions lists them.
 var Domains = []Domain{
 	DomainEvents, DomainCursor, DomainState, DomainChecks, DomainProjects, DomainViews,
-	DomainHeld, DomainActivities, DomainLLM, DomainMutes, DomainSettings,
+	DomainHeld, DomainActivities, DomainLLM, DomainMutes, DomainSettings, DomainDelivery,
 }
 
 // OnChange sets the function every committed write calls with the domains
@@ -63,9 +64,13 @@ func (s *Store) bumpIf(err error, ds ...Domain) error {
 // eventDomains are the domains a newly stored event changes. Every event
 // moves the head, so the unread count (cursor), the badge (state) and the
 // project counts; a check-in event or a check's incident changes the
-// checks; a progress event changes the activities.
-func eventDomains(in *api.EventInput) []Domain {
+// checks; a progress event changes the activities. A source first seen
+// changes the sources list (delivery).
+func eventDomains(in *api.EventInput, firstSource bool) []Domain {
 	ds := []Domain{DomainEvents, DomainCursor, DomainState, DomainProjects}
+	if firstSource {
+		ds = append(ds, DomainDelivery)
+	}
 	if in == nil || in.Kind == nil {
 		return ds
 	}

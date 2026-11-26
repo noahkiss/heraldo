@@ -24,7 +24,10 @@ const (
 
 // Badge counts the badge by scope after the read cursor seq. projects, when
 // not empty, keeps the incidents, checks and events in these projects, as
-// Filter.Projects does. An unknown scope counts as attention.
+// Filter.Projects does. An unknown scope counts as attention. While
+// delivery settings are on (SetDeliveryOn), the badge columns of events and
+// incidents decide first: on counts, off never counts, and auto leaves it
+// to the scope. A down check whose incident is off does not count.
 func (s *Store) Badge(ctx context.Context, scope string, projects []string, seq int64) (int, error) {
 	if scope == BadgeNone {
 		return 0, nil
@@ -33,11 +36,27 @@ func (s *Store) Badge(ctx context.Context, scope string, projects []string, seq 
 	if ew != "" {
 		ew = " AND " + ew
 	}
+	// With delivery settings on, each event's and incident's badge column
+	// decides first: on counts, off does not, NULL (auto) leaves it to the
+	// scope's rule. Off, the columns are ignored.
+	on := s.DeliveryOn()
+	pushed := pushedWhere
+	if on {
+		pushed = `(events.badge IS NOT 'off' AND (events.badge IS 'on' OR (` + pushedWhere + `)))`
+	}
 	if scope == BadgePushed {
 		var n int
-		err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM events WHERE seq > ? AND `+pushedWhere+ew,
+		err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM events WHERE seq > ? AND `+pushed+ew,
 			append([]any{seq}, eargs...)...).Scan(&n)
 		return n, err
+	}
+	loud := `(` + pushedWhere + ` AND level IN ('time-sensitive', 'critical'))`
+	incOn, checkOn := "", ""
+	if on {
+		loud = `(events.badge IS NOT 'off' AND (events.badge IS 'on' OR ` + loud + `))`
+		incOn = ` AND i.badge IS NOT 'off'`
+		checkOn = ` AND NOT EXISTS (SELECT 1 FROM incidents ci WHERE ci.key = '` + checkin.IncidentPrefix +
+			`' || c.key AND ci.badge IS 'off')`
 	}
 	iw, iargs := projectWhere("i.project", projects)
 	if iw != "" {
@@ -49,11 +68,10 @@ func (s *Store) Badge(ctx context.Context, scope string, projects []string, seq 
 	}
 	const prefix = `'` + checkin.IncidentPrefix + `'`
 	q := `SELECT
-	  (SELECT count(*) FROM incidents i WHERE i.state = 'open'` + iw + `)
-	+ (SELECT count(*) FROM checkins c WHERE c.state = 'down'` + cw + `
+	  (SELECT count(*) FROM incidents i WHERE i.state = 'open'` + incOn + iw + `)
+	+ (SELECT count(*) FROM checkins c WHERE c.state = 'down'` + checkOn + cw + `
 	    AND NOT EXISTS (SELECT 1 FROM incidents i WHERE i.key = ` + prefix + ` || c.key AND i.state = 'open'))
-	+ (SELECT count(*) FROM events WHERE seq > ? AND ` + pushedWhere + ew + `
-	    AND level IN ('time-sensitive', 'critical')
+	+ (SELECT count(*) FROM events WHERE seq > ? AND ` + loud + ew + `
 	    AND NOT EXISTS (SELECT 1 FROM incidents i WHERE i.state = 'open'
 	      AND (i.key = events.key OR i.key = ` + prefix + ` || events.key))
 	    AND NOT (kind = 'checkin' AND EXISTS (SELECT 1 FROM checkins c WHERE c.key = events.key AND c.state = 'down')))`

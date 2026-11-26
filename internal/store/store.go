@@ -44,6 +44,8 @@ type Store struct {
 	flap atomic.Pointer[func() FlapPolicy]
 	// onChange gets the domains of every committed write; OnChange sets it.
 	onChange atomic.Pointer[func(...Domain)]
+	// deliveryOn is delivery.enabled for the badge; SetDeliveryOn sets it.
+	deliveryOn atomic.Pointer[func() bool]
 }
 
 // Open opens or creates the database at path and applies migrations.
@@ -123,14 +125,14 @@ func (s *Store) Insert(ctx context.Context, ev NewEvent) (Record, bool, error) {
 		return r, false, err
 	}
 	ev.flap = s.FlapPolicy()
-	r, err := insert(ctx, tx, ev)
+	r, first, err := insert(ctx, tx, ev)
 	if err != nil {
 		return Record{}, false, err
 	}
 	if err := tx.Commit(); err != nil {
 		return Record{}, false, err
 	}
-	s.changed(eventDomains(&ev.Typed)...)
+	s.changed(eventDomains(&ev.Typed, first)...)
 	return r, true, nil
 }
 
@@ -183,7 +185,8 @@ func (s *Store) Import(ctx context.Context, origin, originID string, ev NewEvent
 	if _, found, err := s.findDedup(ctx, tx, ev); err != nil || found {
 		return false, err
 	}
-	if _, err := insert(ctx, tx, ev); err != nil {
+	_, first, err := insert(ctx, tx, ev)
+	if err != nil {
 		return false, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO imports (origin, origin_id, event_id) VALUES (?, ?, ?)`,
@@ -193,20 +196,21 @@ func (s *Store) Import(ctx context.Context, origin, originID string, ev NewEvent
 	if err := tx.Commit(); err != nil {
 		return false, err
 	}
-	s.changed(eventDomains(&ev.Typed)...)
+	s.changed(eventDomains(&ev.Typed, first)...)
 	return true, nil
 }
 
-func insert(ctx context.Context, tx *sql.Tx, ev NewEvent) (Record, error) {
+// insert stores ev in tx. It reports whether ev's source was first seen.
+func insert(ctx context.Context, tx *sql.Tx, ev NewEvent) (Record, bool, error) {
 	in := ev.Typed
 	// The server types every input before it stores it (rules.Type), so a
 	// stored event always has a kind.
 	if in.Kind == nil {
-		return Record{}, errors.New("store: event has no kind")
+		return Record{}, false, errors.New("store: event has no kind")
 	}
 	if in.Attachments != nil {
 		if err := linkAttachments(ctx, tx, ev.ID, *in.Attachments); err != nil {
-			return Record{}, err
+			return Record{}, false, err
 		}
 	}
 	// An event with a key and no project files under its key's project,
@@ -215,7 +219,7 @@ func insert(ctx context.Context, tx *sql.Tx, ev NewEvent) (Record, error) {
 	if in.Project == nil && in.Key != nil {
 		p, err := keyProject(ctx, tx, *in.Kind, *in.Key)
 		if err != nil {
-			return Record{}, err
+			return Record{}, false, err
 		}
 		if p != "" {
 			in.Project = &p
@@ -229,13 +233,13 @@ func insert(ctx context.Context, tx *sql.Tx, ev NewEvent) (Record, error) {
 	if *in.Kind == api.KindIncident && in.Key != nil {
 		var err error
 		if inc, err = nextIncident(ctx, tx, ev); err != nil {
-			return Record{}, err
+			return Record{}, false, err
 		}
 		ev.Fields["incident"] = inc.snapshot()
 	}
 	raw, err := json.Marshal(ev.Fields)
 	if err != nil {
-		return Record{}, err
+		return Record{}, false, err
 	}
 	ts := ev.ReceivedAt
 	if in.Ts != nil {
@@ -246,35 +250,52 @@ func insert(ctx context.Context, tx *sql.Tx, ev NewEvent) (Record, error) {
 		b, _ := json.Marshal(*in.Tags)
 		tags = string(b)
 	}
+	// The delivery stamp's outcome and badge choice, for the hidden filter,
+	// the digest and the badge. An import keeps the stamp it carries.
+	var deliverAs, badge any
+	if st, ok := stampOf(ev.Fields); ok {
+		deliverAs, badge = st.As, badgeCol(st.Badge)
+	}
 	res, err := tx.ExecContext(ctx, `INSERT INTO events
-		(id, received_at, ts, source, host, kind, key, action, level, tags, dedup, project, event)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(id, received_at, ts, source, host, kind, key, action, level, tags, dedup, project, event, deliver_as, badge)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ev.ID, ev.ReceivedAt.UTC().Format(timeFormat), ts.UTC().Format(timeFormat),
-		in.Source, in.Host, string(*in.Kind), in.Key, in.Action, in.Level, tags, in.Dedup, in.Project, string(raw))
+		in.Source, in.Host, string(*in.Kind), in.Key, in.Action, in.Level, tags, in.Dedup, in.Project, string(raw),
+		deliverAs, badge)
 	if err != nil {
-		return Record{}, err
+		return Record{}, false, err
 	}
 	seq, err := res.LastInsertId()
 	if err != nil {
-		return Record{}, err
+		return Record{}, false, err
 	}
 	if in.Title != nil || in.Summary != nil || in.Body != nil {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO events_fts (rowid, title, summary, body) VALUES (?, ?, ?, ?)`,
 			seq, in.Title, in.Summary, in.Body); err != nil {
-			return Record{}, err
+			return Record{}, false, err
 		}
 	}
 	if err := derive(ctx, tx, ev, inc); err != nil {
-		return Record{}, err
+		return Record{}, false, err
 	}
 	if in.Project != nil && in.Key != nil {
 		if t := derivedTable(*in.Kind); t != "" {
 			if _, err := tx.ExecContext(ctx, `UPDATE `+t+` SET project = ? WHERE key = ?`, *in.Project, *in.Key); err != nil {
-				return Record{}, err
+				return Record{}, false, err
 			}
 		}
 	}
-	return Record{Seq: seq, ID: ev.ID, Event: raw}, nil
+	// An incident takes the badge choice of its latest event.
+	if inc != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE incidents SET badge = ? WHERE key = ?`, badge, *in.Key); err != nil {
+			return Record{}, false, err
+		}
+	}
+	first, err := noteSource(ctx, tx, in.Source, ev.ReceivedAt)
+	if err != nil {
+		return Record{}, false, err
+	}
+	return Record{Seq: seq, ID: ev.ID, Event: raw}, first, nil
 }
 
 // derivedTable is the state table that keeps the events of kind by key, or
@@ -412,7 +433,22 @@ type Filter struct {
 	// Levels keeps events at any of these levels. An event with no level
 	// is active.
 	Levels []string
+	// Hidden is HiddenExclude to leave out the events a delivery setting
+	// filed for the digest or dropped, or HiddenOnly to keep only them.
+	// Empty keeps both.
+	Hidden string
 }
+
+// The Filter.Hidden values.
+const (
+	HiddenExclude = "exclude"
+	HiddenOnly    = "only"
+)
+
+// HiddenWhere is the SQL condition for an event a delivery setting hid
+// from the inbox: filed for the digest or dropped. An event stored without
+// a stamp has deliver_as NULL and is shown.
+const HiddenWhere = `deliver_as IN ('digest', 'drop')`
 
 // RoutineWhere is the SQL form of routine.Is: progress and status events,
 // and check-ins that do not push by the push table (push.Decide). The
@@ -489,6 +525,12 @@ func (s *Store) List(ctx context.Context, f Filter) ([]Record, error) {
 		where = append(where, "NOT "+RoutineWhere)
 	case routine.Only:
 		where = append(where, RoutineWhere)
+	}
+	switch f.Hidden {
+	case HiddenExclude:
+		where = append(where, "NOT coalesce("+HiddenWhere+", 0)")
+	case HiddenOnly:
+		where = append(where, HiddenWhere)
 	}
 	if q := ftsQuery(f.Q); q != "" {
 		where = append(where, "seq IN (SELECT rowid FROM events_fts WHERE events_fts MATCH ?)")
