@@ -176,6 +176,20 @@ type Project struct {
 	Events int    `json:"events"`
 }
 
+// Filed is one item of the Filed section: the events of one key, or of one
+// source and title, that a delivery setting filed for the digest.
+type Filed struct {
+	Key     string    `json:"key,omitempty"`
+	Title   string    `json:"title"`
+	Summary string    `json:"summary,omitempty"`
+	Source  string    `json:"source"`
+	Count   int       `json:"count"`
+	FirstAt time.Time `json:"first_at"`
+	LastAt  time.Time `json:"last_at"`
+	// EventID is the newest event.
+	EventID string `json:"event_id"`
+}
+
 // Digest is one built digest.
 type Digest struct {
 	// Day is the local day it is for, YYYY-MM-DD in TZ.
@@ -194,6 +208,9 @@ type Digest struct {
 	Finished  []Job     `json:"finished"`
 	Held      Held      `json:"held"`
 	Projects  []Project `json:"projects"`
+	// Filed lists the events a delivery setting filed for the digest, one
+	// item per key, else per source and title, newest first.
+	Filed []Filed `json:"filed"`
 	// Prose is the summary paragraph from the Summary hook; empty without
 	// one.
 	Prose string `json:"prose,omitempty"`
@@ -335,6 +352,14 @@ func (d *Digest) Fields(dedup string) map[string]any {
 			"finished": len(d.Finished), "held": len(d.Held.Open),
 		}}},
 	}
+	if len(d.Filed) > 0 {
+		n := 0
+		for _, x := range d.Filed {
+			n += x.Count
+		}
+		own := f["details"].(map[string]any)["heraldo"].(map[string]any)["digest"].(map[string]any)
+		own["filed"], own["filed_items"] = n, len(d.Filed)
+	}
 	if dedup != "" {
 		f["dedup"] = dedup
 	}
@@ -388,6 +413,31 @@ func (h eventHead) headline() string {
 	return h.Key
 }
 
+// fileItems groups filed events, oldest first, into one item per key, else
+// per source and title, newest item first.
+func fileItems(evs []json.RawMessage) []Filed {
+	out := []Filed{}
+	at := map[string]int{}
+	for _, raw := range evs {
+		h := head(raw)
+		g := "s\x00" + strings.ToLower(h.Source) + "\x00" + h.Title
+		if h.Key != "" {
+			g = "k\x00" + h.Key
+		}
+		i, ok := at[g]
+		if !ok {
+			at[g] = len(out)
+			out = append(out, Filed{Key: h.Key, Source: h.Source, FirstAt: h.ReceivedAt.UTC()})
+			i = len(out) - 1
+		}
+		f := &out[i]
+		f.Count++
+		f.Title, f.Summary, f.LastAt, f.EventID = h.headline(), h.Summary, h.ReceivedAt.UTC(), h.ID
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].LastAt.After(out[j].LastAt) })
+	return out
+}
+
 func (r *Runner) build(ctx context.Context, until time.Time, s Schedule) (*Digest, error) {
 	st := r.cfg.Store
 	if st == nil {
@@ -401,7 +451,7 @@ func (r *Runner) build(ctx context.Context, until time.Time, s Schedule) (*Diges
 	d := &Digest{Day: day, TZ: s.Loc.String(), Since: since.UTC(), Until: until.UTC(),
 		Incidents: Incidents{Resolved: []Incident{}, Open: []Incident{}, Stale: []Incident{}},
 		Checkins:  Checks{Items: []Check{}}, Finished: []Job{}, Held: Held{Open: []HeldEntry{}},
-		Projects: []Project{}}
+		Projects: []Project{}, Filed: []Filed{}}
 	in := func(t time.Time) bool { return !t.Before(since) && t.Before(until) }
 
 	incs, err := st.DigestIncidents(ctx, since)
@@ -492,6 +542,12 @@ func (r *Runner) build(ctx context.Context, until time.Time, s Schedule) (*Diges
 	for _, p := range pcs {
 		d.Projects = append(d.Projects, Project{Name: p.Name, Events: int(p.Events)})
 	}
+
+	filed, err := st.FiledEvents(ctx, since, until)
+	if err != nil {
+		return nil, fmt.Errorf("filed: %w", err)
+	}
+	d.Filed = fileItems(filed)
 
 	d.Level = "passive"
 	if d.attention() {
@@ -655,6 +711,28 @@ func (d *Digest) render(loc *time.Location) string {
 		lines = append(lines, h.Title+", held since "+at(h.At)+" ("+h.ID+")")
 	}
 	list(lines)
+
+	if len(d.Filed) > 0 {
+		n := 0
+		for _, f := range d.Filed {
+			n += f.Count
+		}
+		fmt.Fprintf(&b, "\n### Filed\n%s filed for the digest.\n", plural(n, "event", "events"))
+		lines = nil
+		for _, f := range d.Filed {
+			l := f.Title
+			if f.Count > 1 {
+				l += fmt.Sprintf(" x%d, %s to %s", f.Count, at(f.FirstAt), at(f.LastAt))
+			} else {
+				l += ", " + at(f.LastAt)
+			}
+			if f.Summary != "" && f.Summary != f.Title {
+				l += ": " + f.Summary
+			}
+			lines = append(lines, l+" ("+f.Source+")")
+		}
+		list(lines)
+	}
 
 	b.WriteString("\n### Projects\n")
 	if len(d.Projects) == 0 {

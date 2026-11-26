@@ -278,6 +278,31 @@ func TestBadgeIncidentsAndChecks(t *testing.T) {
 	}
 }
 
+// The digest's Filed list skips a held or store-only original: its
+// forward, stamped too, stands for it.
+func TestFiledEventsSkipHeld(t *testing.T) {
+	ctx := context.Background()
+	s := open(t, filepath.Join(t.TempDir(), "h.db"))
+	defer s.Close()
+	at := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	held := stamped("01K3ZX0000AAAAAAAAAAAAAD01", "p", api.LevelPassive, delivery.Digest, delivery.BadgeAuto, at)
+	held.Fields["hold"] = map[string]any{"state": "held", "forwarded": false}
+	only := stamped("01K3ZX0000AAAAAAAAAAAAAD02", "p", api.LevelPassive, delivery.Digest, delivery.BadgeAuto, at)
+	only.Fields["hold"] = map[string]any{"store_only": true}
+	fwd := stamped("01K3ZX0000AAAAAAAAAAAAAD03", "p", api.LevelPassive, delivery.Digest, delivery.BadgeAuto, at)
+	fwd.Fields["hold"] = map[string]any{"state": "forward"}
+	silent := stamped("01K3ZX0000AAAAAAAAAAAAAD04", "p", api.LevelPassive, delivery.Silent, delivery.BadgeAuto, at)
+	for _, ev := range []NewEvent{held, only, fwd, silent} {
+		if _, _, err := s.Insert(ctx, ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	evs, err := s.FiledEvents(ctx, at.Add(-time.Hour), at.Add(time.Hour))
+	if err != nil || len(evs) != 1 || !strings.Contains(string(evs[0]), "AD03") {
+		t.Fatalf("%d %v %s", len(evs), err, evs)
+	}
+}
+
 func TestDeliveryRowsCRUD(t *testing.T) {
 	ctx := context.Background()
 	s := open(t, filepath.Join(t.TempDir(), "h.db"))

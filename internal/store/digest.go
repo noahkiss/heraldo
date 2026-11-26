@@ -113,6 +113,32 @@ func (s *Store) EndedProgress(ctx context.Context, since, until time.Time) ([]js
 	return out, rows.Err()
 }
 
+// FiledEvents returns the events a delivery setting filed for the digest
+// (deliver_as digest) received in [since, until), oldest first. A held or
+// store-only original is left out: its forward, stamped too, stands for it.
+func (s *Store) FiledEvents(ctx context.Context, since, until time.Time) ([]json.RawMessage, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT event FROM events
+		WHERE deliver_as = 'digest' AND received_at >= ? AND received_at < ?
+		AND json_extract(event, '$.hold.store_only') IS NOT 1
+		AND NOT (coalesce(json_extract(event, '$.hold.state'), '') = 'held'
+		  AND json_extract(event, '$.hold.forwarded') IS NOT 1)
+		ORDER BY seq`,
+		since.UTC().Format(timeFormat), until.UTC().Format(timeFormat))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []json.RawMessage
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		out = append(out, json.RawMessage(raw))
+	}
+	return out, rows.Err()
+}
+
 // CheckFailures counts, per check key, the failed runs received in
 // [since, until): action fail, or a run with an exit code other than 0.
 func (s *Store) CheckFailures(ctx context.Context, since, until time.Time) (map[string]int, error) {
