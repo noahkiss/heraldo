@@ -14,7 +14,7 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 |---|---|---|
 | `GET /healthz` | Liveness, with `db`, the event count, `llm` (`off`, `on` or `degraded`; see "LLM") and, with push on, `unsent` ("Push"). 503 when the database does not answer. No auth. | served |
 | `POST /v1/events` | Stores one `EventInput`. Returns the stored `Event` (201), or the first event for a repeated `dedup` (200). | served |
-| `GET /v1/events?after=&before=&order=&limit=&source=&kind=&host=&key=&tag=&q=&hold=&project=&routine=&level=&view=` | Lists events after a cursor, in arrival order. `q` is full-text search over title, summary and body. `order=desc` lists newest first. `hold` keeps events whose `hold.state` matches. `project` takes a list (see "Projects"). `routine=exclude` or `only` filters routine events (see "Routine events"). `level` takes a list of levels. `view` applies a saved view (see "Saved views"). | served |
+| `GET /v1/events?after=&before=&order=&limit=&source=&kind=&host=&key=&tag=&q=&hold=&project=&routine=&hidden=&level=&view=` | Lists events after a cursor, in arrival order. `q` is full-text search over title, summary and body. `order=desc` lists newest first. `hold` keeps events whose `hold.state` matches. `project` takes a list (see "Projects"). `routine=exclude` or `only` filters routine events (see "Routine events"). `hidden=exclude` or `only` filters the events a delivery setting filed for the digest or dropped (see "Delivery settings"). `level` takes a list of levels. `view` applies a saved view (see "Saved views"). | served |
 | `GET /v1/events/{id}` | Returns one event with its full body and its `attachment_info`. | served |
 | `GET /v1/events/{id}/why` | Why the event did or did not push: one row per push pipeline stage. See "Why it pushed". | served |
 | `GET /v1/send?source=&kind=&...` | Same as `POST /v1/events` for GET-only clients. Scalar fields and `tags` (repeat the parameter) only. | served |
@@ -43,6 +43,9 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `POST`, `DELETE`, `GET /live-activity/{id}`, `GET /link`, `POST /notify-json/{id}` | Notify! compatibility, for senders written for Notify!. Write token as `?token=`. | served |
 | `GET /v1/mutes`, `POST /v1/mutes`, `DELETE /v1/mutes/{id}` | Mutes in force; mute a source, key or project for a while; end a mute. | served |
 | `GET /v1/views`, `POST /v1/views`, `GET`, `PUT`, `DELETE /v1/views/{id}` | Saved views: list (read), save, read one, replace, delete (write). See "Saved views". | served |
+| `GET /v1/delivery`, `POST /v1/delivery`, `GET`, `PUT`, `DELETE /v1/delivery/{id}` | Delivery settings: list and read (read), add, replace, delete (admin). See "Delivery settings". | served |
+| `POST /v1/delivery/preview` | What proposed rows would change over the stored events of the last days (read). Stores nothing. | served |
+| `GET /v1/sources`, `POST /v1/sources/{source}/review` | Every source with its counts (read); mark a new source reviewed (admin). | served |
 | `GET /v1/icons`, `GET`, `PUT`, `DELETE /v1/icons/{name}` | The icon registry: list, fetch an image, store one, remove one. | served |
 | `GET /v1/guidance?scope=`, `POST /v1/guidance`, `GET`, `PUT`, `DELETE /v1/guidance/{id}` | Guidance for the LLM: list and read (read), add, edit, delete (write). See "LLM". | served |
 | `GET /v1/llm/status`, `POST /v1/llm/test` | The LLM's mode, circuit, budget and last error (read); a trivial question to the endpoint (admin). See "LLM". | served |
@@ -51,6 +54,7 @@ yet. The spec marks it `x-stage: <n>`. Push notifications go out only with
 | `POST /v1/attachments`, `GET /v1/attachments/{id}` | Store a file an event can name (write), and fetch its bytes (read). See "Attachments". | served |
 | `GET /v1/standby/devices` | Every device with its full push tokens, for a standby. Admin, or a `read` token with the `standby` capability. See "Standby". | served |
 | `POST /v1/standby/import` | Stores the events a standby stored, by their ids, and pushes none of them. Same token as above. | served |
+| `GET /v1/standby/delivery` | The delivery settings, `delivery.enabled`, `delivery.new_source_level` and the sources' review state, for a standby. Same token as above. | served |
 | `POST /v1/mcp` | The MCP tools for coding agents, over streamable HTTP, with `HERALDO_MCP_HTTP=on`; 404 when off. Any token scope; the scope picks the tools. See [mcp.md](mcp.md#over-http). | served |
 
 Auth:
@@ -195,6 +199,15 @@ so every device shows the same number.
 - `badge.projects`, a list, narrows any scope to those projects. Empty means
   every project.
 - The Inbox's own unread count (`unread`) does not follow `badge.scope`.
+- With `delivery.enabled` on, the delivery settings decide first ("Delivery
+  settings"). An event or incident whose row says `badge: on` counts, an
+  unread one or an open one, even when it is silent. One whose row says
+  `off` never counts, incidents and `time-sensitive` events included. A down
+  check counts unless its incident (`checkin:<slug>`) is `off`. `auto`
+  leaves it to `badge.scope` as above. `none` counts nothing whatever the
+  rows say. With `delivery.enabled` off, the rows do nothing here.
+- A `badge: on` event that does not push changes the server's `badge` at
+  once; the iOS icon shows it at the next push or when the app opens.
 
 Event stream:
 
@@ -231,8 +244,8 @@ Revisions:
   | Domain | Read call | Bumped by |
   |---|---|---|
   | `events` | `GET /v1/events` (new events) | every stored event; `backfill-projects` |
-  | `cursor` | `GET /v1/cursors/{name}` | a cursor that moved; every stored event (the unread count); a check's state and the settings (the badge) |
-  | `state` | `GET /v1/state` | every stored event; a cursor that moved, a check's state, a mute and the settings (the badge); an activity that ended; an incident whose flap settled or that turned stale |
+  | `cursor` | `GET /v1/cursors/{name}` | a cursor that moved; every stored event (the unread count); a check's state, the settings and a delivery setting changed (the badge) |
+  | `state` | `GET /v1/state` | every stored event; a cursor that moved, a check's state, a mute, the settings and a delivery setting changed (the badge); an activity that ended; an incident whose flap settled or that turned stale |
   | `checks` | `GET /v1/checkins` | a check-in event, a check's incident, a check created, changed, paused, resumed or judged by the scheduler, a ping key |
   | `projects` | `GET /v1/projects` | every stored event |
   | `views` | `GET /v1/views` | a view saved, replaced or deleted |
@@ -241,6 +254,7 @@ Revisions:
   | `llm` | `GET /v1/llm/status` | an LLM call; a failure, the circuit, the shadow until midnight; the settings |
   | `mutes` | `GET /v1/mutes` | a mute made, ended, run out, or a snooze that reminded |
   | `settings` | `GET /v1/settings` | a setting stored or removed |
+  | `delivery` | `GET /v1/delivery`, `GET /v1/sources` | a delivery setting added, replaced or deleted; a source first seen or reviewed; the settings |
 
 - Some answers change with time alone: a mute runs out, a flap settles, an
   incident turns stale, a closed hold entry leaves the list. The server looks
@@ -390,7 +404,11 @@ Which events push, and how loud:
 
 - Before the table: a held event (`hold.state` is `held` and
   `hold.forwarded` is not `true`), a store-only event
-  (`hold.store_only`), and an event past `expires_at` never push.
+  (`hold.store_only`), and an event past `expires_at` never push. Nor does
+  an event a delivery setting filed for the digest or dropped
+  (`deliver.as` `digest` or `drop`), not even as a passive replace. A
+  silenced event (`deliver.as` `silent`) is stored `passive`, so the table
+  keeps it in the inbox ("Delivery settings").
 - After the table: a mute ("Mutes") or an inhibit rule ("Inhibit rules") holds
   back an event that would push. `delivery` records `skipped` per device, with
   the reason in `error`, such as `muted by mute_01J...` or
@@ -1143,6 +1161,7 @@ The body has one section each for:
 | Check-ins | `N/N ok` over the checks that are not paused; the checks down or late, and those with failed runs in the window. |
 | Finished | Progress keys that ended in the window: jobs and prints. |
 | Held | Entries the hold still keeps back, and how many triage closed. |
+| Filed | Only when a delivery setting filed events for the digest (`deliver.as` `digest`) in the window: one line per key, else per source and title, with the newest title and summary, the count and the first and last time. A held or store-only original is left out, so a held alert and its forward list once. |
 | Projects | Events in the window per project, routine events and digests left out. |
 
 Each list in the body shows at most 10 items. `GET /v1/digest/preview`
@@ -1236,7 +1255,7 @@ take `events_search view=`.
 | Field | Meaning |
 |---|---|
 | `name` | 1 to 64 bytes, unique without regard to case. It must not start with `view_`. |
-| `filter` | A `ViewFilter`: `project` (a list; `-` for none; aliases match), `source`, `kind`, `host`, `tag`, `level` (a list), `q` (full text) and `routine` (`exclude` or `only`; absent keeps both). Every field is optional; fields combine with AND. |
+| `filter` | A `ViewFilter`: `project` (a list; `-` for none; aliases match), `source`, `kind`, `host`, `tag`, `level` (a list), `q` (full text), `routine` (`exclude` or `only`; absent keeps both) and `hidden` (`exclude` or `only`, the events a delivery setting filed for the digest or dropped; absent keeps both). Every field is optional; fields combine with AND. |
 | `bundle` | Optional: `{window, max_visible}`. See below. |
 | `position` | Sort order in the apps, low first. Default 0. |
 | `icon` | An SF Symbol name the apps show. |
@@ -1279,6 +1298,80 @@ A view with `bundle` folds a burst of its pushes into one notification. The
 - With the LLM on, the bundle notification can carry the decisions model's
   title and summary ("LLM", "Decisions"). The plain notification always goes
   out first.
+
+## Delivery settings
+
+Delivery settings are rows the owner keeps on the server. Each row matches
+events and says how they are delivered and whether they count toward the
+badge. Every client reads the same rows: the apps, the CLI and MCP. They act
+only while `delivery.enabled` is on (default off). Off, ingest, the push,
+the inbox and the badge are as if no row existed.
+
+| Field | Meaning |
+|---|---|
+| `match` | `source` (without regard to case), `tag` (any of the event's tags, without regard to case), `level` (a list; an event with no level is `active`, or the level a row filled), `kind`, `project` (aliases match), `rule` (the ingest rule that typed the event) and `key` (a key prefix; a check's incident is `checkin:<slug>`). Every field set must match; an empty match matches every event. |
+| `deliver` | `banner`, `silent`, `digest` or `drop`. Absent: no change. |
+| `badge` | `auto` (default: `badge.scope` decides), `on` or `off`. |
+| `default_level` | `passive` or `active`: the level of a matching event that carries none. A row with it may not match on `level`. |
+| `position` | Order, low first. The first matching row wins. |
+| `note` | Free text. |
+
+| `deliver` | Stored level | Pushes | Inbox (`hidden=exclude`) | Digest |
+|---|---|---|---|---|
+| `banner` | the event's own | as the push table says | listed | no |
+| `silent` | `passive` | no, except as the quiet replace of a visible push of its key | listed | no |
+| `digest` | `passive` | no | hidden | once per item, in "Filed" |
+| `drop` | `passive` | no | hidden | no |
+
+- The server decides once, at ingest, after the ingest rules typed the event,
+  and stamps the answer on the stored event as `deliver` ("Server fields").
+  The push, the badge, the inbox and the digest read the stamp; the push
+  trace's `delivery` stage names the row. A row change does not rewrite
+  stored events, except their badge (below).
+- A setting never raises a level. A rule's level may be lowered.
+- Floors: a setting never lowers or hides an incident event, an event at
+  `time-sensitive` or above, a failing check-in, or heraldo's own events.
+  The event keeps its level; the stamp says `as: banner`, `wanted` and
+  `refused` (the floor). The floors never apply to the badge: `badge: off`
+  takes an incident out of the badge.
+- `digest` acts as `silent` while `digest.enabled` is off; the stamp says
+  `wanted: digest`.
+- Routine events (passing check-ins, progress, status) get no stamp. A row
+  whose `kind` is `progress` or `status` is refused.
+- Refused too: a row that does nothing, and `badge: on` with `digest` or
+  `drop` (it would count events the inbox hides).
+- A level the event lacks: the first row with `default_level` that matches
+  fills it; else a new source gets `delivery.new_source_level`; else it is
+  `active`, as without settings. The floors guard a fill too. The stored
+  level changes only when the fill lowers it; the stamp says `filled`.
+- Sources: the server records each source's first and last event, without
+  regard to case. Every source stored before the delivery settings existed
+  is reviewed. A source first seen later is new until
+  `POST /v1/sources/{source}/review`; its stamp says `new_source: true`.
+- Badge: each event and incident keeps its badge choice in a column. A row
+  added, replaced or deleted sets the choice of the unread events (after the
+  `inbox` cursor) and the open incidents again, and bumps the `delivery`,
+  `cursor` and `state` revisions. See "Badge".
+- `GET /v1/delivery` (read) answers `enabled`, `new_source_level` and the
+  rows by position. `POST`, `PUT` and `DELETE` take an admin token; a
+  standby answers 409 ("Standby").
+- `POST /v1/delivery/preview` (read) takes `{settings, days, limit}`: rows
+  to try, in order. It runs them over the stored events of the last `days`
+  (default 30), each from its unstamped self (`level_was`, or no level when
+  `filled` is set), with every source known. It answers the counts per
+  outcome and per row, the events that join or leave the badge, and the
+  events that change. It stores nothing.
+- `GET /v1/sources` (read) lists every source, new ones first, with its
+  events in the last 30 days (routine left out) and how many of those
+  counted toward the badge (`badge_in`) and did not (`badge_out`).
+- `heraldo-server replay-delivery -settings <rows.json> [-keep <list.json>]
+  <events.jsonl>` runs rows over an export of `GET /v1/events` in memory.
+  It exits 1 when an event comes out louder, a keep-loud event (a
+  `[source, title]` pair or `{"id": ...}`) or a protected event is lowered
+  or hidden, an incident or keep-loud event leaves the badge without a row
+  that names it (by `source`, `key` or `rule`), or the rows-free run changes
+  anything.
+
 ## Settings
 
 Server settings switch features on and tune them. Every feature is off by
@@ -1341,6 +1434,8 @@ reaches a log. The text below uses `llm.token`; the others work the same way.
 |---|---|---|---|
 | `badge.projects` | list | `[]` | Projects the badge counts; empty counts every project. |
 | `badge.scope` | `attention`, `pushed`, `none` | `"attention"` | What the badge counts: attention (open incidents, down checks, unread time-sensitive and up), pushed (unread that pushed), or none. |
+| `delivery.enabled` | bool | `false` | Run the delivery settings at ingest, and let them decide the badge. |
+| `delivery.new_source_level` | `passive`, `active` | `"passive"` | The level of a new source's event that carries none, until the source is reviewed. |
 | `digest.at` | clock | `"07:30"` | When the digest is sent, HH:MM. |
 | `digest.enabled` | bool | `false` | Send a daily digest. |
 | `digest.prose` | bool | `false` | Lead the digest with a paragraph the LLM writes; needs llm.mode advise or enforce. |
@@ -1746,10 +1841,22 @@ to the primary; the primary never calls the standby.
 
 1. `GET /v1/standby/devices`. The standby replaces its device table with the
    answer, retired devices included. Apps register with the primary only.
-2. If the alert is open, the standby resolves it (see below).
-3. `POST /v1/standby/import` with every event the standby stored since the
+2. `GET /v1/standby/delivery`. The standby replaces its delivery settings
+   with the primary's, sets `delivery.enabled` and
+   `delivery.new_source_level` to the primary's values, and copies each
+   source's review state ("Delivery settings"). A key set by a flag or env
+   var on the standby stays as it is, logged. A primary from before delivery
+   settings answers 404, and the standby keeps what it has. A failed copy
+   never holds back the events.
+3. If the alert is open, the standby resolves it (see below).
+4. `POST /v1/standby/import` with every event the standby stored since the
    last import, oldest first, 100 per call. The standby remembers the last
    imported event in its database, so a restart sends nothing twice.
+
+The standby refuses delivery setting and source review writes with 409: the
+next round would overwrite them. Upgrade the primary before the standby: an
+event the standby stamped (`deliver`) is refused as not valid by a primary
+from before delivery settings.
 
 The standby accepts `POST /v1/events`, `GET /v1/send` and the pings from its
 own `write` tokens, types them with its own `HERALDO_RULES`, stores them and
@@ -1766,6 +1873,9 @@ The import is idempotent:
   to both servers is stored once.
 - Imported events are history. The primary never pushes them and never
   re-alerts them. Incidents and check-ins derive from them as from any event.
+- An imported event keeps the standby's `hold` and `deliver`. The primary
+  does not run its delivery settings again: the standby already pushed by
+  them.
 - An event that is not valid on the primary is logged there and counted as
   `rejected`. It does not block the events after it.
 
@@ -1791,7 +1901,7 @@ A script can post to the standby's `POST /v1/events` itself.
 
 - **`EventInput`** is what a sender posts. It is the schema root.
 - **`Event`** is what the read API returns: `$defs/Event` in the schema.
-- The server owns `id`, `received_at`, `cursor`, `hold`, `delivery`, `why`, `attachment_info` and `incident`. An
+- The server owns `id`, `received_at`, `cursor`, `hold`, `deliver`, `delivery`, `why`, `attachment_info` and `incident`. An
   input that sets any of them is rejected. `ts` stays the sender's; the server fills it with the
   arrival time when it is missing.
 
@@ -2086,6 +2196,7 @@ that, the check's config lives on the server. See "Check-ins".
 | `received_at` | When the server stored the event. |
 | `cursor` | The event's list cursor (see "Paging"). |
 | `hold` | Triage state. |
+| `deliver` | The delivery setting's decision at ingest: `as` (`banner`, `silent`, `digest`, `drop`), `badge` (`auto`, `on`, `off`), `by` (the row), `level_was`, and when they apply `wanted`, `refused`, `filled` and `new_source`. Missing when no setting applied. See "Delivery settings". |
 | `delivery` | Per-device outcome: `sent`, `failed`, or `skipped` (a mute or an inhibit rule held it back), with the level the push carried. See "Push". |
 | `why` | One line on the push decision, such as `pushed active to 2 devices`. See "Why it pushed". |
 | `attachment_info` | On an event with `attachments`: `{id, content_type, bytes}` for each, in order. See "Attachments". |

@@ -49,6 +49,10 @@ Three principles follow, and every feature is judged against them:
   mutes.
 - Saved views: named filters every client shares, with optional bundling
   that folds a burst of pushes into one notification.
+- Delivery settings: one server-side list that says, per source, tag, level
+  or ingest rule, whether an event is a banner, silent, filed for the digest
+  or dropped, and whether it counts toward the badge. Every client reads the
+  same list. Off by default.
 - A daily digest at a set time, and a flag on incidents open for days with
   no update. Both are off by default.
 - Attachments: screenshots, logs and PDFs stored with an event. The apps show
@@ -299,7 +303,7 @@ any `-wal` and `-shm` files left beside the old database first.
 | `heraldo show [--json \| --md] <id>` | Prints one event with its full body; `why`, one line on why it did or did not push; and an `attached:` line per attachment (type and size). `--md` prints the event as markdown to share, the same text as the apps' Share button, ending with its `heraldo://event/<id>` link. |
 | `heraldo why [--json] <id>` | Prints why an event did or did not push, one line per push stage: hold, expiry, push table, mutes, inhibit rules, delivery per device. See [docs/api.md](docs/api.md), "Why it pushed". |
 | `heraldo attachment get [-o file] <id>` | Writes an attachment's bytes to a new file, or to stdout. It never overwrites a file. |
-| `heraldo ls` | Lists the newest events (20 by default, oldest first). Filters: `--kind`, `--source`, `--host`, `--key`, `--tag`, `--project` (a comma-separated list; `-` for none), `-q` (full text). `--open` lists the incidents that are not resolved, with `(flapping)` on a key that flaps; `--open --stale` only those with no update for the server's `stale.after` (72h). Routine events (passing check-ins, progress, status) stay out unless `--routine` is given, or `--kind` or `--key` names them. `--view <name>` applies a saved view; other filters replace its fields, and the view's own routine filter applies. |
+| `heraldo ls` | Lists the newest events (20 by default, oldest first). Filters: `--kind`, `--source`, `--host`, `--key`, `--tag`, `--project` (a comma-separated list; `-` for none), `-q` (full text). `--open` lists the incidents that are not resolved, with `(flapping)` on a key that flaps; `--open --stale` only those with no update for the server's `stale.after` (72h). Routine events (passing check-ins, progress, status) stay out unless `--routine` is given, or `--kind` or `--key` names them. `--view <name>` applies a saved view; other filters replace its fields, and the view's own routine filter applies. `--hidden exclude` leaves out the events a delivery setting filed for the digest or dropped; `--hidden only` keeps only them. |
 | `heraldo held` | Lists events held for triage (`hold.state` is `held`). |
 | `heraldo hold` | Shows the alert hold's queue: mode, dead-man, and each entry. `--pending` lists open entries only. The call is a look, not a triage poll; `--poll` makes it a poll, for a triage job. |
 | `heraldo hold release --verdict V --title t --body b --tag t <id>...` | Closes held entries with one diagnosis. In mode `on` it stores one message. Needs `HERALDO_WRITE_TOKEN`. |
@@ -329,6 +333,10 @@ any `-wal` and `-shm` files left beside the old database first.
 | `heraldo guidance [ls]`, `add <scope> <text>`, `edit <id>`, `rm <id>` | Lists, adds, edits or removes guidance lines. A scope is `global`, `project:<p>`, `source:<s>` or `key:<regex>`. `edit` takes `--scope`, `--text`, `--enable` and `--disable`. Writes need `HERALDO_WRITE_TOKEN`. |
 | `heraldo settings [ls]`, `get <key>` | Lists the server settings, or prints one value. The source and any lock go to stderr. |
 | `heraldo settings set <key> <value>`, `unset <key>` | Stores a value, or puts the key back to its default. A secret key takes `-` and reads stdin, never argv. Needs `HERALDO_ADMIN_TOKEN`. |
+| `heraldo delivery [ls]` | Lists the delivery settings in order, and whether they are on. See [docs/api.md](docs/api.md#delivery-settings). |
+| `heraldo delivery add [flags]`, `edit <id> [flags]`, `rm <id>` | Adds, changes or removes a row. `--source`, `--tag`, `--level`, `--kind`, `--project`, `--rule` and `--key` match; `--deliver`, `--badge` and `--default-level` decide; `--position` and `--note`. Needs `HERALDO_ADMIN_TOKEN`. |
+| `heraldo delivery preview [--file rows.json] [--days 30]` | Shows what the server's rows, or the rows in a file, would change over the stored events: counts per outcome and row, badge changes, the changed events. Stores nothing. |
+| `heraldo sources [ls]`, `sources review <source>` | Lists every source, new ones first, with its 30-day count and how many counted toward the badge; `review` marks a new source reviewed (`HERALDO_ADMIN_TOKEN`). |
 
 Every list command takes `--json` and prints each event's stored JSON on one
 line.
@@ -342,7 +350,7 @@ Settings come from the environment first, then from an env file:
 | `HERALDO_URL` | The server root, such as `https://heraldo.example.net` |
 | `HERALDO_TOKEN` | A `read` token |
 | `HERALDO_WRITE_TOKEN` | A `write` token, for `ack`, `resolve`, changing checks and minting ping keys |
-| `HERALDO_ADMIN_TOKEN` | An `admin` token, for `settings set` and `unset`, and the MCP tool `settings_write`. Default: the write token. |
+| `HERALDO_ADMIN_TOKEN` | An `admin` token, for `settings set` and `unset`, the `delivery` and `sources review` writes, and the MCP tool `settings_write`. Default: the write token. |
 | `HERALDO_CURSOR` | The read cursor's name. Default: `inbox`, the cursor every client shares. Set another name for a separate cursor. |
 | `HERALDO_SOURCE` | The `source` of `ack` and `resolve` events. Default: `heraldo-cli`. |
 | `HERALDO_SEND_URL`, `APPRISE_URL` | `send`'s notify URL; the first one set wins |

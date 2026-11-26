@@ -62,6 +62,7 @@ heraldo mcp [--read-only]
 | `hold_act` | Release held entries as one diagnosis, or suppress them | write |
 | `views_read` | The saved views: filter and bundle | read |
 | `views_write` | Save a view (replacing one with the same name), or delete one | write |
+| `delivery_read` | The delivery settings: whether they are on, the rows in order; `sources: true` adds every source with its 30-day and badge counts | read |
 | `guidance_read` | The guidance lines that inform the LLM's wording and grouping: scope, text, enabled, version | read |
 | `guidance_write` | Add, edit or delete a guidance line | write |
 | `llm_status` | The LLM assistant: mode as set and in force, chat on or off, circuit, budget, last error | read |
@@ -80,6 +81,12 @@ not for, and which tool follows it. Two short notes on the newer ones:
   source's pushes into one notification (`bundle`). Not for: muting (`mute`).
 - `events_search` takes `view` (a saved view's name or id) and `level`. With
   `view`, the view's own routine filter applies unless `routine` is given.
+  `hidden: exclude` leaves out the events a delivery setting filed for the
+  digest or dropped, as the inbox does; `only` keeps only them.
+- `delivery_read`. Best for: why an event arrived silent, filed or dropped
+  (its `deliver` field names the row), or what counts toward the badge. Not
+  for: changing a row; the owner does that in the apps or with
+  `heraldo delivery`.
 - `digest_preview`. Best for: "what happened overnight", one call that sums
   up the window since the last digest. Not for: the state of one thing;
   `overview`, `checkin_read` or `events_search key=<key>` answer that.
