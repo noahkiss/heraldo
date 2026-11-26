@@ -37,6 +37,8 @@
 //	                                  backfill a notification catalogue
 //	heraldo-server replay-tee [-rules <file>] <dir>
 //	                                  run a catalogue through the rules, in memory
+//	heraldo-server replay-delivery [-settings <rows.json>] [-keep <pairs.json>] [-scope s] [-digest] [-v] <events.jsonl>
+//	                                  run delivery settings over an event export, in memory
 //	heraldo-server backfill-projects [-dry-run] [-rules <file>]
 //	                                  file stored events with no project
 //	heraldo-server backup <path>      online backup of the database to path
@@ -94,6 +96,12 @@ commands:
   replay-tee [-rules <file>] <dir>
                      run a catalogue through the rules file (default
                      $HERALDO_RULES) in memory and report what they classified
+  replay-delivery [-settings <rows.json>] [-keep <pairs.json>] [-scope s] [-digest] [-v] <events.jsonl>
+                     run delivery settings over events as GET /v1/events
+                     returns them, one per line, in memory; exit 1 when an
+                     event gets louder, a keep-loud event or a protected one
+                     is lowered, or an incident leaves the badge without a
+                     row that names it
   backfill-projects [-dry-run] [-rules <file>]
                      give the stored events with no project one, from the
                      rules file's projects map (default $HERALDO_RULES) and
@@ -137,6 +145,8 @@ func run(args []string, stdin io.Reader, stdout io.Writer, log *slog.Logger) err
 		return importTee(fs.Arg(0), *since, log)
 	case "replay-tee":
 		return replayTee(args, stdout)
+	case "replay-delivery":
+		return replayDelivery(args, stdout)
 	case "backfill-projects":
 		return backfillProjects(args, stdout)
 	case "backup":

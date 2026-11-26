@@ -8,7 +8,6 @@ import (
 	"io"
 	"maps"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/noahkiss/heraldo/api"
@@ -104,7 +103,7 @@ func (s *server) resolveDelivery(ctx context.Context, in *validate.Input, rule s
 
 // DeliveryJSON is a row as the API serves it.
 func DeliveryJSON(d delivery.Row) api.DeliverySetting {
-	out := api.DeliverySetting{Id: d.ID, Match: matchJSON(d.Match), Badge: api.DeliveryBadge(delivery.BadgeAuto),
+	out := api.DeliverySetting{Id: d.ID, Match: delivery.MatchJSON(d.Match), Badge: api.DeliveryBadge(delivery.BadgeAuto),
 		Position: d.Position, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt}
 	if d.Badge != "" {
 		out.Badge = api.DeliveryBadge(d.Badge)
@@ -129,7 +128,7 @@ func DeliveryJSON(d delivery.Row) api.DeliverySetting {
 // DeliveryRow is a row from the API as the store keeps it: a standby's
 // copy of its primary's row.
 func DeliveryRow(d api.DeliverySetting) delivery.Row {
-	out := delivery.Row{ID: d.Id, Match: matchFrom(d.Match), Badge: delivery.Badge(d.Badge), Position: d.Position,
+	out := delivery.Row{ID: d.Id, Match: delivery.MatchFrom(d.Match), Badge: delivery.Badge(d.Badge), Position: d.Position,
 		CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt}
 	if d.Deliver != nil {
 		out.Deliver = delivery.Outcome(*d.Deliver)
@@ -146,89 +145,6 @@ func DeliveryRow(d api.DeliverySetting) delivery.Row {
 	return out
 }
 
-func matchJSON(m delivery.Match) api.DeliveryMatch {
-	opt := func(v string) *string {
-		if v == "" {
-			return nil
-		}
-		return &v
-	}
-	out := api.DeliveryMatch{Source: opt(m.Source), Tag: opt(m.Tag), Project: opt(m.Project), Rule: opt(m.Rule),
-		Key: opt(m.Key)}
-	if m.Kind != "" {
-		k := m.Kind
-		out.Kind = &k
-	}
-	if len(m.Level) > 0 {
-		ls := append([]api.Level{}, m.Level...)
-		out.Level = &ls
-	}
-	return out
-}
-
-func matchFrom(m api.DeliveryMatch) delivery.Match {
-	val := func(p *string) string {
-		if p == nil {
-			return ""
-		}
-		return strings.TrimSpace(*p)
-	}
-	out := delivery.Match{Source: val(m.Source), Tag: val(m.Tag), Project: validate.FoldProject(val(m.Project)),
-		Rule: val(m.Rule), Key: val(m.Key)}
-	if m.Kind != nil {
-		out.Kind = *m.Kind
-	}
-	if m.Level != nil {
-		out.Level = append([]api.Level{}, *m.Level...)
-	}
-	return out
-}
-
-// rowFromInput checks in and returns the row it describes.
-func rowFromInput(in api.DeliverySettingInput) (delivery.Row, error) {
-	var d delivery.Row
-	if in.Match != nil {
-		d.Match = matchFrom(*in.Match)
-	}
-	for name, v := range map[string]struct {
-		s string
-		n int
-	}{"match.source": {d.Match.Source, 128}, "match.tag": {d.Match.Tag, 64}, "match.project": {d.Match.Project, 64},
-		"match.rule": {d.Match.Rule, 128}, "match.key": {d.Match.Key, 256}} {
-		if len(v.s) > v.n {
-			return d, fmt.Errorf("%s: at most %d bytes", name, v.n)
-		}
-	}
-	if len(d.Match.Level) > 4 {
-		return d, errors.New("match.level: at most 4 levels")
-	}
-	if in.Deliver != nil {
-		d.Deliver = delivery.Outcome(*in.Deliver)
-	}
-	if in.Badge != nil {
-		d.Badge = delivery.Badge(*in.Badge)
-	}
-	if in.DefaultLevel != nil {
-		d.DefaultLevel = api.Level(*in.DefaultLevel)
-	}
-	if in.Position != nil {
-		if *in.Position < 0 || *in.Position > 10000 {
-			return d, errors.New("position: want 0 to 10000")
-		}
-		d.Position = *in.Position
-	}
-	if in.Note != nil {
-		if len(*in.Note) > 256 {
-			return d, errors.New("note: at most 256 bytes")
-		}
-		d.Note = strings.TrimSpace(*in.Note)
-	}
-	if d.Badge == "" {
-		d.Badge = delivery.BadgeAuto
-	}
-	return d, d.Validate()
-}
-
 func (s *server) decodeDelivery(w http.ResponseWriter, r *http.Request) (delivery.Row, bool) {
 	var in api.DeliverySettingInput
 	dec := json.NewDecoder(io.LimitReader(r.Body, 16<<10))
@@ -237,7 +153,7 @@ func (s *server) decodeDelivery(w http.ResponseWriter, r *http.Request) (deliver
 		writeError(w, http.StatusBadRequest, "want a DeliverySettingInput: %v", err)
 		return delivery.Row{}, false
 	}
-	d, err := rowFromInput(in)
+	d, err := delivery.RowFromInput(in)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "%v", err)
 		return delivery.Row{}, false
@@ -502,7 +418,7 @@ func (s *server) previewDelivery(w http.ResponseWriter, r *http.Request) {
 	}
 	rows := make([]delivery.Row, 0, len(in.Settings))
 	for i, x := range in.Settings {
-		d, err := rowFromInput(x)
+		d, err := delivery.RowFromInput(x)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "settings[%d]: %v", i, err)
 			return
