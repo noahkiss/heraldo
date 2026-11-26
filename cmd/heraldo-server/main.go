@@ -316,7 +316,7 @@ func serve(flags map[string]string, log *slog.Logger) error {
 			log.Warn("standby: push is not on; this standby delivers nothing")
 		}
 		go standby.New(standby.Config{
-			PrimaryURL: cfg.PrimaryURL, Token: cfg.PrimaryToken, Store: st, Emit: h.Emit,
+			PrimaryURL: cfg.PrimaryURL, Token: cfg.PrimaryToken, Store: st, Emit: h.Emit, Delivery: h.MirrorDelivery,
 			Interval: cfg.StandbyInterval, DownAfter: cfg.PrimaryDownAfter, Logger: log,
 		}).Run(ctx)
 	} else {

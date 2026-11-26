@@ -4,6 +4,9 @@
 //   - copies the primary's devices, full push tokens included, so its own
 //     pusher reaches the same phones and Macs with its own copy of the APNs
 //     key;
+//   - copies the primary's delivery settings: the rows, delivery.enabled,
+//     delivery.new_source_level and the sources' review state, so a
+//     failover delivers as the primary does;
 //   - hands every event it stored back to the primary, which imports them by
 //     id and pushes none of them again;
 //   - raises one "primary unreachable" incident once the primary has not
@@ -65,6 +68,9 @@ type Config struct {
 	Store *store.Store
 	// Emit stores and pushes an event, as the server's Emit does.
 	Emit func(context.Context, map[string]any) error
+	// Delivery applies the primary's delivery settings, as the server's
+	// MirrorDelivery does; nil copies none.
+	Delivery func(context.Context, api.StandbyDelivery) error
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 	// Interval is the gap between ticks; 0 means DefaultInterval.
@@ -150,11 +156,38 @@ func (s *Standby) Tick(ctx context.Context) error {
 	if err := s.cfg.Store.MirrorDevices(ctx, ds); err != nil {
 		return fmt.Errorf("copy devices: %w", err)
 	}
+	// A failed copy of the delivery settings keeps the last copy and never
+	// holds back the events.
+	derr := s.copyDelivery(ctx)
 	if err := s.resolve(ctx, now); err != nil {
-		return err
+		return errors.Join(err, derr)
 	}
-	return s.handBack(ctx)
+	return errors.Join(s.handBack(ctx), derr)
 }
+
+// copyDelivery copies the primary's delivery settings: the rows, the two
+// scalar keys and the sources' review state. A primary from before
+// delivery settings answers 404; the standby keeps what it has.
+func (s *Standby) copyDelivery(ctx context.Context) error {
+	if s.cfg.Delivery == nil {
+		return nil
+	}
+	var d api.StandbyDelivery
+	err := s.call(ctx, http.MethodGet, "/v1/standby/delivery", nil, &d)
+	var nf notFound
+	if errors.As(err, &nf) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("copy delivery settings: %w", err)
+	}
+	return s.cfg.Delivery(ctx, d)
+}
+
+// notFound is a 404 from the primary.
+type notFound struct{ err error }
+
+func (n notFound) Error() string { return n.err.Error() }
 
 // raise opens the alert once the primary has been silent for DownAfter.
 func (s *Standby) raise(ctx context.Context, now time.Time) error {
@@ -267,7 +300,11 @@ func (s *Standby) call(ctx context.Context, method, path string, body, out any) 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		var e api.Error
 		_ = json.Unmarshal(raw, &e)
-		return fmt.Errorf("%s %s: HTTP %d: %s", method, path, resp.StatusCode, e.Error)
+		err := fmt.Errorf("%s %s: HTTP %d: %s", method, path, resp.StatusCode, e.Error)
+		if resp.StatusCode == http.StatusNotFound {
+			return notFound{err}
+		}
+		return err
 	}
 	return json.Unmarshal(raw, out)
 }

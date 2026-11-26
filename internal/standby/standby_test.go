@@ -31,6 +31,7 @@ const (
 	phoneTok   = "phone-read-token-for-tests"
 	senderTok  = "sender-write-token-for-tests"
 	standbyTok = "standby-token-for-tests"
+	adminTok   = "admin-token-for-tests"
 	topic      = "org.example.heraldo"
 	devToken   = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 )
@@ -160,9 +161,9 @@ func newRig(t *testing.T) *rig {
 	t.Helper()
 	c := &clock{t: time.Now().UTC().Truncate(time.Second)}
 	r := &rig{clock: c}
-	r.primary = newNode(t, c, fmt.Sprintf("phone read %s,sender write %s,standby read %s standby",
-		auth.Hash(phoneTok), auth.Hash(senderTok), auth.Hash(standbyTok)))
-	r.standby = newNode(t, c, fmt.Sprintf("sender write %s", auth.Hash(senderTok)))
+	r.primary = newNode(t, c, fmt.Sprintf("phone read %s,sender write %s,standby read %s standby,ops admin %s",
+		auth.Hash(phoneTok), auth.Hash(senderTok), auth.Hash(standbyTok), auth.Hash(adminTok)))
+	r.standby = newNode(t, c, fmt.Sprintf("sender write %s,phone read %s", auth.Hash(senderTok), auth.Hash(phoneTok)))
 	r.sb = r.newStandby()
 	// The phone registers with the primary only.
 	code, b := r.primary.do(t, http.MethodPost, "/v1/devices", phoneTok,
@@ -176,7 +177,8 @@ func newRig(t *testing.T) *rig {
 func (r *rig) newStandby() *standby.Standby {
 	return standby.New(standby.Config{
 		PrimaryURL: r.primary.srv.URL, Token: standbyTok, Store: r.standby.st, Emit: r.standby.h.Emit,
-		Now: r.clock.now, DownAfter: 10 * time.Minute, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Delivery: r.standby.h.MirrorDelivery,
+		Now:      r.clock.now, DownAfter: 10 * time.Minute, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		HTTP: &http.Client{Timeout: 5 * time.Second},
 	})
 }
