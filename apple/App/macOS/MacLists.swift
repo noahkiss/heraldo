@@ -21,6 +21,7 @@ struct MacContentList: View {
 
     private var title: String {
         switch state.sidebar {
+        case .home(.inbox) where state.inbox.filed: return "Filed"
         case .home(let h): return h.title
         case .project(let p): return p
         case .view: return state.savedView?.name ?? "View"

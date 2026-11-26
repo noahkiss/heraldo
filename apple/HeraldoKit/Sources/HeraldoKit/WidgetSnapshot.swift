@@ -57,7 +57,7 @@ public struct WidgetSnapshot: Codable, Equatable, Sendable {
         self.projects = projects
         var perProject: [String: Int] = [:]
         var recent: [Item] = []
-        for e in events where !e.isRoutine {
+        for e in events where !e.isRoutine && !e.isHidden {
             guard let p = e.project, perProject[p, default: 0] < Self.recentLimit else { continue }
             perProject[p, default: 0] += 1
             recent.append(Item(id: e.id, title: e.headline, project: p, date: e.date, level: e.level))

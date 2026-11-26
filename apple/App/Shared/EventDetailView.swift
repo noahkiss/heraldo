@@ -10,6 +10,8 @@ struct EventDetailView: View {
     @State private var acking = false
     @State private var ackError: String?
     @State private var trace: PushTrace?
+    /// The note of the delivery setting that stamped the event.
+    @State private var deliveryNote: String?
 
     var body: some View {
         ScrollView {
@@ -52,6 +54,9 @@ struct EventDetailView: View {
             if let fresh = try? await model.client().event(id: event.id) { event = fresh }
             // Only a server with the trace sends why; older ones answer 404.
             if event.why != nil { trace = try? await model.client().why(id: event.id) }
+            if let by = event.deliver?.by {
+                deliveryNote = (try? await model.client().deliverySetting(id: by))?.note
+            }
         }
         .toolbar {
             // Share out: the event as markdown, ending with its heraldo:// link.
@@ -160,6 +165,7 @@ struct EventDetailView: View {
             fact("Thread", event.thread)
             fact("Tags", event.tags?.joined(separator: ", "))
             fact("Hold", event.hold?.label)
+            fact("Delivery", event.deliver?.summary(note: deliveryNote))
             if let inc = event.incident {
                 fact("Incident", incidentLine(inc))
             }

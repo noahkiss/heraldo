@@ -18,6 +18,10 @@ final class InboxFeed {
     /// Routine events (passing check-ins, progress, status) stay out unless
     /// this is on, or the kind filter names their kind.
     var showRoutine = false
+    /// The Filed list: only the events a delivery setting filed for the
+    /// digest or dropped (`hidden=only`), from the server, never cached.
+    /// Not saved with the Inbox filter.
+    var filed = false
     /// A saved view's id: the server applies its filter, and the filters
     /// set here override the view's.
     var viewID: String?
@@ -33,11 +37,11 @@ final class InboxFeed {
     /// routine events, so showing them asks the server too.
     var filtering: Bool {
         !trimmedQuery.isEmpty || kind != nil || source != nil || hold != nil || project != nil || viewID != nil
-            || showRoutine
+            || showRoutine || filed
     }
 
     /// Whether a filter other than the project is set.
-    var hasMenuFilter: Bool { kind != nil || source != nil || hold != nil || showRoutine }
+    var hasMenuFilter: Bool { kind != nil || source != nil || hold != nil || showRoutine || filed }
 
     /// The routine filter for a server search: routine events stay out
     /// unless they are asked for, by the toggle or by the kind.
@@ -47,10 +51,18 @@ final class InboxFeed {
         return showRoutine || Event.isRoutineKind(kind) ? nil : .exclude
     }
 
+    /// The hidden filter for a server search: filed events stay out of
+    /// every list but Filed. A view keeps its own hidden filter, unless
+    /// Filed is on.
+    var hiddenFilter: EventQuery.Hidden? {
+        if filed { return .only }
+        return viewID == nil ? .exclude : nil
+    }
+
     /// Routine events stay out of the plain list: a check's pings live in
     /// its history on the Check-ins tab, and a Live Activity shows progress.
     func events(_ model: AppModel) -> [Event] {
-        let list = filtering ? (results ?? []) : model.cache.events
+        let list = filtering ? (results ?? []) : model.cache.events.filter { !$0.isHidden }
         return routineFilter == nil ? list : list.filter { !$0.isRoutine }
     }
 
@@ -62,7 +74,7 @@ final class InboxFeed {
     /// Changes whenever the list must be fetched again: the debounce key.
     var searchKey: SearchKey {
         SearchKey(query: query, kind: kind, source: source, hold: hold, project: project, showRoutine: showRoutine,
-                  viewID: viewID)
+                  filed: filed, viewID: viewID)
     }
 
     func clearMenuFilters() {
@@ -70,6 +82,7 @@ final class InboxFeed {
         source = nil
         hold = nil
         showRoutine = false
+        filed = false
     }
 
     func search(_ model: AppModel) async {
@@ -83,7 +96,8 @@ final class InboxFeed {
         let q = trimmedQuery
         do {
             let page = try await sync.search(q: q.isEmpty ? nil : q, kind: kind, source: source, hold: hold,
-                                             project: project, routine: routineFilter, view: viewID)
+                                             project: project, routine: routineFilter, view: viewID,
+                                             hidden: hiddenFilter)
             results = page.events
             resultsCursor = page.fetchedCount < sync.pageSize ? nil : page.nextCursor
             viewUnsupported = false
@@ -105,7 +119,7 @@ final class InboxFeed {
             do {
                 let page = try await sync.search(q: q.isEmpty ? nil : q, kind: kind, source: source, hold: hold,
                                                  project: project, routine: routineFilter, view: viewID,
-                                                 before: before)
+                                                 hidden: hiddenFilter, before: before)
                 results = (results ?? []) + page.events
                 resultsCursor = page.fetchedCount < sync.pageSize ? nil : page.nextCursor
             } catch {
@@ -123,6 +137,7 @@ final class InboxFeed {
         var hold: String?
         var project: String?
         var showRoutine: Bool
+        var filed: Bool
         var viewID: String?
     }
 
@@ -134,7 +149,10 @@ final class InboxFeed {
         if let kind { f.kind = kind }
         if let source { f.source = source }
         if !trimmedQuery.isEmpty { f.q = trimmedQuery }
-        if viewID == nil { f.routine = routineFilter }
+        if viewID == nil {
+            f.routine = routineFilter
+            f.hidden = hiddenFilter
+        }
         return f
     }
 }
@@ -197,6 +215,9 @@ struct InboxFilterMenu: View {
                 ForEach(model.cache.holdStates, id: \.self) { Text($0.capitalized).tag(String?.some($0)) }
             }
             Toggle("Show routine events", isOn: bind(\.showRoutine))
+            Toggle(isOn: $feed.filed) {
+                Label("Filed", systemImage: "archivebox")
+            }
             if model.viewsSupported {
                 Divider()
                 Button("Save as View…") { naming = true }

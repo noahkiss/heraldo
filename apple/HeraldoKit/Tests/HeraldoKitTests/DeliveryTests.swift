@@ -256,6 +256,16 @@ final class DeliveryTests: XCTestCase {
         XCTAssertEqual(String(decoding: try JSON.encoder.encode(f), as: UTF8.self), #"{"hidden":"only"}"#)
     }
 
+    func testWidgetSnapshotLeavesHiddenEventsOut() {
+        var shown = Event(id: "shown", source: "s", kind: "message", title: "Shown")
+        shown.project = "home"
+        var filed = Event(id: "filed", source: "s", kind: "message", title: "Filed")
+        filed.project = "home"
+        filed.deliver = DeliverStamp(applied: "digest", badge: "auto")
+        let snap = WidgetSnapshot(incidents: [], checks: [], projects: ["home"], events: [filed, shown])
+        XCTAssertEqual(snap.recent.map(\.id), ["shown"])
+    }
+
     // MARK: Fixtures
 
     static let mixedPage = """

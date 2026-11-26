@@ -18,7 +18,7 @@ struct InboxView: View {
     var body: some View {
         NavigationStack(path: $path) {
             list
-                .navigationTitle(model.views.first { $0.id == feed.viewID }?.name ?? "Inbox")
+                .navigationTitle(feed.filed ? "Filed" : model.views.first { $0.id == feed.viewID }?.name ?? "Inbox")
                 .navigationDestination(for: Event.self) { EventDetailView(event: $0) }
                 .searchable(text: $feed.query, prompt: "Search title and body")
                 .onSubmit(of: .search) { Task { await feed.search(model) } }
@@ -126,6 +126,9 @@ struct InboxEmptyView: View {
                                            description: Text("The server does not support views."))
                 } else if feed.searching {
                     ProgressView()
+                } else if feed.filed && feed.trimmedQuery.isEmpty {
+                    ContentUnavailableView("Nothing filed", systemImage: "archivebox",
+                                           description: Text("Events a delivery setting filed for the digest or dropped appear here."))
                 } else {
                     #if os(macOS)
                     if feed.trimmedQuery.isEmpty {
@@ -193,6 +196,11 @@ struct EventRow: View {
                 }
                 if let hold = event.hold, !hold.label.isEmpty {
                     Label(hold.label, systemImage: "tray.full")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if let d = event.deliver, d.isHidden {
+                    Label(d.outcome == .drop ? "Dropped" : "Filed for the digest",
+                          systemImage: d.outcome == .drop ? "trash" : "archivebox")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else if event.wasHeldBack {
