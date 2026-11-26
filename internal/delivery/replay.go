@@ -11,8 +11,9 @@ import (
 	"github.com/noahkiss/heraldo/internal/floor"
 )
 
-// Pair is a source and title: one line of a keep-loud list.
-type Pair struct{ Source, Title string }
+// Pair is one entry of a keep-loud list: an event id, or a source and a
+// title that every event with both matches.
+type Pair struct{ ID, Source, Title string }
 
 // ReplayEvent is one event's outcome in a replay.
 type ReplayEvent struct {
@@ -65,7 +66,11 @@ func Replay(evs []api.Event, rows []Row, keep []Pair, scope string, cfg Config) 
 	rep := ReplayReport{RowHits: map[string]int{}}
 	keepSet := map[Pair]bool{}
 	for _, p := range keep {
-		keepSet[Pair{strings.ToLower(p.Source), p.Title}] = true
+		if p.ID != "" {
+			keepSet[Pair{ID: p.ID}] = true
+		} else {
+			keepSet[Pair{Source: strings.ToLower(p.Source), Title: p.Title}] = true
+		}
 	}
 	byID := map[string]Row{}
 	for _, r := range rows {
@@ -95,7 +100,7 @@ func Replay(evs []api.Event, rows []Row, keep []Pair, scope string, cfg Config) 
 		res := Resolve(e, rows, false, cfg)
 		re := ReplayEvent{ID: ev.Id, Source: ev.Source, Title: title, Kind: ev.Kind, Before: before,
 			After: res.Effective, As: res.As(), BadgeBefore: DefaultBadge(e, before, scope),
-			BadgeAfter: InBadge(e, res, scope), Keep: keepSet[Pair{strings.ToLower(ev.Source), title}]}
+			BadgeAfter: InBadge(e, res, scope), Keep: keepSet[Pair{Source: strings.ToLower(ev.Source), Title: title}] || keepSet[Pair{ID: ev.Id}]}
 		re.PushedBefore = ev.Why != nil && pushedLoud.MatchString(*ev.Why)
 		var row Row
 		if res.Row >= 0 {

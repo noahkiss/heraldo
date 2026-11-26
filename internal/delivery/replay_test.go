@@ -42,7 +42,7 @@ func rowsOf(t *testing.T, js string) []Row {
 	return rows
 }
 
-var keepFaults = []Pair{{"Printer", "Nozzle clog"}, {"uptime", "web down"}}
+var keepFaults = []Pair{{Source: "Printer", Title: "Nozzle clog"}, {ID: "e5"}}
 
 func TestReplayIdentity(t *testing.T) {
 	rep := Replay(events(t), nil, keepFaults, ScopeAttention, cfg)

@@ -21,7 +21,7 @@ func replayDelivery(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("replay-delivery", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	rowsPath := fs.String("settings", "", "rows: a JSON list of DeliverySettingInput, or a GET /v1/delivery answer; none runs the identity check alone")
-	keepPath := fs.String("keep", "", "keep-loud list: a JSON list of [source, title, ...] lists")
+	keepPath := fs.String("keep", "", "keep-loud list: a JSON list of [source, title] lists or {\"id\": ...} objects")
 	scope := fs.String("scope", "attention", "badge.scope: attention, pushed or none")
 	digestOn := fs.Bool("digest", false, "run as if digest.enabled were on")
 	newLevel := fs.String("new-source-level", "passive", "delivery.new_source_level")
@@ -46,15 +46,8 @@ func replayDelivery(args []string, stdout io.Writer) error {
 		if err != nil {
 			return err
 		}
-		var list [][]string
-		if err := json.Unmarshal(raw, &list); err != nil {
-			return fmt.Errorf("%s: want a list of [source, title] lists: %w", *keepPath, err)
-		}
-		for i, p := range list {
-			if len(p) < 2 {
-				return fmt.Errorf("%s: entry %d: want [source, title]", *keepPath, i)
-			}
-			keep = append(keep, delivery.Pair{Source: p[0], Title: p[1]})
+		if keep, err = parseKeep(raw); err != nil {
+			return fmt.Errorf("%s: %w", *keepPath, err)
 		}
 	}
 	evs, err := readEvents(fs.Arg(0))
@@ -68,6 +61,32 @@ func replayDelivery(args []string, stdout io.Writer) error {
 		return fmt.Errorf("replay-delivery: %d problems", len(rep.Failures))
 	}
 	return nil
+}
+
+// parseKeep reads a keep-loud list: each entry a [source, title, ...] list,
+// or an object with id (one event) or source and title.
+func parseKeep(raw []byte) ([]delivery.Pair, error) {
+	var list []json.RawMessage
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, fmt.Errorf("want a list: %w", err)
+	}
+	out := make([]delivery.Pair, 0, len(list))
+	for i, x := range list {
+		var arr []string
+		if json.Unmarshal(x, &arr) == nil {
+			if len(arr) < 2 {
+				return nil, fmt.Errorf("entry %d: want [source, title]", i)
+			}
+			out = append(out, delivery.Pair{Source: arr[0], Title: arr[1]})
+			continue
+		}
+		var obj struct{ ID, Source, Title string }
+		if err := json.Unmarshal(x, &obj); err != nil || (obj.ID == "" && obj.Source == "") {
+			return nil, fmt.Errorf("entry %d: want [source, title], {\"id\": ...} or {\"source\": ..., \"title\": ...}", i)
+		}
+		out = append(out, delivery.Pair{ID: obj.ID, Source: obj.Source, Title: obj.Title})
+	}
+	return out, nil
 }
 
 // readEvents reads stored events, one JSON object per line.
