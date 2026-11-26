@@ -7,6 +7,12 @@
 #
 # The build number is the UTC time to the minute, so every upload is higher
 # than the last on any machine. MARKETING_VERSION stays in Names.xcconfig.
+#
+# After the upload it waits until App Store Connect has processed the build
+# (scripts/ascwait, so it needs Go). Exit 0 means the build is valid; a
+# rejected build prints Apple's errors and exits 1.
+#   TESTFLIGHT_WAIT_TIMEOUT  how long to wait, a Go duration (default 30m)
+#   TESTFLIGHT_NO_WAIT=1     stop after the upload; skips the wait
 set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)
 scheme=Heraldo
@@ -31,6 +37,17 @@ key="$tmp/AuthKey_$ASC_KEY_ID.p8"
 chmod 600 "$key"
 issuer=$(sh -c "$ASC_ISSUER_CMD") || die "ASC_ISSUER_CMD failed"
 [ -s "$key" ] && [ -n "$issuer" ] || die "empty API key or issuer ID"
+
+# Build the wait helper now: a failure after the upload would read as a
+# rejected build.
+wait_timeout=${TESTFLIGHT_WAIT_TIMEOUT:-30m}
+if [ "${TESTFLIGHT_NO_WAIT:-}" != 1 ]; then
+  printf '%s\n' "$wait_timeout" | grep -Eq '^([0-9]+(\.[0-9]+)?(h|m|s))+$' ||
+    die "TESTFLIGHT_WAIT_TIMEOUT=$wait_timeout is not a duration such as 30m or 1h"
+  command -v go >/dev/null || die "go not found; install Go or set TESTFLIGHT_NO_WAIT=1"
+  (cd "$here/.." && go build -o "$tmp/ascwait" ./apple/scripts/ascwait) ||
+    die "could not build scripts/ascwait"
+fi
 
 "$here/scripts/generate.sh"
 build=$(date -u +%Y%m%d%H%M)
@@ -85,9 +102,24 @@ if ! PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH" xcodebuild -exportArchive \
   die "upload failed; full log: $out/upload.log"
 fi
 grep -q 'Upload succeeded' "$out/upload.log" || die "no upload confirmation; see $out/upload.log"
+version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Info.plist")
+echo "uploaded $scheme $version ($build); App Store Connect is processing it"
+
 # The transfer succeeded, but App Store Connect can still reject the build
 # while processing it (for example ITMS-90626). A rejected build never shows
-# in the builds list; its errors are on the app's buildUploads endpoint and in
-# Apple's email.
-echo "uploaded $scheme $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Info.plist") ($build); App Store Connect is processing it"
-echo "not done until it shows in TestFlight: processing can still reject it; Apple emails the reason"
+# in the builds list; ascwait reads its state and errors from the app's
+# buildUploads endpoint.
+if [ "${TESTFLIGHT_NO_WAIT:-}" = 1 ]; then
+  echo "not done until it shows in TestFlight: processing can still reject it; Apple emails the reason"
+  exit 0
+fi
+bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")
+echo "waiting up to $wait_timeout for App Store Connect to process build $build"
+status=0
+"$tmp/ascwait" -key "$key" -key-id "$ASC_KEY_ID" -issuer "$issuer" \
+  -bundle-id "$bundle_id" -build "$build" -platform IOS -timeout "$wait_timeout" || status=$?
+case $status in
+0) echo "$scheme $version ($build) is processed and valid in TestFlight" ;;
+1) die "App Store Connect rejected build $build; fix the errors above and upload again" ;;
+*) die "build $build: processing state unknown; check TestFlight, Apple emails the reason if it fails" ;;
+esac
