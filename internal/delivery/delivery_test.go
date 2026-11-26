@@ -162,6 +162,17 @@ func TestFill(t *testing.T) {
 	if res := Resolve(msg("fresh", api.LevelActive), nil, true, cfg); res.Stamp != nil {
 		t.Errorf("explicit level on a new source stamped: %+v", res.Stamp)
 	}
+	// The floors guard the fill: a failing check-in, an incident or
+	// heraldo's own event without a level keeps today's active.
+	for _, e := range []Event{
+		{Source: "fresh", Kind: api.KindCheckin, Action: "fail", Key: "k", Failed: true},
+		{Source: "fresh", Kind: api.KindIncident, Action: "open", Key: "k"},
+		{Source: "heraldo", Kind: api.KindMessage},
+	} {
+		if res := Resolve(e, rows, true, cfg); res.Stamp != nil || res.SetLevel || res.Effective != api.LevelActive {
+			t.Errorf("%+v: filled %+v", e, res)
+		}
+	}
 	// The filled level is what rows match on.
 	rows = append(rows, Row{ID: "q", Match: Match{Level: []api.Level{api.LevelPassive}}, Deliver: Drop})
 	res = Resolve(msg("tests", ""), rows, false, cfg)

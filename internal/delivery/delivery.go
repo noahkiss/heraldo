@@ -289,10 +289,13 @@ func Resolve(e Event, rows []Row, newSource bool, c Config) Result {
 	if e.Routine() {
 		return res
 	}
-	// Fill a missing level.
+	// Fill a missing level. A fill may lower an event to passive, so the
+	// floors guard it too: a protected event keeps today's active.
 	var filled api.Level
 	effective := e.Level
-	if effective == "" {
+	protected := floor.Check(floor.Delivery,
+		floor.Event{Source: e.Source, Kind: e.Kind, Action: e.Action, Level: e.Level, Failed: e.Failed}) != ""
+	if effective == "" && !protected {
 		for _, r := range rows {
 			if r.DefaultLevel != "" && r.Match.matches(e, "", c.Alias) {
 				filled = r.DefaultLevel
@@ -303,9 +306,9 @@ func Resolve(e Event, rows []Row, newSource bool, c Config) Result {
 			filled = c.NewSourceLevel
 		}
 		effective = filled
-		if effective == "" {
-			effective = api.LevelActive
-		}
+	}
+	if effective == "" {
+		effective = api.LevelActive
 	}
 	// The first row that decides delivery or the badge.
 	idx := -1
