@@ -175,6 +175,8 @@ func NewServer(o Options) *Server {
 	s.revs = newRevisions(s.started, s.hub)
 	if o.Store != nil {
 		o.Store.OnChange(s.revs.bump)
+		// The badge reads the stamps only while delivery settings are on.
+		o.Store.SetDeliveryOn(s.deliveryOn)
 	}
 	s.digest = s.newDigest()
 	s.llm = s.newLLM()
@@ -213,6 +215,7 @@ func NewServer(o Options) *Server {
 	s.standbyRoutes(mux)
 	s.settingsRoutes(mux)
 	s.viewRoutes(mux)
+	s.deliveryRoutes(mux)
 	s.llmRoutes(mux)
 	mux.HandleFunc("GET /v1/mutes", s.auth(auth.ScopeWrite, false, s.listMutes))
 	mux.HandleFunc("POST /v1/mutes", s.auth(auth.ScopeWrite, false, s.createMute))
@@ -548,7 +551,7 @@ func (s *server) ingest(ctx context.Context, in *validate.Input, trusted bool) (
 		// lose it.
 		s.Logger.Warn("rules: matched, but the typed event is not valid; stored as a message", "err", err)
 	}
-	return s.insert(ctx, typed, set.Hold(rule), trusted, set.Level(rule))
+	return s.insert(ctx, typed, set.Hold(rule), trusted, rule, set.Level(rule))
 }
 
 // ingestPing is ingest for the check-in event of a ping: the ping rules
@@ -559,18 +562,20 @@ func (s *server) ingestPing(ctx context.Context, in *validate.Input) (store.Reco
 	if err != nil {
 		s.Logger.Warn("rules: matched a ping, but the result is not valid; stored as sent", "err", err)
 	}
-	return s.insert(ctx, out, set.Hold(rule), false, set.Level(rule))
+	return s.insert(ctx, out, set.Hold(rule), false, rule, set.Level(rule))
 }
 
 // insert stores and announces a typed input. hold, when set, is the hold a
-// rule gave it; ruleLevel is the level the matching rule set, if any. It
-// files the input under its project first, on every path, and marks who
-// allowed a critical level (markCritical).
-func (s *server) insert(ctx context.Context, in *validate.Input, hold map[string]any, trusted bool, ruleLevel api.Level) (store.Record, bool, error) {
+// rule gave it; rule is the name of the ingest rule that typed it, and
+// ruleLevel the level that rule set, if any. It files the input under its
+// project first, on every path, runs the delivery settings (the deliver
+// stamp), and marks who allowed a critical level (markCritical).
+func (s *server) insert(ctx context.Context, in *validate.Input, hold map[string]any, trusted bool, rule string, ruleLevel api.Level) (store.Record, bool, error) {
 	in, _, err := rules.WithProject(s.Rules.Rules(), in, s.Validator)
 	if err != nil {
 		s.Logger.Warn("rules: the project is not valid; stored without it", "err", err)
 	}
+	in, stamp := s.resolveDelivery(ctx, in, rule)
 	now := s.Now().UTC()
 	id := ids.New(now)
 	f := in.Fields
@@ -581,6 +586,9 @@ func (s *server) insert(ctx context.Context, in *validate.Input, hold map[string
 	}
 	if hold != nil {
 		f["hold"] = hold
+	}
+	if stamp != nil {
+		f["deliver"] = stamp
 	}
 	markCritical(ctx, f, ruleLevel)
 	if trusted {
@@ -747,6 +755,15 @@ func (s *server) listEvents(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Heraldo-Routine", v)
 	default:
 		writeError(w, http.StatusBadRequest, "routine: want exclude or only")
+		return
+	}
+	switch v := q.Get("hidden"); v {
+	case "":
+	case store.HiddenExclude, store.HiddenOnly:
+		f.Hidden = v
+		w.Header().Set("Heraldo-Hidden", v)
+	default:
+		writeError(w, http.StatusBadRequest, "hidden: want exclude or only")
 		return
 	}
 	// A client can tell from this header that the order was applied; a

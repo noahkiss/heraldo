@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -214,7 +215,8 @@ func TestDowngradeNeverRaises(t *testing.T) {
 	quiet := stage{"quiet", func(_ *Pusher, _ context.Context, _ *Run) Verdict {
 		return Downgrade(api.LevelPassive, "lower it")
 	}}
-	stages = append(append(append([]stage{}, saved[:3]...), loud, quiet), saved[3:]...)
+	at := slices.IndexFunc(saved, func(s stage) bool { return s.name == "table" }) + 1
+	stages = append(append(append([]stage{}, saved[:at]...), loud, quiet), saved[at:]...)
 	tr := r.why(t, r.post(t, writeTok, `{"source":"s","title":"hi"}`))
 	if tr.Decisions[3].Outcome != api.PushDecisionOutcomePass || !strings.HasPrefix(tr.Decisions[3].Reason, "refused time-sensitive") {
 		t.Fatalf("loud: %+v", tr.Decisions[3])

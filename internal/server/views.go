@@ -63,6 +63,10 @@ func viewFilterJSON(f store.ViewFilter) api.ViewFilter {
 		r := api.ViewFilterRoutine(f.Routine)
 		out.Routine = &r
 	}
+	if f.Hidden != "" {
+		h := api.ViewFilterHidden(f.Hidden)
+		out.Hidden = &h
+	}
 	if len(f.Project) > 0 {
 		p := append([]string{}, f.Project...)
 		out.Project = &p
@@ -153,6 +157,14 @@ func viewFilterFromInput(in api.ViewFilter) (store.ViewFilter, []string) {
 			f.Routine = r
 		default:
 			problems = append(problems, "filter.routine: want exclude or only")
+		}
+	}
+	if in.Hidden != nil {
+		switch h := string(*in.Hidden); h {
+		case store.HiddenExclude, store.HiddenOnly:
+			f.Hidden = h
+		default:
+			problems = append(problems, "filter.hidden: want exclude or only")
 		}
 	}
 	if in.Project != nil {
@@ -329,6 +341,7 @@ func (s *server) applyView(w http.ResponseWriter, r *http.Request, f *store.Filt
 	fill(&f.Tag, "tag", vf.Tag)
 	fill(&f.Q, "q", vf.Q)
 	fill(&f.Routine, "routine", vf.Routine)
+	fill(&f.Hidden, "hidden", vf.Hidden)
 	if !q.Has("project") {
 		f.Projects = vf.Projects
 	}

@@ -56,7 +56,7 @@ type Decision struct {
 // critical alerts (BuildFor). store.pushedWhere is the same table
 // in SQL, for the badge; keep them together.
 //
-// The pusher runs the same steps as the stages hold, expiry and table
+// The pusher runs the same steps as the stages hold, expiry, delivery and table
 // (stages.go); Decide composes them for callers that want one answer.
 func Decide(ev *api.Event, now time.Time) Decision {
 	if why := holdStops(ev); why != "" {
@@ -64,6 +64,9 @@ func Decide(ev *api.Event, now time.Time) Decision {
 	}
 	if expired(ev, now) {
 		return Decision{Reason: "expired"}
+	}
+	if why := deliveryStops(ev); why != "" {
+		return Decision{Reason: why}
 	}
 	return decideTable(ev)
 }

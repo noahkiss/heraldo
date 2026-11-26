@@ -27,6 +27,7 @@ import (
 var stages = []stage{
 	{"hold", (*Pusher).holdStage},
 	{"expiry", (*Pusher).expiryStage},
+	{"delivery", (*Pusher).deliveryStage},
 	{"table", (*Pusher).tableStage},
 	{"snooze", (*Pusher).snoozeStage},
 	{"flap", (*Pusher).flapStage},
@@ -77,7 +78,13 @@ type Verdict struct {
 	Bundle string
 	// Detail is extra data for the trace row; nil means none.
 	Detail map[string]any
+	// quiet passes without a trace row: a stage that has nothing to say
+	// for this event, so the trace reads as it did before the stage.
+	quiet bool
 }
+
+// Skip goes on to the next stage and writes no trace row.
+func Skip() Verdict { return Verdict{Outcome: OutcomePass, quiet: true} }
 
 // Pass goes on to the next stage.
 func Pass(reason string) Verdict { return Verdict{Outcome: OutcomePass, Reason: reason} }
@@ -164,7 +171,9 @@ func (p *Pusher) run(ctx context.Context, r *Run) {
 				r.Decision.Level = v.Level
 			}
 		}
-		rows = append(rows, row(s.name, v, p.cfg.Now()))
+		if !v.quiet {
+			rows = append(rows, row(s.name, v, p.cfg.Now()))
+		}
 		if v.Outcome != OutcomePass && v.Outcome != OutcomeDowngrade {
 			break
 		}

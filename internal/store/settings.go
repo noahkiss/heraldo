@@ -63,4 +63,4 @@ func (s *Store) DeleteSetting(ctx context.Context, key string) (bool, error) {
 // settingDomains are the domains a setting may change: the badge (state and
 // cursor), the LLM's status, the hold, and the flap and stale marks in the
 // state.
-var settingDomains = []Domain{DomainSettings, DomainState, DomainCursor, DomainLLM, DomainHeld}
+var settingDomains = []Domain{DomainSettings, DomainState, DomainCursor, DomainLLM, DomainHeld, DomainDelivery}

@@ -56,7 +56,7 @@ func (r *revisions) snapshot() api.Revisions {
 		Events: g(store.DomainEvents), Cursor: g(store.DomainCursor), State: g(store.DomainState),
 		Checks: g(store.DomainChecks), Projects: g(store.DomainProjects), Views: g(store.DomainViews),
 		Held: g(store.DomainHeld), Activities: g(store.DomainActivities), Llm: g(store.DomainLLM),
-		Mutes: g(store.DomainMutes), Settings: g(store.DomainSettings),
+		Mutes: g(store.DomainMutes), Settings: g(store.DomainSettings), Delivery: g(store.DomainDelivery),
 	}}
 }
 

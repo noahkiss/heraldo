@@ -139,6 +139,12 @@ var registry = []Key{
 		Desc: "What the badge counts: attention (open incidents, down checks, unread time-sensitive and up), pushed (unread that pushed), or none."},
 	{Name: "badge.projects", Type: List, Default: []string{}, Desc: "Projects the badge counts; empty counts every project."},
 
+	// Delivery settings: the rows in GET /v1/delivery.
+	{Name: "delivery.enabled", Type: Bool, Default: false,
+		Desc: "Run the delivery settings at ingest, and let them decide the badge."},
+	{Name: "delivery.new_source_level", Type: Enum, Default: "passive", Enum: []string{"passive", "active"},
+		Desc: "The level of a new source's event that carries none, until the source is reviewed."},
+
 	// The morning digest.
 	{Name: "digest.enabled", Type: Bool, Default: false, Desc: "Send a daily digest."},
 	{Name: "digest.at", Type: Clock, Default: "07:30", Desc: "When the digest is sent, HH:MM."},

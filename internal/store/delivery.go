@@ -383,6 +383,28 @@ func (s *Store) SourceCounts(ctx context.Context, scope string, since time.Time)
 	return out, rows.Err()
 }
 
+// EventsSince returns the events received since since that are not
+// routine, newest first. The delivery preview runs over them.
+func (s *Store) EventsSince(ctx context.Context, since time.Time) ([]Record, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT seq, id, event FROM events WHERE received_at >= ? AND NOT `+RoutineWhere+`
+		ORDER BY seq DESC`, since.UTC().Format(timeFormat))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Record
+	for rows.Next() {
+		var r Record
+		var raw string
+		if err := rows.Scan(&r.Seq, &r.ID, &raw); err != nil {
+			return nil, err
+		}
+		r.Event = json.RawMessage(raw)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // ---- the badge re-stamp ------------------------------------------------
 
 // Rebadge sets the badge choice of the unread events after seq and of the

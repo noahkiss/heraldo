@@ -387,7 +387,7 @@ func (s *server) ingestNotifyWith(ctx context.Context, m, extra, hold map[string
 			h["id"] = id
 		}
 	}
-	rec, _, err := s.insert(ctx, typed, h, false, set.Level(rule))
+	rec, _, err := s.insert(ctx, typed, h, false, rule, set.Level(rule))
 	return rec, err
 }
 
