@@ -27,6 +27,9 @@ public struct Event: Codable, Hashable, Identifiable, Sendable {
     public var tags: [String]?
     public var actions: [EventAction]?
     public var hold: Hold?
+    /// The delivery setting's decision at ingest. Missing when no setting
+    /// applied, and from servers before delivery settings.
+    public var deliver: DeliverStamp?
     public var delivery: [Delivery]?
     /// One line on the push decision, such as "pushed active to 2 devices".
     /// Servers before 0.7 send none.
@@ -41,7 +44,7 @@ public struct Event: Codable, Hashable, Identifiable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id, cursor, ts, source, kind, key, action, host, title, summary, body, level, thread, project
-        case url, image, icon, tags, actions, hold, delivery, why, checkin, incident, attachments
+        case url, image, icon, tags, actions, hold, deliver, delivery, why, checkin, incident, attachments
         case receivedAt = "received_at"
         case attachmentInfo = "attachment_info"
     }

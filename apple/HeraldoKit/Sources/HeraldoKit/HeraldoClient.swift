@@ -49,13 +49,19 @@ public struct EventQuery: Hashable, Sendable {
     /// A saved view's id or name: the server applies its filter, and the
     /// other fields set here override the view's field of the same name.
     public var view: String?
+    /// `exclude` leaves out the events a delivery setting filed for the
+    /// digest or dropped, `only` keeps only them. A server before the
+    /// filter ignores it; `HeraldoClient.listEvents` then drops the rows
+    /// itself.
+    public var hidden: Hidden?
 
     public enum Routine: String, Sendable { case exclude, only }
+    public enum Hidden: String, Sendable { case exclude, only }
 
     public init(after: String? = nil, before: String? = nil, order: Order? = nil, limit: Int? = nil,
                 source: String? = nil, kind: String? = nil, key: String? = nil, q: String? = nil,
                 hold: String? = nil, project: [String]? = nil, routine: Routine? = nil,
-                view: String? = nil) {
+                view: String? = nil, hidden: Hidden? = nil) {
         self.after = after
         self.before = before
         self.order = order
@@ -68,6 +74,7 @@ public struct EventQuery: Hashable, Sendable {
         self.project = project
         self.routine = routine
         self.view = view
+        self.hidden = hidden
     }
 
     var items: [URLQueryItem] {
@@ -75,7 +82,7 @@ public struct EventQuery: Hashable, Sendable {
             ("after", after), ("before", before), ("order", order?.rawValue),
             ("limit", limit.map(String.init)), ("source", source), ("kind", kind),
             ("key", key), ("q", q), ("hold", hold), ("routine", routine?.rawValue),
-            ("view", view),
+            ("view", view), ("hidden", hidden?.rawValue),
         ]
         let items = pairs.compactMap { name, value -> URLQueryItem? in
             guard let value, !value.isEmpty else { return nil }
@@ -130,13 +137,19 @@ public struct HeraldoClient: Sendable {
         if query.view != nil, response?.value(forHTTPHeaderField: "Heraldo-View") == nil {
             throw HeraldoError.unsupported("views")
         }
-        guard let routine = query.routine,
-              response?.value(forHTTPHeaderField: "Heraldo-Routine") != routine.rawValue else { return page }
-        // A server before the filter ignored it. The page may come up short;
+        // A server before a filter ignored it. The page may come up short;
         // its next_cursor still continues it.
         var p = page
-        p.fetched = page.events.count
-        p.events = page.events.filter { $0.isRoutine == (routine == .only) }
+        if let routine = query.routine,
+           response?.value(forHTTPHeaderField: "Heraldo-Routine") != routine.rawValue {
+            p.fetched = p.fetched ?? page.events.count
+            p.events = p.events.filter { $0.isRoutine == (routine == .only) }
+        }
+        if let hidden = query.hidden,
+           response?.value(forHTTPHeaderField: "Heraldo-Hidden") != hidden.rawValue {
+            p.fetched = p.fetched ?? page.events.count
+            p.events = p.events.filter { $0.isHidden == (hidden == .only) }
+        }
         return p
     }
 
@@ -283,6 +296,77 @@ public struct HeraldoClient: Sendable {
         var r = request("v1/settings/\(escape(key))", method: "PUT", token: adminToken)
         r.httpBody = try JSONEncoder().encode(SettingInput(value: value))
         return try await send(r)
+    }
+
+    // MARK: Delivery settings
+
+    /// The delivery settings by position, with `delivery.enabled`. Nil
+    /// from a server before delivery settings.
+    public func deliverySettings() async throws -> DeliverySettingList? {
+        do {
+            let list: DeliverySettingList = try await get("v1/delivery")
+            return list
+        } catch let e as HeraldoError where e.status == 404 || e.status == 405 {
+            return nil
+        }
+    }
+
+    public func deliverySetting(id: String) async throws -> DeliverySetting {
+        try await send(request(components: ["v1", "delivery", id], method: "GET", token: readToken))
+    }
+
+    /// Adds a row with the admin token. A standby answers 409.
+    @discardableResult
+    public func createDeliverySetting(_ input: DeliverySettingInput) async throws -> DeliverySetting {
+        guard let adminToken else { throw HeraldoError.notConfigured("The admin token") }
+        var r = request("v1/delivery", method: "POST", token: adminToken)
+        r.httpBody = try JSON.encoder.encode(input.normalized)
+        return try await send(r)
+    }
+
+    /// Replaces every field of a row with the admin token.
+    @discardableResult
+    public func updateDeliverySetting(id: String, _ input: DeliverySettingInput) async throws -> DeliverySetting {
+        guard let adminToken else { throw HeraldoError.notConfigured("The admin token") }
+        var r = request(components: ["v1", "delivery", id], method: "PUT", token: adminToken)
+        r.httpBody = try JSON.encoder.encode(input.normalized)
+        return try await send(r)
+    }
+
+    /// Deletes a row with the admin token.
+    public func deleteDeliverySetting(id: String) async throws {
+        guard let adminToken else { throw HeraldoError.notConfigured("The admin token") }
+        let (data, response) = try await session.data(for: request(components: ["v1", "delivery", id],
+                                                                   method: "DELETE", token: adminToken))
+        try check(data, response)
+    }
+
+    /// What proposed rows would change over the stored events, with the
+    /// read token. It stores nothing.
+    public func previewDelivery(_ input: DeliveryPreviewInput) async throws -> DeliveryPreview {
+        var r = request("v1/delivery/preview", method: "POST", token: readToken)
+        var body = input
+        body.settings = input.settings.map(\.normalized)
+        r.httpBody = try JSON.encoder.encode(body)
+        return try await send(r)
+    }
+
+    /// Every source, new ones first, with its badge counts. Nil from a
+    /// server before delivery settings.
+    public func sources() async throws -> [Source]? {
+        do {
+            let list: SourceList = try await get("v1/sources")
+            return list.sources
+        } catch let e as HeraldoError where e.status == 404 || e.status == 405 {
+            return nil
+        }
+    }
+
+    /// Marks a new source reviewed, with the admin token.
+    @discardableResult
+    public func reviewSource(_ source: String) async throws -> Source {
+        guard let adminToken else { throw HeraldoError.notConfigured("The admin token") }
+        return try await send(request(components: ["v1", "sources", source, "review"], method: "POST", token: adminToken))
     }
 
     // MARK: Mutes
@@ -500,6 +584,21 @@ public struct HeraldoClient: Sendable {
         for part in path.split(separator: "/") {
             url.append(path: String(part), directoryHint: .notDirectory)
         }
+        return request(url: url, method: method, token: token, query: query)
+    }
+
+    /// A request whose path segments are raw values, each encoded once,
+    /// slashes and percent signs included: a source name may hold either.
+    func request(components: [String], method: String, token: String?) -> URLRequest {
+        var url = baseURL
+        for part in components {
+            url.append(component: part, directoryHint: .notDirectory)
+        }
+        return request(url: url, method: method, token: token)
+    }
+
+    private func request(url: URL, method: String, token: String?, query: [URLQueryItem] = []) -> URLRequest {
+        var url = url
         if !query.isEmpty, var c = URLComponents(url: url, resolvingAgainstBaseURL: false) {
             c.queryItems = query
             url = c.url ?? url

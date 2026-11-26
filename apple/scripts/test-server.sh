@@ -19,9 +19,11 @@ trap 'exit 1' INT TERM HUP
 (cd "$repo" && go build -o "$tmp/heraldo-server" ./cmd/heraldo-server)
 read_token=$(openssl rand -hex 32)
 write_token=$(openssl rand -hex 32)
+admin_token=$(openssl rand -hex 32)
 {
   echo "app-read read $(printf %s "$read_token" | "$tmp/heraldo-server" hash-token)"
   echo "app-write write $(printf %s "$write_token" | "$tmp/heraldo-server" hash-token)"
+  echo "app-admin admin $(printf %s "$admin_token" | "$tmp/heraldo-server" hash-token)"
 } >"$tmp/tokens"
 
 # A free port from the kernel.
@@ -43,4 +45,4 @@ done
 
 cd "$here/HeraldoKit"
 HERALDO_TEST_URL="$url" HERALDO_TEST_READ_TOKEN="$read_token" HERALDO_TEST_WRITE_TOKEN="$write_token" \
-  swift test "$@"
+  HERALDO_TEST_ADMIN_TOKEN="$admin_token" swift test "$@"

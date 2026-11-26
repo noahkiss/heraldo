@@ -353,7 +353,9 @@ final class AppModel {
     private static func loadCache() -> HistoryCache {
         guard let data = try? Data(contentsOf: cacheURL),
               let c = try? JSON.decoder.decode(HistoryCache.self, from: data) else { return HistoryCache() }
-        return c
+        // An older cache lacks the delivery stamps and may hold hidden
+        // events: sync it again.
+        return c.isStale ? HistoryCache() : c
     }
 
     private func saveCache() {

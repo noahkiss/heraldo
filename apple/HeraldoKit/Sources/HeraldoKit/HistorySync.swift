@@ -12,12 +12,21 @@ public struct HistoryCache: Codable, Equatable, Sendable {
     public var olderCursor: String?
     /// The server has no events older than the oldest kept.
     public var reachedEnd = false
+    /// The cache's format. A cache from before `format` kept events
+    /// without their delivery stamp, so it is dropped and synced again.
+    public var format: Int?
+
+    /// The format this build writes.
+    public static let currentFormat = 2
 
     /// The most events kept. Past it the oldest go, and with them the way to
     /// page further back from the cache.
     public static let limit = 3000
 
-    public init() {}
+    public init() { format = Self.currentFormat }
+
+    /// A cache in an older format: sync it again from the start.
+    public var isStale: Bool { (format ?? 0) < Self.currentFormat }
 
     /// Adds events newer than every kept one. `newest` is newest first.
     mutating func prepend(_ newest: [Event]) {
@@ -107,13 +116,18 @@ public struct HistorySync: Sendable {
     /// ones; pages then count as full by `fetchedCount`, so the end of
     /// history is still found right.
     public var cacheRoutine: EventQuery.Routine?
+    /// The hidden filter of the cache: `exclude` by default, so the inbox
+    /// never shows what a delivery setting filed for the digest or dropped.
+    /// A Filed list asks the server with `only` and is not cached.
+    public var cacheHidden: EventQuery.Hidden?
 
     public init(client: HeraldoClient, pageSize: Int = 200, maxPages: Int = 10,
-                cacheRoutine: EventQuery.Routine? = .exclude) {
+                cacheRoutine: EventQuery.Routine? = .exclude, cacheHidden: EventQuery.Hidden? = .exclude) {
         self.client = client
         self.pageSize = pageSize
         self.maxPages = maxPages
         self.cacheRoutine = cacheRoutine
+        self.cacheHidden = cacheHidden
     }
 
     /// Brings the cache up to date. A fresh cache gets the newest page; a
@@ -124,7 +138,8 @@ public struct HistorySync: Sendable {
             // The head first: an event stored between the two calls shows up
             // in both and the merge drops the copy, so nothing falls between.
             guard let head = try await client.headCursor() else { return c }
-            let page = try await client.listEvents(EventQuery(order: .desc, limit: pageSize, routine: cacheRoutine))
+            let page = try await client.listEvents(EventQuery(order: .desc, limit: pageSize, routine: cacheRoutine,
+                                                              hidden: cacheHidden))
             c.prepend(page.events)
             c.olderCursor = page.nextCursor
             c.reachedEnd = page.fetchedCount < pageSize
@@ -132,7 +147,7 @@ public struct HistorySync: Sendable {
         }
         for _ in 0..<maxPages {
             let page = try await client.listEvents(EventQuery(after: c.syncCursor, order: .asc, limit: pageSize,
-                                                              routine: cacheRoutine))
+                                                              routine: cacheRoutine, hidden: cacheHidden))
             guard page.fetchedCount > 0 else { break }
             c.prepend(page.events.reversed())
             if let next = page.nextCursor { c.syncCursor = next }
@@ -146,7 +161,7 @@ public struct HistorySync: Sendable {
         var c = cache
         guard !c.reachedEnd, let before = c.olderCursor else { return c }
         let page = try await client.listEvents(EventQuery(before: before, order: .desc, limit: pageSize,
-                                                          routine: cacheRoutine))
+                                                          routine: cacheRoutine, hidden: cacheHidden))
         c.append(page.events)
         if let next = page.nextCursor { c.olderCursor = next }
         c.reachedEnd = page.fetchedCount < pageSize
@@ -156,10 +171,12 @@ public struct HistorySync: Sendable {
     /// A server-side search or filter, newest first. Not cached.
     public func search(q: String?, kind: String?, source: String?, hold: String? = nil,
                        project: String? = nil, key: String? = nil, routine: EventQuery.Routine? = nil,
-                       view: String? = nil, before: String? = nil) async throws -> EventPage {
+                       view: String? = nil, hidden: EventQuery.Hidden? = nil,
+                       before: String? = nil) async throws -> EventPage {
         try await client.listEvents(EventQuery(before: before, order: .desc, limit: pageSize,
                                                source: source, kind: kind, key: key, q: q, hold: hold,
-                                               project: project.map { [$0] }, routine: routine, view: view))
+                                               project: project.map { [$0] }, routine: routine, view: view,
+                                               hidden: hidden))
     }
 
     /// The read cursor and the events after it, up to `maxPages` pages. A

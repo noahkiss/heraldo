@@ -56,9 +56,13 @@ public struct ViewFilter: Codable, Hashable, Sendable {
     public var level: [String]?
     /// `exclude` or `only`; nil keeps routine and other events.
     public var routine: EventQuery.Routine?
+    /// `exclude` or `only`: the events a delivery setting filed for the
+    /// digest or dropped. Nil keeps both.
+    public var hidden: EventQuery.Hidden?
 
     public init(project: [String]? = nil, source: String? = nil, kind: String? = nil, host: String? = nil,
-                tag: String? = nil, q: String? = nil, level: [String]? = nil, routine: EventQuery.Routine? = nil) {
+                tag: String? = nil, q: String? = nil, level: [String]? = nil, routine: EventQuery.Routine? = nil,
+                hidden: EventQuery.Hidden? = nil) {
         self.project = project
         self.source = source
         self.kind = kind
@@ -67,6 +71,7 @@ public struct ViewFilter: Codable, Hashable, Sendable {
         self.q = q
         self.level = level
         self.routine = routine
+        self.hidden = hidden
     }
 
     /// No field is set.
@@ -74,6 +79,7 @@ public struct ViewFilter: Codable, Hashable, Sendable {
 }
 
 extension EventQuery.Routine: Codable {}
+extension EventQuery.Hidden: Codable {}
 
 /// How a view bundles a burst of events: a time window and how many show.
 public struct ViewBundle: Codable, Hashable, Sendable {
