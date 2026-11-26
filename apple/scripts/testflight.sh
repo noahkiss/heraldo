@@ -85,4 +85,9 @@ if ! PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH" xcodebuild -exportArchive \
   die "upload failed; full log: $out/upload.log"
 fi
 grep -q 'Upload succeeded' "$out/upload.log" || die "no upload confirmation; see $out/upload.log"
+# The transfer succeeded, but App Store Connect can still reject the build
+# while processing it (for example ITMS-90626). A rejected build never shows
+# in the builds list; its errors are on the app's buildUploads endpoint and in
+# Apple's email.
 echo "uploaded $scheme $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Info.plist") ($build); App Store Connect is processing it"
+echo "not done until it shows in TestFlight: processing can still reject it; Apple emails the reason"

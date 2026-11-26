@@ -71,7 +71,7 @@ func (p *Pusher) SendLive(ctx context.Context, lp LivePush) LiveResult {
 	if lp.Channel != "" {
 		a, err := p.sendBroadcast(ctx, lp, time.Time{})
 		if err == nil && a.staleToken() {
-			a, err = p.sendBroadcast(ctx, lp, p.cfg.Now())
+			a, err = p.sendBroadcast(ctx, lp, p.sign.staleMark())
 		}
 		return LiveResult{Status: a.status, Reason: a.reason, Err: err}
 	}
@@ -79,7 +79,7 @@ func (p *Pusher) SendLive(ctx context.Context, lp LivePush) LiveResult {
 	h := Headers{Priority: lp.Priority, Expiration: lp.Expiration, PushType: "liveactivity", Topic: lp.Topic + LiveTopicSuffix}
 	a, err := p.send(ctx, dev, lp.Body, h, time.Time{})
 	if err == nil && a.staleToken() {
-		a, err = p.send(ctx, dev, lp.Body, h, p.cfg.Now())
+		a, err = p.send(ctx, dev, lp.Body, h, p.sign.staleMark())
 	}
 	return LiveResult{Status: a.status, Reason: a.reason, Err: err}
 }

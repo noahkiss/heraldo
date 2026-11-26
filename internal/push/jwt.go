@@ -49,6 +49,15 @@ type signer struct {
 	issued time.Time
 }
 
+// staleMark is the stale argument for get after APNs refuses the current
+// token. It reads the signer's own clock, so the mark is never before the
+// refused token's issue time.
+func (s *signer) staleMark() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.now()
+}
+
 // get returns the cached token, or a new one when the cached one is older
 // than TokenLifetime or was issued at or before stale.
 func (s *signer) get(stale time.Time) (string, time.Time, error) {

@@ -73,7 +73,7 @@ func (p *Pusher) DeleteChannel(ctx context.Context, environment, topic, id strin
 func (p *Pusher) manage(ctx context.Context, method, environment, topic, id string, body []byte) ChannelResult {
 	r := p.manageOnce(ctx, method, environment, topic, id, body, time.Time{})
 	if r.Err == nil && (answer{status: r.Status, reason: r.Reason}).staleToken() {
-		r = p.manageOnce(ctx, method, environment, topic, id, body, p.cfg.Now())
+		r = p.manageOnce(ctx, method, environment, topic, id, body, p.sign.staleMark())
 	}
 	return r
 }

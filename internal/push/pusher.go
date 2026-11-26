@@ -328,7 +328,7 @@ func (p *Pusher) deliver(ctx context.Context, dev store.Device, body []byte, h H
 		case a.staleToken() && !refreshed:
 			// Sign a new provider token and try again at once.
 			refreshed = true
-			stale = p.cfg.Now()
+			stale = p.sign.staleMark()
 			out.Error = a.reason
 			continue
 		case a.retire():
