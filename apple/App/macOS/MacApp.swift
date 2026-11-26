@@ -97,10 +97,12 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationC
     }
 }
 
-/// The menu bar item: a bell and the badge (the server's badge.scope count,
-/// as on the Dock). The bell fills and gains
-/// a badge while an incident is open or a check is down. It is always on
-/// screen, so it also hands the model the action that opens the main window.
+/// The menu bar item: a bell and the badge, the server's count as on the
+/// Dock. The server's badge decides the symbol too, so `badge.scope` and the
+/// delivery settings' badge choices reach it: the bell is filled and badged
+/// while the badge is above zero. A server before 0.7 sends no badge; there
+/// the bell fills while an incident is open or a check is down. It is always
+/// on screen, so it also hands the model the action that opens the main window.
 struct MenuBarLabel: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openWindow) private var openWindow
@@ -122,8 +124,11 @@ struct MenuBarLabel: View {
     }
 
     private var symbol: String {
-        if model.unackedIncidents > 0 || model.downChecks > 0 { return "bell.badge.fill" }
-        return model.unread.badge > 0 ? "bell.badge" : "bell"
+        guard model.unread.cursor?.badge != nil else {
+            if model.unackedIncidents > 0 || model.downChecks > 0 { return "bell.badge.fill" }
+            return model.unread.badge > 0 ? "bell.badge" : "bell"
+        }
+        return model.unread.badge > 0 ? "bell.badge.fill" : "bell"
     }
 }
 

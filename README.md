@@ -438,7 +438,9 @@ app group.
   do not crowd real history out of the 3000 events it keeps. On a server
   before the filter the app drops them itself. Show routine events in the
   filter menu, or a kind filter of their kind, asks the server for them. The
-  filters you choose are saved and synced (see "Display"). Each row shows its project. A swipe marks events read up to that one; the
+  filters you choose are saved and synced (see "Display"). Events a delivery
+  setting filed for the digest or dropped stay out too (`hidden=exclude`);
+  Filed in the filter menu lists only them, from the server, uncached. Each row shows its project. A swipe marks events read up to that one; the
   menu marks all read. Both move the shared `inbox` cursor, so the CLI and the
   app share one unread state. The Inbox count is the cursor's `unread`; the icon badge is its `badge`.
 - **Incidents**: open incidents first, then acknowledged ones, from
@@ -453,7 +455,9 @@ app group.
   pings, an activity's progress, an incident's updates. Mute project for 1 h
   in the menu, and in an incident's context menu, mutes every event of the
   event's project (write token). Delivery says why the event did or did not
-  push, stage by stage, and the outcome on each device.
+  push, stage by stage, and the outcome on each device. An event a delivery
+  setting stamped shows one line on it, such as "Delivered silently by
+  \"Printer chatter\" · was active".
 - **Push**: the app registers its APNs token with `POST /v1/devices` on every
   launch, and again when a permission changes. A permissions sheet shows at
   first launch and from Settings > Permissions: Notifications, Time Sensitive
@@ -479,6 +483,11 @@ app group.
   the app changes them; without one they are read-only. The Pushover app
   token and user key are write-only fields: the app shows only whether each
   is set, and the server stores them encrypted (`HERALDO_SECRET_KEY_FILE`).
+  Delivery settings lists the rows in order, with an editor that previews
+  each change over the last 30 days before it saves. Sources lists every
+  source, new ones first, with how many of its events counted toward the
+  badge; it marks a source reviewed and starts a row for it. Both write with
+  the admin token.
 - **Focus filter**: Settings > Focus > a Focus > Focus Filters > Heraldo
   picks the projects and the level (Time Sensitive and up, or Critical only)
   that break through that Focus. While the Focus is on, the server sends this
@@ -589,8 +598,10 @@ brew install --cask noahkiss/tap/heraldo-app
 
   The arrow keys move the selection. The Event menu's writes need the write
   token.
-- **Menu bar**: a bell with the badge count, as on the Dock. The bell gains a badge while
-  the count is above 0, and fills while an incident is open or a check is down.
+- **Menu bar**: a bell with the badge count, as on the Dock. The bell fills and gains a
+  badge while the server's badge is above 0, so `badge.scope` and the delivery
+  settings decide it. Against a server before 0.7 it fills while an incident is
+  open or a check is down.
   The panel shows a one-line summary, the open incidents with Ack, the checks
   that are down, and the running Live Activities. A click on an item opens it
   in the window.
