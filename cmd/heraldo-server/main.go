@@ -318,6 +318,7 @@ func serve(flags map[string]string, log *slog.Logger) error {
 	// Both a primary and a standby: each serves /v1/revisions from its own
 	// state.
 	go h.RunTimeChanges(ctx, timeChangeTick)
+	go h.RunDeliveryWatch(ctx)
 	if cfg.Standby {
 		// A standby judges no checks and sends no digest: the primary owns
 		// them, and a standby that ran them would raise a second copy of

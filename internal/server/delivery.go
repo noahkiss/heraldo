@@ -275,6 +275,25 @@ func (s *server) rebadge(ctx context.Context) {
 	}
 }
 
+// RunDeliveryWatch re-stamps the badge whenever a delivery.* setting
+// changes, until ctx ends. Turning delivery.enabled on then covers the
+// unread events and open incidents stored while it was off, and a standby
+// that copies the switch from its primary does the same.
+func (srv *Server) RunDeliveryWatch(ctx context.Context) {
+	ch, cancel := srv.s.Settings.Subscribe("delivery.")
+	defer cancel()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ch:
+			if srv.s.deliveryOn() {
+				srv.s.rebadge(ctx)
+			}
+		}
+	}
+}
+
 // MirrorDelivery is a standby's copy of its primary's delivery state:
 // the rows, the two scalar keys (a key locked by a flag or env stays as it
 // is) and the sources' review state.

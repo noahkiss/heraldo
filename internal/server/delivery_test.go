@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/noahkiss/heraldo/api"
 	"github.com/noahkiss/heraldo/internal/rules"
@@ -198,6 +199,38 @@ func TestDeliveryRebadge(t *testing.T) {
 	}
 	if n := badge(); n != 1 {
 		t.Fatalf("off: %d, want 1", n)
+	}
+}
+
+// Rows and stamps written while delivery.enabled is off take effect on the
+// badge as soon as it turns on, with no row change.
+func TestDeliveryRebadgeOnTurnOn(t *testing.T) {
+	e := newEnv(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go e.h.(*Server).RunDeliveryWatch(ctx)
+	if rec := e.do(t, http.MethodPut, "/v1/settings/badge.scope", adminTok, []byte(`{"value":"attention"}`)); rec.Code != http.StatusOK {
+		t.Fatal(rec.Code)
+	}
+	// The row exists first; the incident arrives while the switch is off,
+	// so ingest stamps nothing and only the turn-on re-stamp can reach it.
+	e.addRow(t, `{"match":{"source":"uptime"},"badge":"off"}`)
+	e.post(t, `{"source":"uptime","kind":"incident","key":"web","action":"open","level":"time-sensitive","title":"down"}`)
+	badge := func() int {
+		return decode[struct {
+			Badge int `json:"badge"`
+		}](t, e.do(t, http.MethodGet, "/v1/state", readTok, nil)).Badge
+	}
+	if n := badge(); n != 1 {
+		t.Fatalf("off: badge %d, want 1", n)
+	}
+	e.enableDelivery(t)
+	deadline := time.Now().Add(5 * time.Second)
+	for badge() != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("badge still counts the incident after turn-on")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
