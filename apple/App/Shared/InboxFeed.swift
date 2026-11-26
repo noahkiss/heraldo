@@ -151,7 +151,9 @@ final class InboxFeed {
         if !trimmedQuery.isEmpty { f.q = trimmedQuery }
         if viewID == nil {
             f.routine = routineFilter
-            f.hidden = hiddenFilter
+            // Only Filed saves the field: a server before delivery
+            // settings refuses a filter it does not know.
+            if filed { f.hidden = .only }
         }
         return f
     }

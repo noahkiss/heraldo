@@ -50,8 +50,10 @@ final class DeliveryStore {
             await model.refresh([.unread])
             return true
         } catch {
-            self.error = error.localizedDescription
+            // The reload clears the error when it works; keep the write's.
+            let message = error.localizedDescription
             await load(model)
+            self.error = message
             return false
         }
     }
@@ -88,7 +90,7 @@ struct DeliverySection: View {
                 } label: {
                     LabeledContent("Delivery settings") {
                         if let list = store.list {
-                            Text(list.enabled ? "\(list.settings.count) rows" : "Off")
+                            Text(list.enabled ? (list.settings.count == 1 ? "1 row" : "\(list.settings.count) rows") : "Off")
                         }
                     }
                 }
