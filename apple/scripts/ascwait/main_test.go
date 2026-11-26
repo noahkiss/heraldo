@@ -301,3 +301,42 @@ func TestAppIDNoMatch(t *testing.T) {
 		t.Fatalf("log:\n%s", log)
 	}
 }
+
+func TestPrintNewest(t *testing.T) {
+	var query string
+	builds := `{"data":[{"type":"builds","id":"b1","attributes":{"version":"202601010000",
+ "uploadedDate":"2026-01-01T00:01:00Z","expirationDate":"2026-04-01T00:01:00Z"}}]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/apps":
+			w.Write([]byte(appsJSON))
+		case "/v1/builds":
+			query = r.URL.RawQuery
+			w.Write([]byte(builds))
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	now := func() time.Time { return time.Date(2026, 3, 2, 12, 0, 0, 0, time.UTC) }
+	c := &client{base: srv.URL, http: http.DefaultClient, key: testKey(t), keyID: "K", issuer: "I", now: now}
+	var out, log bytes.Buffer
+	if code := printNewest(context.Background(), c, "com.example.app", "IOS", &out, &log); code != exitComplete {
+		t.Fatalf("exit %d, log %q", code, log.String())
+	}
+	if got, want := out.String(), "202601010000 2026-01-01T00:01:00Z 2026-04-01T00:01:00Z 60\n"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	for _, want := range []string{"filter%5Bapp%5D=222", "filter%5BprocessingState%5D=VALID", "sort=-uploadedDate", "limit=1"} {
+		if !strings.Contains(query, want) {
+			t.Errorf("query %q lacks %s", query, want)
+		}
+	}
+
+	builds = `{"data":[]}`
+	out.Reset()
+	if code := printNewest(context.Background(), c, "com.example.app", "IOS", &out, &log); code != exitComplete || out.String() != "none\n" {
+		t.Fatalf("no builds: exit %d, out %q", code, out.String())
+	}
+}

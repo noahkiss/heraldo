@@ -13,6 +13,8 @@
 # rejected build prints Apple's errors and exits 1.
 #   TESTFLIGHT_WAIT_TIMEOUT  how long to wait, a Go duration (default 30m)
 #   TESTFLIGHT_NO_WAIT=1     stop after the upload; skips the wait
+#   TESTFLIGHT_DRY_RUN=1     archive and export a signed IPA to build/ios/export,
+#                            upload nothing; needs no API key and no Local.env
 set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)
 scheme=Heraldo
@@ -22,21 +24,27 @@ die() { echo "testflight: $*" >&2; exit 1; }
   die "no Config/Local.xcconfig; copy Config/Local.example.xcconfig and set the iOS signing"
 grep -Eq '^[[:space:]]*CODE_SIGN_IDENTITY\[sdk=iphoneos\*\]' "$here/Config/Local.xcconfig" ||
   die "Config/Local.xcconfig sets no iOS signing identity; see Local.example.xcconfig step 2"
-[ -f "$here/Config/Local.env" ] ||
-  die "no Config/Local.env; copy Config/Local.example.env and fill in the API key"
-. "$here/Config/Local.env"
-: "${ASC_KEY_ID:?set ASC_KEY_ID in Config/Local.env}"
-: "${ASC_ISSUER_CMD:?set ASC_ISSUER_CMD in Config/Local.env}"
-: "${ASC_KEY_CMD:?set ASC_KEY_CMD in Config/Local.env}"
-
+dry=${TESTFLIGHT_DRY_RUN:-}
 tmp=$(mktemp -d)
 trap '/bin/rm -rf "$tmp"' EXIT
 trap 'exit 1' INT TERM HUP
-key="$tmp/AuthKey_$ASC_KEY_ID.p8"
-(umask 077 && sh -c "$ASC_KEY_CMD" >"$key") || die "ASC_KEY_CMD failed"
-chmod 600 "$key"
-issuer=$(sh -c "$ASC_ISSUER_CMD") || die "ASC_ISSUER_CMD failed"
-[ -s "$key" ] && [ -n "$issuer" ] || die "empty API key or issuer ID"
+if [ "$dry" = 1 ]; then
+  TESTFLIGHT_NO_WAIT=1
+  destination=export
+else
+  destination=upload
+  [ -f "$here/Config/Local.env" ] ||
+    die "no Config/Local.env; copy Config/Local.example.env and fill in the API key"
+  . "$here/Config/Local.env"
+  : "${ASC_KEY_ID:?set ASC_KEY_ID in Config/Local.env}"
+  : "${ASC_ISSUER_CMD:?set ASC_ISSUER_CMD in Config/Local.env}"
+  : "${ASC_KEY_CMD:?set ASC_KEY_CMD in Config/Local.env}"
+  key="$tmp/AuthKey_$ASC_KEY_ID.p8"
+  (umask 077 && sh -c "$ASC_KEY_CMD" >"$key") || die "ASC_KEY_CMD failed"
+  chmod 600 "$key"
+  issuer=$(sh -c "$ASC_ISSUER_CMD") || die "ASC_ISSUER_CMD failed"
+  [ -s "$key" ] && [ -n "$issuer" ] || die "empty API key or issuer ID"
+fi
 
 # Build the wait helper now: a failure after the upload would read as a
 # rejected build.
@@ -74,7 +82,7 @@ plist="$out/ExportOptions.plist"
 <plist version="1.0">
 <dict>
 	<key>method</key><string>app-store-connect</string>
-	<key>destination</key><string>upload</string>
+	<key>destination</key><string>$destination</string>
 	<key>signingStyle</key><string>manual</string>
 	<key>signingCertificate</key><string>Apple Distribution</string>
 	<key>uploadSymbols</key><true/>
@@ -91,6 +99,21 @@ PLIST
   done
   printf '\t</dict>\n</dict>\n</plist>\n'
 } >"$plist"
+
+if [ "$dry" = 1 ]; then
+  echo "dry run: exporting build $build, uploading nothing"
+  # /usr/bin first: a Homebrew rsync on PATH breaks the IPA step with "Copy failed".
+  if ! PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH" xcodebuild -exportArchive \
+    -archivePath "$archive" -exportPath "$out/export" -exportOptionsPlist "$plist" \
+    >"$out/export.log" 2>&1; then
+    grep -E 'error|Error' "$out/export.log" | head -40 >&2
+    die "export failed; full log: $out/export.log"
+  fi
+  ipa=$(find "$out/export" -maxdepth 1 -name '*.ipa' | head -1)
+  [ -n "$ipa" ] || die "export made no IPA; see $out/export.log"
+  echo "dry run: signed IPA at $ipa; nothing uploaded"
+  exit 0
+fi
 
 echo "uploading build $build"
 # /usr/bin first: a Homebrew rsync on PATH breaks the IPA step with "Copy failed".

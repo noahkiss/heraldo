@@ -6,6 +6,12 @@
 //
 // Exit status: 0 processed, 1 rejected (Apple's errors on stderr), 2 state
 // unknown (timeout, refused credentials, bad flags).
+//
+// With -newest instead of -build it prints the app's newest valid build for
+// the platform and exits: "<build> <uploaded> <expires> <age in days>", the
+// times in RFC 3339, or "none" when the app has no valid build. A scheduled
+// rebuild reads the age to decide whether a new upload is due. Exit 2 means
+// the answer is unknown.
 package main
 
 import (
@@ -44,10 +50,11 @@ func main() {
 		platform = flag.String("platform", "IOS", "IOS, MAC_OS, TV_OS or VISION_OS")
 		timeout  = flag.Duration("timeout", 30*time.Minute, "give up after this long")
 		interval = flag.Duration("interval", 30*time.Second, "time between checks")
+		newestB  = flag.Bool("newest", false, "print the newest valid build and its age, then exit")
 	)
 	flag.Parse()
-	if *keyPath == "" || *keyID == "" || *issuer == "" || *bundleID == "" || *build == "" {
-		fmt.Fprintln(os.Stderr, "ascwait: -key, -key-id, -issuer, -bundle-id and -build are required")
+	if *keyPath == "" || *keyID == "" || *issuer == "" || *bundleID == "" || (*build == "") == !*newestB {
+		fmt.Fprintln(os.Stderr, "ascwait: -key, -key-id, -issuer, -bundle-id and one of -build or -newest are required")
 		os.Exit(exitUnknown)
 	}
 	pemBytes, err := os.ReadFile(*keyPath)
@@ -60,8 +67,12 @@ func main() {
 		fmt.Fprintln(os.Stderr, "ascwait:", err)
 		os.Exit(exitUnknown)
 	}
+	api := &client{base: "https://api.appstoreconnect.apple.com", http: &http.Client{Timeout: 30 * time.Second}, key: key, keyID: *keyID, issuer: *issuer, now: time.Now}
+	if *newestB {
+		os.Exit(printNewest(context.Background(), api, *bundleID, *platform, os.Stdout, os.Stderr))
+	}
 	w := &waiter{
-		api:      &client{base: "https://api.appstoreconnect.apple.com", http: &http.Client{Timeout: 30 * time.Second}, key: key, keyID: *keyID, issuer: *issuer, now: time.Now},
+		api:      api,
 		bundleID: *bundleID, build: *build, platform: *platform,
 		timeout: *timeout, interval: *interval,
 		now: time.Now, sleep: time.Sleep, log: os.Stderr,
@@ -263,6 +274,49 @@ func (c *client) upload(ctx context.Context, appID, build, platform string) (*bu
 		return nil, "", nil
 	}
 	return u, r.buildState(u), nil
+}
+
+type buildsResponse struct {
+	Data []struct {
+		Attributes struct {
+			Version        string    `json:"version"`
+			UploadedDate   time.Time `json:"uploadedDate"`
+			ExpirationDate time.Time `json:"expirationDate"`
+		} `json:"attributes"`
+	} `json:"data"`
+}
+
+// printNewest prints the newest valid build of the app for the platform:
+// "<build> <uploaded> <expires> <age in days>", or "none".
+func printNewest(ctx context.Context, c *client, bundleID, platform string, out, log io.Writer) int {
+	appID, err := c.appID(ctx, bundleID)
+	if err != nil {
+		fmt.Fprintln(log, "ascwait:", err)
+		return exitUnknown
+	}
+	var r buildsResponse
+	q := url.Values{
+		"filter[app]": {appID}, "filter[preReleaseVersion.platform]": {platform},
+		"filter[processingState]": {"VALID"}, "sort": {"-uploadedDate"}, "limit": {"1"},
+		"fields[builds]": {"version,uploadedDate,expirationDate"},
+	}
+	if err := c.get(ctx, "/v1/builds", q, &r); err != nil {
+		fmt.Fprintln(log, "ascwait:", err)
+		return exitUnknown
+	}
+	if len(r.Data) == 0 {
+		fmt.Fprintln(out, "none")
+		return exitComplete
+	}
+	a := r.Data[0].Attributes
+	if a.UploadedDate.IsZero() {
+		fmt.Fprintln(log, "ascwait: the newest build has no uploadedDate")
+		return exitUnknown
+	}
+	age := int(c.now().Sub(a.UploadedDate).Hours() / 24)
+	fmt.Fprintf(out, "%s %s %s %d\n", a.Version, a.UploadedDate.UTC().Format(time.RFC3339),
+		a.ExpirationDate.UTC().Format(time.RFC3339), age)
+	return exitComplete
 }
 
 // newest picks the latest upload of build; a retried upload reuses the number.
