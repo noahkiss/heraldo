@@ -29,7 +29,7 @@ reading (HERALDO_URL, HERALDO_TOKEN):
                    an attachment's bytes, to a file or stdout
   why <id>         why an event did or did not push, stage by stage
   ls               the newest events, without routine ones; --kind --source --host
-                   --key --tag --project -q --open --stale --routine --view
+                   --key --tag --project -q --open --stale --routine --view --hidden
   views [ls]       the saved views every client shares
   held             events held for triage
   hold             the alert hold's queue (a look, not a triage poll; --poll for one)
@@ -72,6 +72,17 @@ server settings (reads: HERALDO_TOKEN; writes: HERALDO_ADMIN_TOKEN):
                    store a value; a secret key takes - and reads stdin
   settings unset <key>
                    back to the default
+  delivery [ls]    the delivery settings: per source, tag, level or rule, deliver as
+                   banner, silent, digest or drop, and count toward the badge or not
+  delivery add|edit <id> [flags]
+                   add or change a row; --source --tag --level --kind --project --rule
+                   --key match, --deliver --badge --default-level decide
+  delivery rm <id> remove a row
+  delivery preview [--file rows.json]
+                   what the rows would change over the stored events of 30 days
+  sources [ls]     every source, new ones first, with its 30-day and badge counts
+  sources review <source>
+                   mark a new source reviewed
 
 the assistant (an optional LLM, off by default):
   ask "question"   ask about the stored events; --project --key --view --since
@@ -153,6 +164,7 @@ func (a *app) run(ctx context.Context, args []string) int {
 		"mute": a.mute, "mutes": a.mutes, "snooze": a.snooze, "hold": a.hold, "devices": a.devices,
 		"projects": a.projects, "state": a.state, "activities": a.activities, "views": a.views,
 		"digest": a.digest, "guidance": a.guidance, "llm": a.llm, "ask": a.ask,
+		"delivery": a.delivery, "sources": a.sources,
 	}
 	name := args[0]
 	switch name {

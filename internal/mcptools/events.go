@@ -28,6 +28,7 @@ type searchIn struct {
 	Hold    string   `json:"hold,omitempty" jsonschema:"Only events whose hold.state is this, such as held."`
 	Routine string   `json:"routine,omitempty" jsonschema:"Routine events: check-ins that did not fail, progress and status. Default exclude, or include when kind or key names them, or the view's own setting with view."`
 	Level   []string `json:"level,omitempty" jsonschema:"Only events at these levels."`
+	Hidden  string   `json:"hidden,omitempty" jsonschema:"Events a delivery setting filed for the digest or dropped: exclude leaves them out, as the inbox does; only keeps only them. Default both."`
 	View    string   `json:"view,omitempty" jsonschema:"Apply a saved view's filter, by name or id, from views_read. Other filters given replace the view's field of the same name."`
 	Unread  bool     `json:"unread,omitempty" jsonschema:"Events after the shared read cursor, oldest first. Never moves the cursor."`
 	Cursor  string   `json:"cursor,omitempty" jsonschema:"next_cursor from an earlier call. Pass it alone: it carries that call's filters and order."`
@@ -114,6 +115,7 @@ func (t *tools) addEventsSearch(s *mcp.Server) {
 			enum(p["kind"], "message", "digest", "incident", "progress", "checkin", "status")
 			enum(p["order"], "newest", "oldest")
 			enum(p["routine"], "exclude", "include", "only")
+			enum(p["hidden"], "exclude", "only")
 			def(p["order"], "newest")
 			p["order"].Description = "Ignored with unread, which lists oldest first."
 			between(p["limit"], 1, 100)
@@ -189,7 +191,7 @@ func (t *tools) eventsSearch(ctx context.Context, _ *mcp.CallToolRequest, in sea
 	}
 	if in.Cursor == "" {
 		st.Query = client.Query{Q: in.Q, Kind: in.Kind, Source: in.Source, Host: in.Host, Key: in.Key,
-			Tag: in.Tag, Hold: in.Hold, Project: in.Project, Routine: routineFilter(in), Level: in.Level, View: in.View}
+			Tag: in.Tag, Hold: in.Hold, Project: in.Project, Routine: routineFilter(in), Level: in.Level, View: in.View, Hidden: in.Hidden}
 	}
 	out.state = &st
 	q := st.Query

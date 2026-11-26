@@ -180,6 +180,7 @@ func (a *app) ls(ctx context.Context, args []string) error {
 	stale := fs.Bool("stale", false, "with --open: only stale incidents, open with no update for stale.after (72h)")
 	withRoutine := fs.Bool("routine", false, "include routine events: passing check-ins, progress and status")
 	view := fs.String("view", "", "apply a saved view, by name or id; other flags replace its fields")
+	hidden := fs.String("hidden", "", "exclude or only: the events a delivery setting filed for the digest or dropped (default: both)")
 	limit := fs.Int("limit", 20, "how many events, 1 to 500")
 	asJSON := fs.Bool("json", false, "print each event's JSON on one line")
 	if pos, err := parse(fs, args); err != nil {
@@ -194,6 +195,11 @@ func (a *app) ls(ctx context.Context, args []string) error {
 	}
 	if *stale && !*open {
 		return fmt.Errorf("--stale needs --open")
+	}
+	switch *hidden {
+	case "", "exclude", "only":
+	default:
+		return fmt.Errorf("--hidden: want exclude or only")
 	}
 	if *open {
 		var incs []client.Event
@@ -239,7 +245,7 @@ func (a *app) ls(ctx context.Context, args []string) error {
 	}
 	evs, err := newest(ctx, c, client.Query{
 		Kind: f.kind, Source: f.source, Host: f.host, Key: f.key, Tag: f.tag, Q: *q, Project: projectList(f.project),
-		Routine: rt, View: *view,
+		Routine: rt, View: *view, Hidden: *hidden,
 	}, *limit)
 	if client.IsStatus(err, http.StatusNotFound) && *view != "" {
 		return fmt.Errorf("no view %q (heraldo views lists them)", *view)

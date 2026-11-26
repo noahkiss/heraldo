@@ -56,6 +56,8 @@ type API interface {
 	DeleteGuidance(ctx context.Context, id string) error
 	LLMStatus(ctx context.Context) (api.LlmStatus, error)
 	Ask(ctx context.Context, in api.AskInput) (api.AskAnswer, error)
+	Delivery(ctx context.Context) (api.DeliverySettingList, error)
+	Sources(ctx context.Context) ([]api.Source, error)
 }
 
 var _ API = (*client.Client)(nil)
@@ -119,6 +121,7 @@ func New(o Options) *mcp.Server {
 	t.addAttachmentRead(s)
 	t.addHoldRead(s)
 	t.addViewsRead(s)
+	t.addDeliveryRead(s)
 	t.addDigestPreview(s)
 	t.addGuidanceRead(s)
 	t.addLLMStatus(s)
@@ -140,7 +143,7 @@ func New(o Options) *mcp.Server {
 
 // ReadTools, WriteTools and AdminTools name the tools New registers.
 var (
-	ReadTools  = []string{"overview", "events_search", "event_read", "checkin_read", "activity_read", "settings_read", "attachment_read", "hold_read", "views_read", "digest_preview", "guidance_read", "llm_status", "ask"}
+	ReadTools  = []string{"overview", "events_search", "event_read", "checkin_read", "activity_read", "settings_read", "attachment_read", "hold_read", "views_read", "delivery_read", "digest_preview", "guidance_read", "llm_status", "ask"}
 	WriteTools = []string{"incident_act", "checkin_update", "mute", "send", "hold_act", "views_write", "guidance_write"}
 	AdminTools = []string{"settings_write"}
 )

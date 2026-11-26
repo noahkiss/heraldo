@@ -100,6 +100,9 @@ type Query struct {
 	// Routine is routine.Exclude or routine.Only. List applies it on the
 	// client when the server does not.
 	Routine string
+	// Hidden is exclude or only: the events a delivery setting filed for
+	// the digest or dropped. A server before delivery settings ignores it.
+	Hidden string `json:",omitempty"`
 	// Level keeps events at these levels.
 	Level []string `json:",omitempty"`
 	// View applies a saved view, by id or name; the fields above replace
@@ -113,7 +116,7 @@ func (q Query) values() url.Values {
 	for _, p := range []struct{ k, v string }{
 		{"after", q.After}, {"before", q.Before}, {"source", q.Source}, {"kind", q.Kind},
 		{"host", q.Host}, {"key", q.Key}, {"tag", q.Tag}, {"q", q.Q}, {"hold", q.Hold},
-		{"routine", q.Routine}, {"view", q.View},
+		{"routine", q.Routine}, {"view", q.View}, {"hidden", q.Hidden},
 	} {
 		if p.v != "" {
 			v.Set(p.k, p.v)
