@@ -138,7 +138,7 @@ struct DeliverySettingsView: View {
                 }
                 .disabled(!editable("delivery.new_source_level"))
             } footer: {
-                Text("Off, the rows do nothing. A source stays new until you review it in Sources.")
+                Text("While this is off, the rows do nothing. A source stays new until you review it in Sources.")
             }
 
             Section {
@@ -322,11 +322,15 @@ struct DeliveryRowEditor: View {
     var body: some View {
         NavigationStack {
             Form {
-                matchSection
-                outcomeSection
-                Section("Note") {
-                    TextField("What this row is for", text: Binding(get: { input.note ?? "" }, set: { input.note = $0 }))
+                // Disable the fields, not the Form, so a read-only sheet still scrolls.
+                Group {
+                    matchSection
+                    outcomeSection
+                    Section("Note") {
+                        TextField("What this row is for", text: Binding(get: { input.note ?? "" }, set: { input.note = $0 }))
+                    }
                 }
+                .disabled(!canEdit || saving)
                 previewSection
                 if let problem = input.problem ?? saveError {
                     Section { Text(problem).font(.footnote).foregroundStyle(.red) }
@@ -342,7 +346,6 @@ struct DeliveryRowEditor: View {
                 }
             }
             .formStyle(.grouped)
-            .disabled(!canEdit || saving)
             .navigationTitle(isNew ? "New Row" : "Edit Row")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -383,12 +386,14 @@ struct DeliveryRowEditor: View {
                     Text($0.rawValue.capitalized).tag(String?.some($0.rawValue))
                 }
             }
-            LabeledContent("Level") {
-                HStack(spacing: 6) {
-                    ForEach(Self.levels, id: \.self) { level in
-                        Toggle(ServerSettingsSection.levelNames[level] ?? level, isOn: levelBinding(level))
-                            .toggleStyle(.button)
-                            .controlSize(.small)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Level")
+                // One line when it fits, else two.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) { levelButtons(Self.levels) }
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) { levelButtons(Array(Self.levels.prefix(2))) }
+                        HStack(spacing: 6) { levelButtons(Array(Self.levels.suffix(2))) }
                     }
                 }
             }
@@ -487,6 +492,16 @@ struct DeliveryRowEditor: View {
             #if os(iOS)
             .textInputAutocapitalization(.never)
             #endif
+    }
+
+    private func levelButtons(_ levels: [String]) -> some View {
+        ForEach(levels, id: \.self) { level in
+            Toggle(ServerSettingsSection.levelNames[level] ?? level, isOn: levelBinding(level))
+                .toggleStyle(.button)
+                .controlSize(.small)
+                .lineLimit(1)
+                .fixedSize()
+        }
     }
 
     private func levelBinding(_ level: String) -> Binding<Bool> {

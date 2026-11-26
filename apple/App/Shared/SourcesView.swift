@@ -109,7 +109,11 @@ struct SourceRow: View {
                             .foregroundStyle(.tint)
                     }
                 }
-                Text(detail).font(.caption).foregroundStyle(.secondary)
+                Text(counts).font(.caption).foregroundStyle(.secondary)
+                if let last = source.lastSeen {
+                    Text("Last event \(last.formatted(.relative(presentation: .named)))")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
             Spacer(minLength: 8)
             Label("\(source.badgeIn)", systemImage: source.badgeIn > 0 ? "app.badge.fill" : "app.badge")
@@ -117,16 +121,12 @@ struct SourceRow: View {
                 .foregroundStyle(source.badgeIn > 0 ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                 .help("Events that counted toward the badge")
         }
+        .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
         .accessibilityElement(children: .combine)
         .accessibilityValue(source.new ? "new, \(source.badgeIn) in the badge" : "\(source.badgeIn) in the badge")
     }
 
-    private var detail: String {
-        var parts = [source.events == 1 ? "1 event" : "\(source.events) events",
-                     "\(source.badgeIn) in the badge, \(source.badgeOut) not"]
-        if let last = source.lastSeen {
-            parts.append("last " + last.formatted(.relative(presentation: .named)))
-        }
-        return parts.joined(separator: " · ")
+    private var counts: String {
+        "\(source.events == 1 ? "1 event" : "\(source.events) events") · \(source.badgeIn) in the badge, \(source.badgeOut) not"
     }
 }
